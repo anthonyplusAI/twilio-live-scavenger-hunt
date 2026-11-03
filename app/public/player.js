@@ -4,7 +4,7 @@ const arenaUrl = `/e/${encodeURIComponent(slug)}/arena`;
 const voteUrl = `/e/${encodeURIComponent(slug)}/vote`;
 const sessionKey = `signal-stadium-player:${slug}`;
 const demoMode = new URLSearchParams(location.search).get('demo');
-const isResultDemo = demoMode === 'win' || demoMode === 'lose' || demoMode === 'tie' || demoMode === 'no-match';
+const isResultDemo = ['win', 'lose', 'tie', 'no-match', 'build'].includes(demoMode);
 const screen = document.getElementById('screen');
 const eventName = document.getElementById('eventName');
 const modeLabel = document.getElementById('modeLabel');
@@ -36,6 +36,7 @@ const app = {
   error: '',
   connection: 'connecting',
   leadIntent: 'guide',
+  buildProduct: 'video',
   leadPage: 0,
   leadDraft: { fieldValues: {}, marketingOptIn: false },
   leadResult: null,
@@ -172,6 +173,21 @@ function resultConfetti() {
   }).join('')}</div>`;
 }
 
+function displayWinnerNames(winners) {
+  const names = (app.outcome?.winnerNames?.length
+    ? app.outcome.winnerNames
+    : visibleRoster().filter(player => winners.includes(player.id)).map(player => player.alias))
+    .filter(Boolean).map(escapeHtml);
+  if (!names.length) return winners.length > 1 ? 'Other players' : 'Another player';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
+}
+
+function resultTechCta() {
+  return `<button type="button" class="result-tech-cta" data-action="build"><span class="result-tech-cta-mark" aria-hidden="true"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="result-tech-cta-copy"><strong>SEE THE LIVE-EVENT BUILD</strong><small>Twilio Video: phone → arena</small></span><span class="result-tech-cta-arrow" aria-hidden="true">↗</span></button>`;
+}
+
 function resultMarkup(winners, heat) {
   const won = winners.includes(app.player?.id);
   const tied = winners.length > 1;
@@ -180,14 +196,60 @@ function resultMarkup(winners, heat) {
   const revealKey = `${heat}:${[...winners].sort().join(',')}:${variant}`;
   const entering = !app.resultRevealSeen.has(revealKey);
   app.resultRevealSeen.add(revealKey);
-  const winnerName = app.outcome?.winnerNames?.[0];
-  const label = won ? (tied ? 'TIED FOR FIRST' : 'FIRST FIND') : noMatch ? 'NO VERIFIED FIND' : 'NOT THIS ROUND';
-  const heading = won ? (tied ? 'YOU TIED<br><em>FOR FIRST.</em>' : 'YOU FOUND<br><em>IT FIRST.</em>') : noMatch ? 'NO MATCH<br><em>THIS TIME.</em>' : 'NICE<br><em>HUNT.</em>';
-  const note = won ? (tied ? 'A close finish. You share the spotlight.' : 'The arena is celebrating your find.') : noMatch ? 'New clue, fresh chance. Come back for another heat.' : `${winnerName ? `${escapeHtml(winnerName)} found it first. ` : ''}There is always another clue to chase.`;
+  const label = won ? (tied ? 'TIED FOR FIRST' : 'FIRST FIND') : noMatch ? 'NO VERIFIED FIND' : tied ? 'OTHER PLAYERS TIED' : 'ANOTHER PLAYER WON';
+  const heading = won ? (tied ? 'YOU TIED<br><em>FOR FIRST.</em>' : 'YOU FOUND<br><em>IT FIRST.</em>') : noMatch ? 'NO MATCH<br><em>THIS TIME.</em>' : 'NOT THIS<br><em>ROUND.</em>';
+  const note = won ? (tied ? 'A close finish. You share the spotlight.' : 'The arena is celebrating your find.') : noMatch ? 'No one won this heat. The next clue is a fresh chance.' : `${displayWinnerNames(winners)} ${tied ? 'tied for first' : 'won this heat'}. Take another shot at the next clue.`;
   const emblem = won
     ? `<svg viewBox="0 0 160 160" aria-hidden="true"><path d="M38 34h84v40c0 37-20 59-42 59S38 111 38 74V34Z" fill="currentColor"/><path d="M38 49H19v19c0 22 14 35 34 35M122 49h19v19c0 22-14 35-34 35" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="M80 132v15M55 148h50" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="m80 50 6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2 6-13Z" fill="#fff"/></svg>`
-    : `<svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r="58" fill="none" stroke="currentColor" stroke-width="5"/><circle cx="80" cy="80" r="38" fill="none" stroke="currentColor" stroke-width="5" opacity=".65"/><circle cx="80" cy="80" r="16" fill="none" stroke="currentColor" stroke-width="5" opacity=".4"/><path d="m97 63 35-35m-12 0h12v12" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  return `<div class="result-scene result-${variant} ${entering ? 'result-entering' : ''}">${won ? resultConfetti() : ''}<div class="result-halo" aria-hidden="true"></div><p class="result-kicker">HEAT ${pad(heat)} <span aria-hidden="true">/</span> ${label}</p><div class="result-emblem">${emblem}</div><h1 class="result-title">${heading}</h1><p class="result-note">${note}</p><div class="result-actions">${button('SEE HOW TWILIO BUILT THIS', 'build')}</div>${isResultDemo ? '<button type="button" class="result-demo-replay" data-action="replay-demo">↻ Replay reveal</button>' : ''}</div>`;
+    : noMatch
+      ? `<svg viewBox="0 0 160 160" aria-hidden="true"><path d="M51 29h58v19c0 18-13 25-29 32-16-7-29-14-29-32V29Zm0 102h58v-19c0-18-13-25-29-32-16 7-29 14-29 32v19Z" fill="none" stroke="currentColor" stroke-width="7" stroke-linejoin="round"/><path d="M63 43h34M63 117h34" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><path d="m68 53 12 10 12-10M68 107l12-10 12 10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+      : `<svg viewBox="0 0 160 160" aria-hidden="true"><path d="M35 27h70l20 20v85H35V27Z" fill="none" stroke="currentColor" stroke-width="7" stroke-linejoin="round"/><path d="M105 27v22h20M53 53h33M53 68h19" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><circle cx="76" cy="94" r="17" fill="none" stroke="currentColor" stroke-width="7"/><path d="m89 108 17 18" stroke="currentColor" stroke-width="8" stroke-linecap="round"/></svg>`;
+  return `<div class="result-scene result-${variant} ${entering ? 'result-entering' : ''}">${won ? resultConfetti() : ''}<div class="result-halo" aria-hidden="true"></div><p class="result-kicker">HEAT ${pad(heat)} <span aria-hidden="true">/</span> ${label}</p><div class="result-emblem">${emblem}</div><h1 class="result-title">${heading}</h1><p class="result-note">${note}</p><div class="result-actions">${resultTechCta()}</div>${isResultDemo ? '<button type="button" class="result-demo-replay" data-action="replay-demo">↻ Replay reveal</button>' : ''}</div>`;
+}
+
+const buildProducts = {
+  video: {
+    name: 'Twilio Video',
+    status: 'Built in · setup needed',
+    detail: 'In live mode, phones publish to a Video Room and the arena subscribes. A separate judge checks finds. Events need credentials and HTTPS.',
+    from: 'Your camera',
+    to: 'Arena wall',
+    source: '<div class="build-phone"><div class="build-phone-camera"></div><div class="build-phone-person"><i></i><b></b></div><span>YOU</span></div>',
+    destination: '<div class="build-arena-mini"><i></i><i></i><i></i><i></i><span>LIVE</span></div>',
+  },
+  messaging: {
+    name: 'Twilio Messaging',
+    status: 'Optional integration',
+    detail: 'Spectators can vote by SMS or WhatsApp. Incoming replies reach the game as ballots through a webhook.',
+    from: 'Crowd reply',
+    to: 'Live ballot',
+    source: '<div class="build-message-mini"><span>VOTE</span><strong>RED</strong><i></i></div>',
+    destination: '<div class="build-ballot-mini"><span>RED</span><strong>57%</strong><i></i><b></b></div>',
+  },
+  segment: {
+    name: 'Twilio Segment',
+    status: 'Optional integration',
+    detail: 'Play and interaction events can flow to Segment. The game’s own event report works without it.',
+    from: 'Game signals',
+    to: 'Engagement data',
+    source: '<div class="build-events-mini"><span>JOIN</span><span>PLAY</span><span>VOTE</span></div>',
+    destination: '<div class="build-chart-mini"><i></i><i></i><i></i><i></i><span>INSIGHTS</span></div>',
+  },
+};
+
+function buildMarkup(lead) {
+  const product = { ...(buildProducts[app.buildProduct] || buildProducts.video) };
+  if (app.buildProduct === 'video' && app.event?.mediaMode === 'twilio') {
+    product.status = 'Live at this event';
+    product.detail = 'Your phone publishes to a Twilio Video Room and the arena subscribes. A separate judge checks finds, and staff can override.';
+  }
+  const tabs = Object.entries(buildProducts).map(([key, item]) => `<button type="button" class="build-tab ${key === app.buildProduct ? 'is-active' : ''}" data-action="build-product" data-product="${key}" aria-pressed="${key === app.buildProduct}"><strong>${key === 'video' ? 'Video' : key === 'messaging' ? 'Messaging' : 'Segment'}</strong><small>${key === 'video' ? 'Game core' : 'Optional'}</small></button>`).join('');
+  const flow = `<div class="build-flow build-flow-${app.buildProduct}" aria-hidden="true"><figure class="build-flow-end build-flow-source">${product.source}<figcaption>${product.from}</figcaption></figure><div class="build-flow-link"><span class="build-flow-line"></span><span class="build-flow-twilio"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="build-flow-line"></span></div><figure class="build-flow-end build-flow-destination">${product.destination}<figcaption>${product.to}</figcaption></figure></div>`;
+  const guide = lead.enabled && lead.guideEnabled ? '<button type="button" class="build-guide" data-action="guide">Request the build guide <span aria-hidden="true">↗</span></button>' : '';
+  const expert = lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${guide ? '' : 'is-primary'}" data-action="expert">Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '';
+  const replay = isResultDemo ? '<button type="button" class="build-replay" data-action="demo-result">← Back to the result</button>' : '<button type="button" class="build-replay" data-action="replay">Play another heat</button>';
+  const invitation = guide || expert ? '<p>Want to make a moment like this?</p>' : '<div class="build-booth-invite"><span class="build-booth-mark"><img src="/assets/twilio-bug-official.png" alt=""></span><span><strong>Build your own live moment.</strong><small>Talk to the Twilio team at the booth.</small></span></div>';
+  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p></div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${replay}</div></div>`;
 }
 
 function preview() {
@@ -224,7 +286,7 @@ function leadMarkup(settings) {
   const hasEmailField = settings.fields.some(field => field.type === 'email');
   const marketing = final && settings.marketingOptIn && hasEmailField
     ? `<label class="check"><input type="checkbox" name="marketingOptIn" ${app.leadDraft.marketingOptIn ? 'checked' : ''}><span>Yes, send me occasional Twilio product updates by email. Optional.</span></label>` : '';
-  return `<div class="card cardpad lead-card"><button type="button" class="back-link" data-action="build">← Back to products</button><div class="lead-heading"><p class="eyebrow">${app.leadIntent === 'guide' ? 'Build guide' : 'Twilio expert'}</p><span class="lead-step-count">${app.leadPage + 1} / ${pages}</span></div><h1 class="section-title">Stay in<br>touch.</h1><form id="leadForm"><div class="lead-fields-layout">${fields.map(fieldMarkup).join('')}</div>${marketing}${final ? '<p class="lead-note">The booth team will use these details for your request. Product updates are a separate choice.</p>' : ''}<p class="error" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="lead-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'SEND REQUEST' : 'CONTINUE', final ? 'lead-submit' : 'lead-next')}</div></form></div>`;
+  return `<div class="card cardpad lead-card"><button type="button" class="back-link" data-action="back-to-build">← Back to products</button><div class="lead-heading"><p class="eyebrow">${app.leadIntent === 'guide' ? 'Build guide' : 'Twilio expert'}</p><span class="lead-step-count">${app.leadPage + 1} / ${pages}</span></div><h1 class="section-title">Stay in<br>touch.</h1><form id="leadForm"><div class="lead-fields-layout">${fields.map(fieldMarkup).join('')}</div>${marketing}${final ? '<p class="lead-note">The booth team will use these details for your request. Product updates are a separate choice.</p>' : ''}<p class="error" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="lead-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'SEND REQUEST' : 'CONTINUE', final ? 'lead-submit' : 'lead-next')}</div></form></div>`;
 }
 
 function render(force = false) {
@@ -232,7 +294,7 @@ function render(force = false) {
   const lead = leadSettings();
   if (app.view === 'lead' && (!lead.enabled || (app.leadIntent === 'guide' && !lead.guideEnabled) || (app.leadIntent === 'expert' && !lead.expertEnabled))) app.view = 'build';
   const view = currentView();
-  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, leadPage: app.leadPage, leadIntent: app.leadIntent, connection: app.connection });
+  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, leadPage: app.leadPage, leadIntent: app.leadIntent, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
   screen.dataset.view = view;
@@ -267,12 +329,9 @@ function render(force = false) {
     const winners = app.outcome?.winners || app.state.winners || [];
     screen.innerHTML = resultMarkup(winners, app.outcome?.heat || app.state.heat);
   } else if (view === 'complete') {
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.player?.heat)} · Complete</p><div class="result-mark">↗</div><h1 class="hero">NICE<br><em>RUN.</em></h1><p class="sub">Your heat has finished. See what you can build with Twilio.</p><div class="actions">${button('SEE HOW TWILIO BUILT THIS', 'build')}</div>`;
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.player?.heat)} · Complete</p><div class="result-mark">↗</div><h1 class="hero">NICE<br><em>RUN.</em></h1><p class="sub">See how your camera became part of the live arena.</p><div class="actions">${resultTechCta()}</div>`;
   } else if (view === 'build') {
-    const ctas = [];
-    if (lead.enabled && lead.guideEnabled) ctas.push(button('GET THE BUILD GUIDE', 'guide'));
-    if (lead.enabled && lead.expertEnabled) ctas.push(button('TALK TO A TWILIO EXPERT', 'expert', ctas.length > 0));
-    screen.innerHTML = `<p class="eyebrow">Behind the hunt</p><h1 class="section-title">A game built<br>to connect.</h1><p class="body">This live scavenger hunt is a glimpse of what your team can build with Twilio.</p><div class="stack"><div class="stack-row"><i class="stack-dot"></i><b>Video</b><span>Phone cameras become a live shared arena.</span></div><div class="stack-row"><i class="stack-dot dot-blue"></i><b>Messaging</b><span>SMS or WhatsApp can let the crowd choose a category.</span></div><div class="stack-row"><i class="stack-dot dot-white"></i><b>Segment</b><span>Event signals become useful engagement insights.</span></div></div><div class="actions">${ctas.join('')}${button('PLAY ANOTHER HEAT', 'replay', true)}</div>`;
+    screen.innerHTML = buildMarkup(lead);
   } else if (view === 'lead') {
     screen.innerHTML = leadMarkup(lead);
   } else if (view === 'thanks') {
@@ -621,12 +680,19 @@ screen.addEventListener('click', async event => {
     if (action === 'camera') await enableCamera();
     if (action === 'join') await join();
     if (action === 'retry-media') { if (!app.camera) await enableCamera(); await ensureMediaReady(); }
-    if (action === 'build') { syncLeadDraft(); releaseMedia(true); app.view = 'build'; app.error = ''; activity('cta_opened'); render(true); }
+    if (action === 'build') { const fromResult = ['result', 'complete'].includes(currentView()); syncLeadDraft(); releaseMedia(true); app.view = 'build'; app.error = ''; if (fromResult) { app.buildProduct = 'video'; activity('cta_opened'); } render(true); }
+    if (action === 'back-to-build') { syncLeadDraft(); app.view = 'build'; app.error = ''; render(true); }
+    if (action === 'build-product') {
+      const product = event.target.closest('[data-product]')?.dataset.product;
+      if (buildProducts[product]) { app.buildProduct = product; render(true); screen.querySelector(`[data-action="build-product"][data-product="${product}"]`)?.focus(); }
+    }
     if (action === 'guide' || action === 'expert') {
+      if (isResultDemo) return;
       app.leadIntent = action;
       app.leadPage = 0;
       app.view = 'lead';
       app.error = '';
+      activity(`${action}_cta_opened`);
       activity('lead_form_opened');
       render(true);
     }
@@ -640,7 +706,8 @@ screen.addEventListener('click', async event => {
     if (action === 'lead-previous') { syncLeadDraft(); app.leadPage -= 1; app.error = ''; render(true); }
     if (action === 'lead-submit') await submitLead();
     if (action === 'replay-demo' && isResultDemo) { app.resultRevealSeen.clear(); render(true); }
-    if (action === 'replay') await leaveGame('intro');
+    if (action === 'demo-result' && isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); }
+    if (action === 'replay') { if (isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); } else await leaveGame('intro'); }
     if (action === 'rejoin') { app.view = 'intro'; app.error = ''; render(true); }
   } catch (error) { showError(error); }
 });
@@ -671,7 +738,7 @@ function initializeDemo() {
   app.state = { phase: 'result', heat: 4, winners, roster };
   app.player = { ...roster[0], heat: 4 };
   app.outcome = { heat: 4, winners, winnerNames: roster.filter(player => winners.includes(player.id)).map(player => player.alias) };
-  app.view = 'live';
+  app.view = demoMode === 'build' ? 'build' : 'live';
   app.connection = 'preview';
   render(true);
 }

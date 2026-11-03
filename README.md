@@ -31,7 +31,7 @@ A visitor scans the arena QR code, picks a screen name, consents to appear on th
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors may explore how the activation works and voluntarily request a guide or a conversation with the booth team. Joining and voting never require a lead form.
+Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, explore optional Messaging and Segment features, and voluntarily request a guide or a conversation with the booth team. Joining and voting never require a lead form.
 
 | Booth moment | What the app does |
 | --- | --- |
@@ -39,7 +39,7 @@ Spectators can take part through a web ballot. With configured senders, SMS or W
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
 | **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, CTA activity, leads, player exits, and removals. |
-| **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen also offers a light/dark toggle. |
+| **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
 ## See the moment
 
@@ -54,19 +54,33 @@ These are **visual previews with illustrated stand-ins**, captured from the runn
   <tr><th>Phone · winner</th><th>Phone · not this round</th></tr>
   <tr>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Winner celebration on a player phone" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Supportive non-winner result on a player phone" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Phone clearly says not this round and names the winning player" width="300"></td>
   </tr>
 </table>
 
-The motion plays in the browser: the arena spotlights a first find and acknowledges the other players; the winning phone gets a medal and a short confetti burst. Ties and no-match outcomes have their own result states. Motion reduces automatically when the device requests reduced motion.
+The motion plays in the browser: the arena spotlights a first find and acknowledges the other players; the winning phone gets a medal and a short confetti burst. The non-winner's phone clearly identifies the outcome and winner. Ties and no-match outcomes have their own result states. Motion reduces automatically when the device requests reduced motion.
 
 The wall also rearranges for traffic at the booth:
 
 ![Six-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-6-players.png)
 
-After starting the app, open the read-only [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), or [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose) preview. Use **Replay reveal** on either screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, or write metrics.
+The arena stays in show mode: only the Twilio identity and heat status remain at the top. Moving a pointer, touching the screen, or pressing Tab reveals Operator, theme, and media controls for staff; the strip hides again after five seconds of inactivity.
+
+After starting the app, open the read-only [four-player hunt](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=hunt&players=4), [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose), or [product story](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=build) preview. Use **Replay reveal** on a result screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, collect leads, or write metrics.
 
 ## Twilio product story
+
+The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path.
+
+<table>
+  <tr><th>Dark display</th><th>Light display</th></tr>
+  <tr>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story.png" alt="Dark phone product story showing a camera, Twilio Video connection, and arena wall" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story-light.png" alt="Light phone product story with the same Twilio Video visual explanation" width="300"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Read-only visual previews with lead capture off. When an event enables lead capture, its configured guide and expert request actions appear below the product story.</em></p>
 
 | Product | Role in the activation | Setup state |
 | --- | --- | --- |

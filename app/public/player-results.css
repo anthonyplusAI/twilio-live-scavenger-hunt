@@ -4,10 +4,11 @@
 .player-page .leave-game[hidden] { display:none; }
 .player-page .hunt-reconnect { width:100%; min-height:42px; margin-top:8px; border:1px solid #9cb5da; border-radius:8px; background:#182a47; color:#fff; font-size:12px; font-weight:850; }
 .player-page .hunt-reconnect:hover { background:#234065; }
-.player-page .leave-game:focus-visible,.player-page .hunt-reconnect:focus-visible,.player-page .result-demo-replay:focus-visible,.player-page .session-dialog button:focus-visible { outline:3px solid var(--red); outline-offset:3px; }
+.player-page .leave-game:focus-visible,.player-page .hunt-reconnect:focus-visible,.player-page .result-tech-cta:focus-visible,.player-page .result-demo-replay:focus-visible,.player-page .session-dialog button:focus-visible { outline:3px solid var(--red); outline-offset:3px; }
 .player-page .screen[data-view="result"] { width:min(100%,540px); }
 .player-page .result-scene { --result-accent:#ff4e60; width:100%; height:100%; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; isolation:isolate; overflow:hidden; padding:clamp(8px,2.2dvh,20px) 14px 10px; text-align:center; }
 .player-page .result-lose,.player-page .result-no-match { --result-accent:#91c6ff; }
+.player-page .result-no-match { --result-accent:#bbcae5; }
 .player-page .result-scene::before { content:''; position:absolute; inset:0; z-index:-2; background:radial-gradient(circle at 50% 42%,#f02a4133,transparent 56%); pointer-events:none; }
 .player-page .result-lose::before,.player-page .result-no-match::before { background:radial-gradient(circle at 50% 42%,#4793e737,transparent 57%); }
 .player-page .result-halo { position:absolute; z-index:-1; top:14%; left:50%; width:min(84vw,360px); aspect-ratio:1; transform:translateX(-50%); border:1px solid color-mix(in srgb,var(--result-accent) 35%,transparent); border-radius:50%; box-shadow:0 0 0 20px color-mix(in srgb,var(--result-accent) 7%,transparent),0 0 0 55px color-mix(in srgb,var(--result-accent) 5%,transparent),0 0 75px color-mix(in srgb,var(--result-accent) 30%,transparent); pointer-events:none; }
@@ -19,14 +20,23 @@
 .player-page .result-emblem::before { content:''; position:absolute; inset:7px; border:1px solid #9d573a70; border-radius:inherit; }
 .player-page .result-emblem svg { width:60%; height:60%; filter:drop-shadow(0 3px 1px #fff8); }
 .player-page .result-lose .result-emblem,.player-page .result-no-match .result-emblem { color:#d6edff; background:radial-gradient(circle at 32% 28%,#4375ba,#172a55 67%,#0d1937); border-color:#8fc4f6; box-shadow:0 0 0 8px #8fc4f622,0 20px 48px #0006,0 0 50px #5ea7f644; }
+.player-page .result-no-match .result-emblem { color:#d8e2f1; background:radial-gradient(circle at 32% 28%,#4a5b79,#192943 67%,#101c33); border-color:#a6b9d5; box-shadow:0 0 0 8px #a6b9d522,0 20px 48px #0006,0 0 50px #95aace44; }
 .player-page .result-lose .result-emblem::before,.player-page .result-no-match .result-emblem::before { border-color:#d6edff55; }
 .player-page .result-lose .result-emblem svg,.player-page .result-no-match .result-emblem svg { width:70%; height:70%; filter:drop-shadow(0 0 9px #a4d0ff88); }
 .player-page .result-title { margin:clamp(12px,2.5dvh,22px) 0 0; color:var(--paper); font-size:clamp(38px,10.6vw,65px); font-weight:950; letter-spacing:-.07em; line-height:.93; text-wrap:balance; text-shadow:0 5px 28px #0008; }
 .player-page .result-title em { font-style:normal; color:var(--result-accent); }
 .player-page .result-note { margin:clamp(10px,2dvh,16px) auto 0; max-width:32ch; color:#dae4f3; font-size:clamp(13px,3.6vw,16px); line-height:1.35; }
+.player-page .result-lose .result-note { color:#e5f2ff; font-weight:700; }
 .player-page .result-actions { width:100%; margin-top:auto; padding-top:15px; }
-.player-page .result-actions .primary { justify-content:center; text-align:center; position:relative; }
-.player-page .result-actions .primary span:last-child { position:absolute; right:18px; }
+.player-page .result-tech-cta { width:100%; min-height:70px; display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid #ff7b8c; border-radius:14px; background:linear-gradient(110deg,#e71e38,#c71934); color:#fff; text-align:left; box-shadow:0 12px 32px #ef223a55,inset 0 1px #ffffff45; transition:transform .18s,box-shadow .18s; }
+.player-page .result-tech-cta:hover { transform:translateY(-2px); box-shadow:0 15px 36px #ef223a66,inset 0 1px #ffffff45; }
+.player-page .result-tech-cta:active { transform:scale(.99); }
+.player-page .result-tech-cta-mark { width:44px; height:44px; flex:none; display:grid; place-items:center; border-radius:12px; background:#fff; box-shadow:0 4px 12px #75102155; }
+.player-page .result-tech-cta-mark img { display:block; width:29px; height:29px; object-fit:contain; }
+.player-page .result-tech-cta-copy { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.player-page .result-tech-cta-copy strong { font-size:13px; font-weight:800; line-height:1.12; letter-spacing:.03em; }
+.player-page .result-tech-cta-copy small { font-size:11px; font-weight:700; line-height:1.22; color:#fff0f2; }
+.player-page .result-tech-cta-arrow { flex:none; align-self:flex-start; font-size:19px; font-weight:800; line-height:1; }
 .player-page .result-demo-replay { min-height:23px; margin-top:4px; padding:3px 9px; border:0; background:transparent; color:#c7d2e5; font-size:11px; font-weight:800; letter-spacing:.03em; }
 .player-page .result-demo-replay:hover { color:#fff; text-decoration:underline; }
 .player-page .result-confetti { position:absolute; z-index:3; inset:0; overflow:hidden; pointer-events:none; }
@@ -53,12 +63,14 @@
 .player-page .session-dialog-countdown { margin-bottom:0; color:#ffb6bf!important; font-weight:800; }
 .player-page .session-dialog-actions { display:grid; gap:9px; margin-top:22px; }
 .player-page .session-dialog-actions .primary,.player-page .session-dialog-actions .secondary { min-height:48px; }
-@media (max-height:620px) { .player-page .result-scene { padding-top:5px; } .player-page .result-kicker { margin-bottom:6px; font-size:10px; } .player-page .result-emblem { width:clamp(82px,17dvh,116px); height:clamp(82px,17dvh,116px); } .player-page .result-title { margin-top:9px; font-size:clamp(33px,9.7vw,50px); } .player-page .result-note { margin-top:7px; font-size:12px; } .player-page .result-actions { padding-top:8px; } }
+@media (max-height:620px) { .player-page .result-scene { padding-top:5px; } .player-page .result-kicker { margin-bottom:6px; font-size:10px; } .player-page .result-emblem { width:clamp(82px,17dvh,116px); height:clamp(82px,17dvh,116px); } .player-page .result-title { margin-top:9px; font-size:clamp(33px,9.7vw,50px); } .player-page .result-note { margin-top:7px; font-size:12px; } .player-page .result-actions { padding-top:8px; } .player-page .result-tech-cta { min-height:58px; padding:7px 10px; gap:9px; }.player-page .result-tech-cta-mark { width:36px; height:36px; border-radius:9px; }.player-page .result-tech-cta-mark img { width:24px; height:24px; }.player-page .result-tech-cta-copy strong { font-size:11px; }.player-page .result-tech-cta-copy small { font-size:10.5px; } }
 @media (max-width:360px) { .player-page .result-title { font-size:36px; } .player-page .leave-game { padding-inline:7px; } }
 @media (prefers-reduced-motion:reduce) { .player-page .result-scene *, .player-page .result-scene *::before, .player-page .result-scene *::after { animation:none!important; transition:none!important; } .player-page .result-confetti { display:none; } }
 html[data-theme="light"] .player-page .leave-game { background:#fff; color:#20304b; border-color:#9aaec9; }
 html[data-theme="light"] .player-page .hunt-reconnect { background:#fff; color:#1f3758; border-color:#7693ba; }
 html[data-theme="light"] .player-page .result-title { text-shadow:none; }
+html[data-theme="light"] .player-page .result-lose { --result-accent:#2865ad; }
+html[data-theme="light"] .player-page .result-no-match { --result-accent:#4f688e; }
 html[data-theme="light"] .player-page .result-note { color:#344862; }
 html[data-theme="light"] .player-page .result-kicker span { color:#627691; }
 html[data-theme="light"] .player-page .result-demo-replay { color:#536780; }

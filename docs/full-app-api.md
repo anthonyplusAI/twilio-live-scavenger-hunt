@@ -4,7 +4,7 @@ This is the contract for `app/`. All times are UTC ISO strings or epoch millisec
 
 ## Browser routes
 
-`/e/:slug/arena`, `/e/:slug/play`, `/e/:slug/vote`, `/e/:slug/operator`, `/e/:slug/metrics`, and `/login`. The operator and metrics pages may load publicly, but their data and actions require an authenticated session. `/` redirects to the seeded event arena. Arena and player pages accept `?demo=win|lose|tie|no-match` for local, read-only visual previews; they do not join a heat, connect media, judge, or write activity.
+`/e/:slug/arena`, `/e/:slug/play`, `/e/:slug/vote`, `/e/:slug/operator`, `/e/:slug/metrics`, and `/login`. The operator and metrics pages may load publicly, but their data and actions require an authenticated session. `/` redirects to the seeded event arena. The arena accepts `?demo=hunt` with an optional `players` value from 2 to 6, plus `?demo=win|lose|tie|no-match`; the phone accepts `?demo=win|lose|tie|no-match|build`. These local visual previews do not join a heat, connect media, judge, collect leads, or write activity.
 
 ## Public state
 

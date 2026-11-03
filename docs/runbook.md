@@ -52,7 +52,7 @@ An operator may start a heat once the configured minimum is ready, regardless of
 
 The seeded library has 50 challenge ideas; a smaller pilot set starts enabled. Test props, lighting, legibility, and accessibility for the venue before enabling more. The fast detector is limited to simple color clues such as “SHOW SOMETHING RED” and checks repeated frames; a clue that names a specific object needs AI-assisted or operator judging. Object, printed word, shape, and combination prompts can use AI vision when configured; an operator can always judge or correct the result. Creative prompts use an audience ballot after the timer.
 
-For the live wall in either rehearsal or Twilio Video mode, sign in to the control room **in the same browser profile** that opens the arena. The wall's Video subscriber token and transient camera frames require an operator session. The public arena page still shows the roster, timing, and results, but its camera cards connect only for signed-in booth displays.
+For the live wall in either rehearsal or Twilio Video mode, sign in to the control room **in the same browser profile** that opens the arena. The wall's Video subscriber token and transient camera frames require an operator session. The public arena page still shows the roster, timing, and results, but its camera cards connect only for signed-in booth displays. The display keeps only the Twilio identity and heat status visible at rest. Move the pointer, touch the screen, or press Tab to reveal Operator, theme, media status, and preview replay controls; they hide after five seconds of inactivity, and Escape hides them immediately.
 
 ### Player presence and moderation
 
@@ -60,7 +60,7 @@ A player can tap **Leave** while queued or playing and confirm the choice. Their
 
 For a disruptive player, open **Manage players** on the operator live desk. Choose a player in the current heat or next-heat queue and confirm **Remove player**. The server clears their slot, invalidates their current player token, removes them from judging and creative ballots, records `player_kicked`, and attempts to disconnect them from the Twilio Video Room. The command response reports `mediaDisconnect.status` as `ok` or `failed`; a failure needs a booth-staff check of the room. Removing a winner during the result corrects the stored award. This is session-level removal: a person can join again with a new browser session, so continue to monitor the wall.
 
-The result designs can be reviewed without changing live event data at `/e/:slug/arena?demo=win` or `?demo=lose` and `/e/:slug/play?demo=win` or `?demo=lose`. Each preview has a **Replay reveal** control. The fixtures do not join a room, open a heat, judge a player, or write metrics. Do a separate real heat rehearsal before the event.
+The arena can be reviewed with `?demo=hunt&players=4` or `players=6`, plus `?demo=win|lose|tie|no-match` for results. The phone accepts `?demo=win|lose|tie|no-match|build`. Result previews have a **Replay reveal** control. These fixtures do not join a room, open a heat, judge a player, collect leads, or write metrics. The phone product story uses selectable Video, Messaging, and Segment explanations; Video describes the built live-event path, while the other two are optional integrations. Do a separate real heat rehearsal before the event.
 
 ## 4. Connect Twilio Video
 

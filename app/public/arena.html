@@ -35,7 +35,7 @@
       height: 100vh;
       height: 100dvh;
       display: grid;
-      grid-template-rows: clamp(52px, 6.8vh, 78px) clamp(122px, 17.4vh, 186px) minmax(0, 1fr) clamp(148px, 20vh, 235px);
+      grid-template-rows: clamp(46px, 5.4vh, 60px) clamp(122px, 17.4vh, 186px) minmax(0, 1fr) clamp(148px, 20vh, 235px);
       gap: 0;
       padding: clamp(14px, 2.2vw, 38px) clamp(18px, 3.2vw, 64px) clamp(14px, 2vw, 30px);
       overflow: hidden;
@@ -68,22 +68,32 @@
     }
 
     .topbar {
+      position: relative;
       min-width: 0;
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 20px;
-      border-bottom: 1px solid var(--line);
+      z-index: 20;
     }
     .brand { display: flex; align-items: center; gap: clamp(10px, .9vw, 17px); min-width: 0; }
     .brand-bug { width: clamp(27px, 2.5vw, 38px); height: clamp(27px, 2.5vw, 38px); flex: none; display: block; object-fit: contain; border-radius: 8px; box-shadow: 0 0 23px rgba(239,34,58,.19); }
     .brand-divider { width: 1px; height: 28px; margin: 0 1px 0 5px; background: var(--line); }
-    .brand-event { max-width: min(30vw, 390px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(10px, .8vw, 14px); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
-    .top-meta { display: flex; align-items: center; gap: clamp(12px, 1.6vw, 30px); white-space: nowrap; }
+    .brand-event { max-width: min(30vw, 390px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(10px, .8vw, 14px); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--paper); transition: opacity .2s ease; }
+    .top-meta { display: flex; align-items: center; margin-left: auto; white-space: nowrap; transition: opacity .2s ease; }
     .live-mark { display: inline-flex; align-items: center; gap: 9px; font-size: clamp(10px, .83vw, 13px); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
     .live-mark::before { content: ""; width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px rgba(239,34,58,.13), 0 0 22px var(--red); }
-    .heat-number { font-size: clamp(11px, .9vw, 14px); font-weight: 800; letter-spacing: .14em; color: var(--muted); }
-    .operator-link { color: rgba(234,240,255,.58); text-decoration: none; font-size: clamp(10px, .8vw, 13px); font-weight: 700; letter-spacing: .04em; }
+    .heat-number { display: inline-flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 100px; background: rgba(8,25,53,.68); font-size: clamp(11px, .9vw, 14px); font-weight: 800; letter-spacing: .1em; color: var(--paper); }
+    .heat-number::before { content: ""; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--red); box-shadow: 0 0 12px rgba(239,34,58,.7); }
+    .screen.is-preview .heat-number::before { background: #78aaf5; box-shadow: 0 0 12px rgba(120,170,245,.7); }
+    .screen.controls-visible .top-meta { opacity: 0; }
+    .display-tools { position: absolute; top: 50%; right: 0; z-index: 30; display: flex; align-items: center; gap: 10px; min-height: 44px; max-width: 100%; padding: 4px 5px 4px 14px; border: 1px solid rgba(181,205,246,.37); border-radius: 100px; background: rgba(5,19,44,.96); box-shadow: 0 12px 32px rgba(0,5,20,.36); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(-60%) scale(.98); transition: opacity .2s ease, transform .2s ease, visibility .2s; white-space: nowrap; }
+    .screen.controls-visible .display-tools { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(-50%) scale(1); }
+    .display-tools .live-mark { margin-right: 4px; color: var(--muted); font-size: 10px; letter-spacing: .06em; }
+    .display-tools .live-mark::before { width: 7px; height: 7px; }
+    .display-tools .theme-toggle { width: 36px; min-width: 36px; min-height: 36px; height: 36px; padding: 0; }
+    .display-tools .theme-toggle__label { display: none; }
+    .operator-link { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 100px; color: rgba(234,240,255,.85); text-decoration: none; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
     .operator-link:hover { color: var(--paper); }
 
     .hero-row { display: flex; align-items: center; justify-content: space-between; gap: clamp(18px, 3vw, 60px); min-width: 0; }
@@ -243,9 +253,9 @@
     .screen[data-phase="result"] .footer-status .footer-line { color: var(--paper); }
 
     @media (max-width: 900px) {
-      .screen { grid-template-rows: 58px clamp(100px, 16vh, 145px) minmax(0, 1fr) clamp(138px, 18vh, 180px); padding: 18px 24px 16px; }
+      .screen { grid-template-rows: 48px clamp(100px, 16vh, 145px) minmax(0, 1fr) clamp(138px, 18vh, 180px); padding: 18px 24px 16px; }
       .brand-event { max-width: 22vw; }
-      .top-meta { gap: 16px; }
+      .display-tools .live-mark { display: none; }
       .headline { font-size: clamp(42px, 7vw, 74px); }
       .headline.is-long { font-size: clamp(35px, 5.7vw, 60px); }
       .headline.is-extra-long { font-size: clamp(30px, 4.7vw, 49px); }
@@ -255,11 +265,14 @@
       .qr-wrap { width: clamp(105px, 14.2vh, 140px); height: clamp(105px, 14.2vh, 140px); }
     }
     @media (max-width: 680px) {
-      .screen { grid-template-rows: 46px clamp(104px, 17.5vh, 150px) minmax(0, 1fr) clamp(116px, 17.5vh, 142px); padding: 12px 14px 12px; }
+      .screen { grid-template-rows: 44px clamp(104px, 17.5vh, 150px) minmax(0, 1fr) clamp(116px, 17.5vh, 142px); padding: 12px 14px 12px; }
       .screen::before { opacity: .23; }
-      .topbar { align-items: center; }
-      .brand { gap: 8px; }.brand-bug { width: 27px; height: 27px; border-radius: 6px; }.brand-divider, .live-mark { display: none; }.brand-event { display: block; max-width: 42vw; font-size: 10px; letter-spacing: .07em; }
-      .top-meta { gap: 8px; }.heat-number { font-size: 11px; }.operator-link { display: none; }
+      .brand { gap: 8px; }.brand-bug { width: 27px; height: 27px; border-radius: 6px; }.brand-divider { display: none; }.brand-event { display: block; max-width: 42vw; font-size: 10px; letter-spacing: .07em; }
+      .heat-number { gap: 6px; padding: 7px 9px; font-size: 10px; }
+      .display-tools { gap: 5px; padding-left: 6px; }
+      .display-tools .preview-replay { width: 34px; height: 34px; padding: 0; justify-content: center; font-size: 17px; }
+      .display-tools .preview-replay-label { display: none; }
+      .operator-link { min-height: 34px; padding: 6px 9px; font-size: 10px; }
       .hero-row { gap: 8px; align-items: center; }
       .hero-copy { max-width: calc(100% - 66px); }
       .eyebrow { gap: 7px; margin-bottom: 6px; font-size: 9px; letter-spacing: .11em; }.eyebrow::before { width: 12px; height: 2px; }
@@ -280,13 +293,13 @@
       .footer-status { display: none !important; }
       .footer-line { font-size: clamp(11px, 3.2vw, 15px); white-space: normal; }.footer-detail { font-size: 9px; white-space: normal; }
     }
+    @media (max-width: 430px) { .screen.controls-visible .brand-event { opacity: 0; } }
     @media (max-width: 360px) {
       .screen { padding-left: 10px; padding-right: 10px; }
-      .heat-number { display: none; }
       .join-title { font-size: 19px; }
     }
     @media (max-height: 650px) and (min-width: 681px) {
-      .screen { grid-template-rows: 45px 89px minmax(0,1fr) clamp(118px, 20vh, 132px); padding-top: 10px; padding-bottom: 10px; }
+      .screen { grid-template-rows: 44px 89px minmax(0,1fr) clamp(118px, 20vh, 132px); padding-top: 10px; padding-bottom: 10px; }
       .headline { font-size: clamp(35px, 5.2vw, 76px); }.headline.is-long { font-size: clamp(30px, 4.2vw, 60px); }.headline.is-extra-long { font-size: clamp(25px, 3.5vw, 49px); }
       .clock { width: 82px; height: 82px; }.clock::before { inset: 6px; }.clock-value { font-size: 31px; }.clock-label { font-size: 8px; }
       .qr-wrap { width: clamp(90px, 15vh, 110px); height: clamp(90px, 15vh, 110px); }
@@ -310,6 +323,8 @@
     }
     html[data-theme="light"] .screen::before { opacity: .55; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(8.333vw - 1px), rgba(44,80,143,.13) calc(8.333vw - 1px), rgba(44,80,143,.13) 8.333vw); }
     html[data-theme="light"] .screen::after { border-color: rgba(217,30,55,.17); box-shadow: 0 0 0 14vw rgba(217,30,55,.025), 0 0 0 25vw rgba(86,127,195,.028), 0 0 110px rgba(217,30,55,.06) inset; }
+    html[data-theme="light"] .heat-number { background: rgba(255,255,255,.78); }
+    html[data-theme="light"] .display-tools { background: rgba(255,255,255,.97); border-color: rgba(73,104,158,.4); box-shadow: 0 12px 32px rgba(32,62,110,.18); }
     html[data-theme="light"] .operator-link { color: #425372; }
     html[data-theme="light"] .operator-link:hover { color: #102044; }
     html[data-theme="light"] .headline { filter: none; }
@@ -337,7 +352,8 @@
       <div class="brand" aria-label="Twilio Live Scavenger Hunt">
         <img class="brand-bug" src="/assets/twilio-bug-official.png" alt="Twilio" width="38" height="38"><span class="brand-divider"></span><span class="brand-event" id="eventName">Live Scavenger Hunt</span>
       </div>
-      <div class="top-meta"><span class="live-mark" id="liveMark">Live arena</span><span class="heat-number" id="heatNumber">HEAT 01</span><button class="preview-replay" id="previewReplay" type="button" aria-label="Replay the result animation" hidden><span>↻</span><span class="preview-replay-label">Replay reveal</span></button><a class="operator-link" href="#" id="operatorLink" aria-label="Open operator controls">Operator ↗</a><button class="theme-toggle" data-theme-toggle type="button" aria-label="Light mode"></button></div>
+      <div class="top-meta"><span class="heat-number" id="heatNumber">HEAT 01</span></div>
+      <nav class="display-tools" id="displayTools" aria-label="Arena display controls" aria-hidden="true" inert><span class="live-mark" id="liveMark">Live arena</span><button class="preview-replay" id="previewReplay" type="button" aria-label="Replay the result animation" hidden><span>↻</span><span class="preview-replay-label">Replay reveal</span></button><a class="operator-link" href="#" id="operatorLink" aria-label="Open operator controls">Operator ↗</a><button class="theme-toggle" data-theme-toggle type="button" aria-label="Light mode"></button></nav>
     </header>
 
     <section class="hero-row" aria-live="polite" aria-atomic="true">

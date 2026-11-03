@@ -3,7 +3,7 @@ const apiBase = `/api/e/${encodeURIComponent(slug)}`;
 const adminBase = `/api/admin/e/${encodeURIComponent(slug)}`;
 const routeBase = `/e/${encodeURIComponent(slug)}`;
 const requestedDemo = new URLSearchParams(location.search).get('demo');
-const previewMode = ['win', 'lose', 'tie', 'no-match'].includes(requestedDemo) ? requestedDemo : null;
+const previewMode = ['hunt', 'win', 'lose', 'tie', 'no-match'].includes(requestedDemo) ? requestedDemo : null;
 const screen = document.getElementById('screen');
 const players = document.getElementById('players');
 const field = document.getElementById('field');
@@ -132,7 +132,7 @@ function render() {
   screen.classList.toggle('is-no-match', currentPhase === 'result' && winnerIds().length === 0);
   $('eventName').textContent = app.event.name || 'Live Scavenger Hunt';
   document.title = `${app.event.name || 'Live Scavenger Hunt'} · Live arena`;
-  $('heatNumber').textContent = `HEAT ${pad(app.state.heat || 1)}`;
+  $('heatNumber').textContent = previewMode ? 'PREVIEW' : `HEAT ${pad(app.state.heat || 1)}`;
   $('liveMark').textContent = app.mediaStatus;
   renderTiles();
   syncResultEffects();
@@ -504,11 +504,13 @@ async function initialize() {
       tie: [demoRoster[0].id, demoRoster[Math.min(2, previewCount - 1)].id], 'no-match': [],
     };
     app.event = { name: 'Live Scavenger Hunt', minPlayers: 2, maxPlayers: previewCount, roundSeconds: 20, mediaMode: 'rehearsal' };
-    app.state = { phase: 'result', heat: 1, readyCount: previewCount, lockedCount: previewCount,
-      roster: demoRoster, winners: demoWinners[previewMode], vote: null, paused: false };
+    app.state = { phase: previewMode === 'hunt' ? 'hunt' : 'result', heat: 1, readyCount: previewCount, lockedCount: previewCount,
+      roster: demoRoster, winners: demoWinners[previewMode] || [], vote: null, paused: false,
+      prompt: previewMode === 'hunt' ? { text: 'SHOW SOMETHING RED.', seconds: 20 } : null,
+      roundEndsAt: previewMode === 'hunt' ? new Date(Date.now() + 14_000).toISOString() : null };
     app.mediaStatus = 'Visual preview';
     screen.classList.add('is-preview');
-    $('previewReplay').hidden = false;
+    $('previewReplay').hidden = previewMode === 'hunt';
     render();
     return;
   }
@@ -537,6 +539,45 @@ async function initialize() {
 if ('ResizeObserver' in window) new ResizeObserver(layoutTiles).observe(field);
 else addEventListener('resize', layoutTiles);
 addEventListener('pagehide', () => app.mediaSession?.disconnect?.());
+
+// Keep booth controls out of the audience-facing scene until staff interact
+// with the display. A keyboard Tab reveals them before focus moves into the nav.
+const displayTools = $('displayTools');
+let displayToolsTimer = null;
+function hideDisplayTools() {
+  if (displayTools.contains(document.activeElement)) return;
+  screen.classList.remove('controls-visible');
+  displayTools.inert = true;
+  displayTools.setAttribute('aria-hidden', 'true');
+}
+function scheduleDisplayToolsHide() {
+  clearTimeout(displayToolsTimer);
+  displayToolsTimer = setTimeout(hideDisplayTools, 5_000);
+}
+function showDisplayTools() {
+  displayTools.inert = false;
+  displayTools.setAttribute('aria-hidden', 'false');
+  screen.classList.add('controls-visible');
+  scheduleDisplayToolsHide();
+}
+addEventListener('pointermove', event => {
+  if (event.pointerType !== 'touch') showDisplayTools();
+}, { passive: true });
+addEventListener('pointerdown', showDisplayTools, { passive: true });
+addEventListener('keydown', event => {
+  if (event.key === 'Escape' && screen.classList.contains('controls-visible')) {
+    if (displayTools.contains(document.activeElement)) document.activeElement.blur();
+    hideDisplayTools();
+  } else if (event.key === 'Tab') showDisplayTools();
+});
+displayTools.addEventListener('focusin', showDisplayTools);
+displayTools.addEventListener('focusout', scheduleDisplayToolsHide);
+displayTools.addEventListener('click', event => {
+  // Pointer clicks give buttons focus in some browsers. Release that focus so
+  // the control strip can fade away after the next five seconds of inactivity.
+  if (event.detail > 0 && displayTools.contains(document.activeElement)) document.activeElement.blur();
+  scheduleDisplayToolsHide();
+});
 $('previewReplay').addEventListener('click', () => {
   if (!previewMode) return;
   app.resultEffectKey = null;
