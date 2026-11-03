@@ -174,7 +174,7 @@ function render() {
   } else {
     $('eyebrow').textContent = 'Find it first';
     setHeadline(roster().length ? 'CLAIM YOUR SPOT.' : 'LIVE SCAVENGER HUNT.');
-    $('subline').textContent = roster().length ? 'Scan to join the next round.' : 'Find it. Show it. Beat the clock.';
+    $('subline').textContent = lobbyMessage();
   }
   if (app.previousPhase === 'countdown' && currentPhase === 'hunt') {
     screen.classList.remove('show-go');
@@ -272,6 +272,19 @@ function layoutTiles() {
   players.dataset.layout = best.rows === 1 ? 'line' : 'stagger';
 }
 
+function lobbyMessage() {
+  const ready = Number(app.state?.readyCount || 0);
+  const minimum = Number(app.event?.minPlayers || 2);
+  const maximum = Number(app.event?.maxPlayers || 6);
+  if (app.state?.readyDeadline && ['flexible', 'deadline'].includes(app.event?.startMode))
+    return `More players can join for ${timeLeft(app.state.readyDeadline)}s.`;
+  if (ready < minimum)
+    return `Need ${minimum - ready} more to start · Up to ${maximum} can play.`;
+  if (app.event?.startMode === 'capacity') return `Waiting for ${maximum - ready} more to fill the heat.`;
+  if (app.event?.startMode === 'manual') return 'The booth team starts when ready.';
+  return `Up to ${maximum} can play this heat.`;
+}
+
 function updateClock() {
   if (!app.state || !app.event) return;
   const vote = activeVote();
@@ -285,8 +298,9 @@ function updateClock() {
   } else if (app.state.paused) {
     value = 'II'; label = 'Paused'; progress = 50;
   } else if (currentPhase === 'lobby') {
-    value = `${app.state.readyCount || 0}/${app.event.maxPlayers || 6}`; label = 'Ready';
-    progress = clamp((app.state.readyCount || 0) / (app.event.maxPlayers || 6) * 100, 0, 100);
+    value = String(app.state.readyCount || 0); label = 'Ready';
+    $('subline').textContent = lobbyMessage();
+    progress = clamp((app.state.readyCount || 0) / (app.event.minPlayers || 2) * 100, 0, 100);
   } else if (currentPhase === 'countdown' || currentPhase === 'locked') {
     value = String(timeLeft(app.state.countdownEndsAt) || 0); label = 'To go'; progress = 100;
   } else if (currentPhase === 'hunt' || currentPhase === 'active') {

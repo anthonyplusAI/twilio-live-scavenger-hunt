@@ -53,8 +53,12 @@ async function fixture(changes = {}, options = {}) {
     assert.equal(response.status, 200);
     return { cookie: response.headers.get('set-cookie').split(';')[0], csrf: value.csrfToken, user: value.user };
   }
+  const leadFor = alias => ({
+    fieldValues: { name: alias, email: String(alias).toLowerCase().replace(/[^a-z0-9]+/g, '.') + '@example.com', company: '' },
+    marketingOptIn: false,
+  });
   async function join(alias) {
-    const result = await request(`/api/e/${event.slug}/join`, { method: 'POST', body: { alias, displayConsent: true } });
+    const result = await request(`/api/e/${event.slug}/join`, { method: 'POST', body: { alias, displayConsent: true, lead: leadFor(alias) } });
     assert.equal(result.response.status, 201);
     return result.value;
   }
@@ -63,7 +67,7 @@ async function fixture(changes = {}, options = {}) {
     return request(`/api/e/${event.slug}/ready`, { method: 'POST', token: player.token });
   }
   return {
-    store, event, engine, auth, media, integrations, base, request, attemptLogin, login, join, ready,
+    store, event, engine, auth, media, integrations, base, request, attemptLogin, login, join, leadFor, ready,
     get now() { return now; }, set now(value) { now = value; },
     async close() { server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); store.close(); },
   };
@@ -100,6 +104,33 @@ test('public HTML/API/SSE seal the clue through countdown, and concurrent client
     assert.equal(hunt.value.state.prompt.text, 'SHOW SOMETHING RED');
     const queuedReady = await app.request(`/api/e/${app.event.slug}/ready`, { method: 'POST', token: c.token });
     assert.equal(queuedReady.response.status, 409);
+  } finally { await app.close(); }
+});
+
+test('queued visitors privately see their position and move up when a lobby spot opens', async () => {
+  const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
+  try {
+    const a = await app.join('Ada');
+    await app.join('Bea');
+    const c = await app.join('Cy');
+    const d = await app.join('Dee');
+    assert.deepEqual([c.player.queuePosition, d.player.queuePosition], [1, 2]);
+    const publicState = await app.request('/api/e/' + app.event.slug);
+    assert.equal(publicState.value.state.queuedCount, 2);
+    assert.equal(JSON.stringify(publicState.value.state).includes('queuePosition'), false);
+    assert.equal(JSON.stringify(publicState.value.state).includes(c.player.id), false);
+    const before = await app.request('/api/e/' + app.event.slug + '/me', { token: d.token });
+    assert.equal(before.value.player.queuePosition, 2);
+
+    const left = await app.request('/api/e/' + app.event.slug + '/leave', { method: 'POST', token: a.token });
+    assert.equal(left.response.status, 200);
+    const promoted = await app.request('/api/e/' + app.event.slug + '/me', { token: c.token });
+    assert.equal(promoted.value.player.status, 'joined');
+    assert.equal(promoted.value.player.slot, 1);
+    assert.equal(promoted.value.player.queuePosition, null);
+    const after = await app.request('/api/e/' + app.event.slug + '/heartbeat',
+      { method: 'POST', token: d.token });
+    assert.equal(after.value.player.queuePosition, 1);
   } finally { await app.close(); }
 });
 
@@ -662,6 +693,65 @@ test('kick reports a Video disconnect failure while preserving the local removal
   } finally { console.error = previousError; await app.close(); }
 });
 
+test('join captures one private lead before play and follow-up reuses it', async () => {
+  const app = await fixture({ startMode: 'manual' });
+  try {
+    const path = '/api/e/' + app.event.slug;
+    const missing = await app.request(path + '/join', { method: 'POST',
+      body: { alias: 'Visitor', displayConsent: true } });
+    assert.equal(missing.response.status, 400);
+    assert.equal(app.store.listLeads().length, 0);
+    assert.equal(app.store.listPlayers(app.event.id).length, 0);
+
+    const invalid = await app.request(path + '/join', { method: 'POST',
+      body: { alias: 'Visitor', displayConsent: true,
+        lead: { fieldValues: { name: 'A Visitor', email: 'invalid' }, marketingOptIn: false } } });
+    assert.equal(invalid.response.status, 400);
+    assert.equal(app.store.listPlayers(app.event.id).length, 0);
+
+    const player = await app.join('Visitor');
+    const stored = app.store.listLeads();
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].intent, 'capture');
+    assert.equal(stored[0].email, 'visitor@example.com');
+    assert.equal(stored[0].participantId, player.player.id);
+    const before = await app.request(path);
+    assert.equal(JSON.stringify(before.value).includes('visitor@example.com'), false);
+
+    const guide = await app.request(path + '/leads', { method: 'POST', token: player.token,
+      body: { intent: 'guide' } });
+    assert.equal(guide.response.status, 201);
+    assert.equal(guide.value.leadId, stored[0].id);
+    const again = await app.request(path + '/leads', { method: 'POST', token: player.token,
+      body: { intent: 'guide' } });
+    assert.equal(again.response.status, 201);
+    assert.equal(again.value.leadId, stored[0].id);
+    const expert = await app.request(path + '/leads', { method: 'POST', token: player.token,
+      body: { intent: 'expert' } });
+    assert.equal(expert.response.status, 201);
+    assert.equal(expert.value.leadId, stored[0].id);
+    assert.equal(app.store.listLeads().length, 1);
+    assert.ok(app.store.getLead(stored[0].id).guideRequestedAt);
+    assert.ok(app.store.getLead(stored[0].id).expertRequestedAt);
+    const admin = await app.login();
+    const report = await app.request('/api/admin/report?event=' + app.event.slug, { cookie: admin.cookie });
+    assert.equal(report.value.summary.leads, 1);
+    assert.equal(report.value.summary.guideRequests, 1);
+    assert.equal(report.value.summary.expertRequests, 1);
+  } finally { await app.close(); }
+});
+
+test('turning lead capture off lets a player join without contact fields', async () => {
+  const app = await fixture({ leadCapture: { enabled: false } });
+  try {
+    const result = await app.request(`/api/e/${app.event.slug}/join`, { method: 'POST',
+      body: { alias: 'No Lead', displayConsent: true } });
+    assert.equal(result.response.status, 201);
+    assert.equal(app.store.listLeads().length, 0);
+    assert.equal(app.store.listPlayers(app.event.id).length, 1);
+  } finally { await app.close(); }
+});
+
 test('public activity has a server-derived session, vote dedupes, and leads stay private in reports', async () => {
   const app = await fixture();
   try {
@@ -684,7 +774,7 @@ test('public activity has a server-derived session, vote dedupes, and leads stay
     assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', source: 'arena_qr' } })).response.status, 400);
     const player = await app.join('Visitor');
     const lead = await app.request(`${p}/leads`, { method: 'POST', token: player.token,
-      body: { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'visitor@example.com', company: 'Example' }, marketingOptIn: false } });
+      body: { intent: 'expert' } });
     assert.equal(lead.response.status, 201);
     app.engine.command(app.event.slug, 'openVote', { type: 'category' }, { id: 'operator' });
     const vote = (await app.request(p)).value.state.vote;
@@ -762,7 +852,7 @@ test('a shared booth network can admit and count more than sixty visitors in a m
     const cookies = Array.from({ length: 80 }, (_, index) =>
       `signal_stadium_voter=${String(index).padStart(32, 'a')}`);
     const joined = await Promise.all(cookies.map((cookie, index) => app.request(`${path}/join`, {
-      method: 'POST', cookie, body: { alias: `Guest ${index}`, displayConsent: true },
+      method: 'POST', cookie, body: { alias: `Guest ${index}`, displayConsent: true, lead: app.leadFor("Guest " + index) },
     })));
     assert.ok(joined.every(result => result.response.status === 201));
     app.engine.command(app.event.slug, 'openVote', { type: 'category' }, { id: 'operator' });

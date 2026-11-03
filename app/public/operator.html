@@ -86,9 +86,9 @@
             </div>
             <div id="rules-pane" class="event-pane rules-pane" data-event-pane="rules">
               <div class="start-group"><div class="setting-label"><span>When does the heat start?</span><small>The clue appears only after GO.</small></div><div class="start-options">
-                <label class="start-option"><input type="radio" name="start-mode" value="flexible"><span><b>Flexible</b><em>Full, timed, or manual</em></span></label>
+                <label class="start-option"><input type="radio" name="start-mode" value="flexible"><span><b>Flexible</b><em>Full or timed after minimum</em></span></label>
                 <label class="start-option"><input type="radio" name="start-mode" value="capacity"><span><b>At capacity</b><em>When all slots fill</em></span></label>
-                <label class="start-option"><input type="radio" name="start-mode" value="deadline"><span><b>After wait</b><em>At join-window end</em></span></label>
+                <label class="start-option"><input type="radio" name="start-mode" value="deadline"><span><b>After wait</b><em>Timer starts at minimum</em></span></label>
                 <label class="start-option"><input type="radio" name="start-mode" value="manual"><span><b>Operator</b><em>Start on command</em></span></label>
               </div></div>
               <div class="policy-row"><div class="field"><label for="event-judge">Winner decision</label><select id="event-judge" class="select"><option value="auto-with-override">Auto award with override</option><option value="operator-confirm">Operator confirms detection</option><option value="manual">Operator judges manually</option></select></div><label class="enabled-row auto-row" for="event-auto"><span><strong>Auto-advance</strong><small>Prepare next heat after results</small></span><span class="switch"><input id="event-auto" type="checkbox"><span></span></span></label></div>
@@ -97,10 +97,10 @@
             <div id="lead-pane" class="event-pane lead-pane" data-event-pane="leads" data-lead-step="capture">
               <div class="lead-step-tabs" role="group" aria-label="Lead settings"><button type="button" data-lead-step="capture" aria-pressed="true" class="active">Capture</button><button type="button" data-lead-step="fields" aria-pressed="false">Form fields <span id="lead-fields-count">0</span></button></div>
               <div class="lead-step lead-capture-step" data-lead-panel="capture">
-                <label class="enabled-row lead-master" for="lead-enabled"><span><strong>Collect leads after play</strong><small>Optional guide or expert follow-up</small></span><span class="switch"><input id="lead-enabled" type="checkbox"><span></span></span></label>
+                <label class="enabled-row lead-master" for="lead-enabled"><span><strong>Collect leads when joining</strong><small>Before the camera check</small></span><span class="switch"><input id="lead-enabled" type="checkbox"><span></span></span></label>
                 <div class="lead-ctas"><label class="enabled-row" for="lead-guide"><span><strong>Build guide</strong><small>Requested follow-up</small></span><span class="switch"><input id="lead-guide" type="checkbox"><span></span></span></label><label class="enabled-row" for="lead-expert"><span><strong>Booth expert</strong><small>Requested conversation</small></span><span class="switch"><input id="lead-expert" type="checkbox"><span></span></span></label></div>
                 <label class="enabled-row lead-marketing" for="lead-marketing"><span><strong>Optional email updates</strong><small id="lead-marketing-note">Visitors start unchecked.</small></span><span class="switch"><input id="lead-marketing" type="checkbox"><span></span></span></label>
-                <div class="lead-preview"><div><strong id="lead-visibility">Player form off</strong><small id="lead-summary">0 fields</small></div><button id="lead-edit-fields" type="button" class="btn outline">Edit fields ↗</button></div>
+                <div class="lead-preview"><div><strong id="lead-visibility">Join form off</strong><small id="lead-summary">0 fields</small></div><button id="lead-edit-fields" type="button" class="btn outline">Edit fields ↗</button></div>
                 <p class="lead-note">Phone contact does not grant SMS or WhatsApp marketing consent. Leads export from Metrics.</p>
               </div>
               <div class="lead-step lead-fields-step" data-lead-panel="fields">
@@ -108,7 +108,7 @@
                 <div id="lead-field-list" class="lead-field-list" aria-live="polite"></div>
                 <div class="lead-fields-toolbar"><select id="lead-field-preset" class="select" aria-label="Field to add"><option value="name">Name</option><option value="email">Work email</option><option value="company">Company</option><option value="jobTitle">Job title</option><option value="phone">Phone number</option><option value="custom">Short answer</option></select><button id="lead-add-field" type="button" class="btn outline">+ Add field</button></div>
                 <div class="lead-fields-footer"><span id="lead-field-page">0 fields</span><div><button id="lead-field-prev" type="button" class="btn quiet" aria-label="Previous form fields">‹</button><button id="lead-field-next" type="button" class="btn quiet" aria-label="Next form fields">›</button></div></div>
-                <p class="lead-fields-note">Follow-up requires an email or phone field. Each request uses the saved field snapshot.</p>
+                <p class="lead-fields-note">Joining requires an email or phone field when capture is on. The saved answers can support later guide or expert requests.</p>
               </div>
             </div>
             <div id="systems-pane" class="event-pane systems-pane" data-event-pane="systems" data-system-step="vote">

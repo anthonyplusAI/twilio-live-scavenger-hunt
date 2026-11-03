@@ -38,7 +38,7 @@ const state = {
   range: ranges.has(initialParams.get("range")) ? initialParams.get("range") : "7d",
   customFrom: initialParams.get("from") || "",
   customTo: initialParams.get("to") || "",
-  events: [], activity: [], leads: [],
+  events: [], activity: [], leads: [], reportSummary: null,
   promptPage: 0, voteChoicePage: 0, leadPage: 0,
   detailLeadId: null, detailPage: 0, detailReturnFocus: null,
   requestId: 0,
@@ -124,7 +124,7 @@ function uniquePeople(rows, keys = ["participantId", "playerId", "sessionId"]) {
   });
   return people.size;
 }
-const engagementTypes = new Set(["player_joined", "result_viewed", "cta_opened", "guide_cta_opened", "expert_cta_opened", "twilio_product_link_opened", "github_cta_opened", "lead_form_opened", "lead_submitted", "vote_accepted"]);
+const engagementTypes = new Set(["player_joined", "result_viewed", "cta_opened", "guide_cta_opened", "expert_cta_opened", "twilio_product_link_opened", "github_cta_opened", "lead_form_opened", "lead_captured", "lead_submitted", "vote_accepted"]);
 function buildSummary(records, leads) {
   const byType = type => records.filter(row => row.type === type);
   const landings = byType("landing_opened"), joins = byType("player_joined"), heatStarts = byType("heat_started"), heatEnds = byType("heat_completed");
@@ -151,10 +151,15 @@ function buildSummary(records, leads) {
     const current = daily.get(day);
     if (row.type === "landing_opened") current.landings++;
     if (row.type === "player_joined") current.joins++;
-    if (row.type === "lead_submitted") current.leads++;
     if (row.type === "vote_accepted") current.votes++;
   });
-  const uniqueLeads = leads.length || uniquePeople(byType("lead_submitted"));
+  leads.forEach(lead => {
+    const day = dayInZone(lead.createdAt, reportTimeZone());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    if (!daily.has(day)) daily.set(day, { day, landings: 0, joins: 0, leads: 0, votes: 0 });
+    daily.get(day).leads++;
+  });
+  const uniqueLeads = leads.length;
   const voterIds = votes.map(row => row.properties.voterId || row.properties.voterHash || row.properties.voterKey || row.properties.sessionId);
   const channelVotes = { web: 0, sms: 0, whatsapp: 0 }, voteTypes = { category: 0, creative: 0 }, choices = new Map();
   votes.forEach(row => {
@@ -212,7 +217,7 @@ function buildSummary(records, leads) {
       { label: "Opened CTA", count: uniquePeople(ctaOpens) },
       { label: "Twilio pages", count: twilioProductLinkClicks, title: "Clicks on official Twilio product pages" },
       { label: "GitHub repo", count: githubRepoClicks, title: "Clicks to open the GitHub repository; stars are not tracked" },
-      { label: "Left lead", count: uniqueLeads },
+      { label: "Shared details", count: uniqueLeads },
     ],
   };
 }
@@ -391,6 +396,14 @@ function closeLeadDetail() {
   const replacement = [...document.querySelectorAll(".lead-detail-button")].find(button => button.dataset.leadId === formerId);
   (formerFocus?.isConnected ? formerFocus : replacement || $("event-filter")).focus();
 }
+function requestedFollowup(lead) {
+  const guide = Boolean(lead.guideRequestedAt) || lead.intent === "guide";
+  const expert = Boolean(lead.expertRequestedAt) || lead.intent === "expert";
+  if (guide && expert) return "Guide + expert";
+  if (guide) return "Build guide";
+  if (expert) return "Expert conversation";
+  return "None requested";
+}
 function renderLeadDetail() {
   if (!state.detailLeadId) return;
   const lead = state.leads.find(item => item.id === state.detailLeadId);
@@ -399,8 +412,7 @@ function renderLeadDetail() {
   setText("lead-detail-heading", leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor"));
   const when = new Date(lead.createdAt);
   const date = Number.isFinite(when.getTime()) ? when.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date unavailable";
-  const request = lead.intent === "expert" ? "Expert conversation" : lead.intent === "guide" ? "Build guide" : "Follow-up";
-  setText("lead-detail-summary", `${request} · ${date} · Email updates: ${lead.marketingOptIn ? "yes" : "no"}`);
+  setText("lead-detail-summary", `Captured ${date} · ${requestedFollowup(lead)} · Email updates: ${lead.marketingOptIn ? "yes" : "no"}`);
   const entries = leadFieldEntries(lead), pages = leadDetailPages(entries);
   state.detailPage = Math.min(state.detailPage, Math.max(0, pages.length - 1));
   const current = pages[state.detailPage] || { start: 0, items: [] }, start = current.start, visible = current.items, host = $("lead-detail-fields");
@@ -430,7 +442,7 @@ function renderLeadRows() {
   const leads = state.leads, size = pageSize("lead"), pages = Math.max(1, Math.ceil(leads.length / size));
   state.leadPage = Math.min(state.leadPage, pages - 1);
   const host = $("lead-rows"); host.replaceChildren();
-  if (!leads.length) host.append(makeEmpty("No leads in this range", "Follow-up requests will appear here."));
+  if (!leads.length) host.append(makeEmpty("No leads in this range", "Players who share details at join appear here."));
   else for (const lead of leads.slice(state.leadPage * size, (state.leadPage + 1) * size)) {
     const email = leadValue(lead, "email", "email"), phone = leadValue(lead, "phone", "tel");
     const contactName = leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor");
@@ -439,7 +451,7 @@ function renderLeadRows() {
     details.type = "button"; details.dataset.leadId = lead.id;
     details.setAttribute("aria-label", `View saved answers for ${contactName}`);
     details.addEventListener("click", () => openLeadDetail(lead, details));
-    row.append(contact, make("span", "request", lead.intent === "expert" ? "Expert" : lead.intent === "guide" ? "Guide" : "Follow-up"), make("span", "date", shortDate(lead.createdAt)), details);
+    row.append(contact, make("span", "request", requestedFollowup(lead)), make("span", "date", shortDate(lead.createdAt)), details);
     host.append(row);
   }
   setText("lead-page", leads.length ? `${state.leadPage * size + 1}–${Math.min((state.leadPage + 1) * size, leads.length)} of ${leads.length} leads` : "0 leads");
@@ -450,14 +462,15 @@ function renderLeadRows() {
 function renderLeads(summary) {
   setText("lead-count", number(state.leads.length));
   setText("lead-conversion", summary.leadFormOpens ? percent(state.leads.length / summary.leadFormOpens * 100) : "—");
-  const guides = state.leads.filter(lead => lead.intent === "guide").length, experts = state.leads.filter(lead => lead.intent === "expert").length;
+  const guides = state.reportSummary?.guideRequests ?? state.leads.filter(lead => Boolean(lead.guideRequestedAt) || lead.intent === "guide").length;
+  const experts = state.reportSummary?.expertRequests ?? state.leads.filter(lead => Boolean(lead.expertRequestedAt) || lead.intent === "expert").length;
   setText("lead-guides", number(guides)); setText("lead-experts", number(experts));
   setText("intent-guide", number(guides)); setText("intent-expert", number(experts));
   setText("intent-marketing", number(state.leads.filter(lead => lead.marketingOptIn).length));
   const selected = state.events.find(event => event.slug === state.event);
   const leadStatus = state.event === "all" ? "Lead forms are configured per event."
     : selected?.leadCaptureEnabled === false ? "Lead capture is off for this event."
-      : selected?.leadCaptureEnabled === true ? `Capture on · ${selected.leadFieldCount || 0} form fields.`
+      : selected?.leadCaptureEnabled === true ? `Capture at join · ${selected.leadFieldCount || 0} fields.`
         : `Showing follow-up from ${selected?.name || state.event}.`;
   setText("lead-status", leadStatus);
   renderLeadRows(); renderLeadDetail();
@@ -500,6 +513,7 @@ async function loadReport() {
     }
     state.activity = normalizeActivity(payload.activity);
     state.leads = normalizeLeads(payload.leads);
+    state.reportSummary = safeObject(payload.summary);
     setText("data-badge", "EVENT DATA"); render();
   } catch (error) {
     if (requestId !== state.requestId) return;

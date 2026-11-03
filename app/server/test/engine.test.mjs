@@ -28,6 +28,60 @@ test('atomic slot assignment caps an event at its configured capacity and queues
   app.store.close();
 });
 
+test('vacant lobby spots promote queued players before later visitors', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
+  const a = app.join('Ada'), b = app.join('Bea');
+  const c = app.join('Cy'), d = app.join('Dee');
+  assert.deepEqual([c.player.queuePosition, d.player.queuePosition], [1, 2]);
+  assert.equal(app.engine.snapshot(app.event.slug).state.queuedCount, 2);
+  assert.equal(Object.hasOwn(app.engine.snapshot(app.event.slug).state, 'queuePosition'), false);
+
+  app.engine.leave(app.event.slug, a.token);
+  assert.equal(app.store.getPlayer(c.player.id).slot, 1);
+  assert.equal(app.store.getPlayer(c.player.id).status, 'joined');
+  assert.equal(app.engine.me(app.event.slug, c.token).player.queuePosition, null);
+  assert.equal(app.engine.me(app.event.slug, d.token).player.queuePosition, 1);
+
+  const e = app.join('Eli');
+  assert.equal(e.player.status, 'queued');
+  assert.equal(e.player.queuePosition, 2);
+  app.engine.command(app.event.slug, 'kickPlayer', { playerId: b.player.id }, { id: 'operator' });
+  assert.equal(app.store.getPlayer(d.player.id).slot, 2);
+  assert.equal(app.engine.me(app.event.slug, e.token).player.queuePosition, 1);
+  assert.deepEqual(app.engine.snapshot(app.event.slug).state.roster.map(player => player.alias), ['Cy', 'Dee']);
+  app.store.close();
+});
+
+test('a join repairs a preexisting lobby vacancy without jumping the queue', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
+  const a = app.join('Ada');
+  app.join('Bea');
+  const c = app.join('Cy');
+  app.store.updatePlayer(a.player.id, { status: 'left', slot: null, leftAt: new Date(app.now).toISOString() });
+  const d = app.join('Dee');
+  assert.equal(app.store.getPlayer(c.player.id).slot, 1);
+  assert.equal(d.player.status, 'queued');
+  assert.equal(d.player.queuePosition, 1);
+  assert.deepEqual(app.engine.snapshot(app.event.slug).state.roster.map(player => player.alias), ['Cy', 'Bea']);
+  app.store.close();
+});
+
+test('raising lobby capacity gives newly open spots to the existing queue', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
+  app.join('Ada'); app.join('Bea');
+  const c = app.join('Cy'), d = app.join('Dee');
+  const expanded = app.store.saveEvent(app.event.slug,
+    { ...app.event, maxPlayers: 4 }, app.event.revision);
+  app.engine.configChanged(app.event.slug, app.event, expanded);
+  const state = app.engine.snapshot(app.event.slug).state;
+  assert.deepEqual(state.roster.map(player => player.alias), ['Ada', 'Bea', 'Cy', 'Dee']);
+  assert.deepEqual(state.roster.map(player => player.slot), [1, 2, 3, 4]);
+  assert.equal(state.queuedCount, 0);
+  assert.equal(app.engine.heartbeat(app.event.slug, c.token).player.queuePosition, null);
+  assert.equal(app.engine.heartbeat(app.event.slug, d.token).player.queuePosition, null);
+  app.store.close();
+});
+
 test('public event state seals prompt ID and text until GO, then reveals the snapshotted timer', () => {
   const app = setup({ minPlayers: 2, maxPlayers: 3, startMode: 'manual', roundSeconds: 13 });
   const a = app.join('Ada'), b = app.join('Bea');
@@ -64,6 +118,34 @@ test('capacity and deadline starts follow the saved event mode; manual requires 
   manual.ready(e); manual.ready(f); manual.advance(40_000);
   assert.equal(manual.engine.snapshot(manual.event.slug).state.phase, 'lobby');
   manual.store.close();
+});
+
+test('flexible join window begins at the minimum and resets when readiness drops', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 6, startMode: 'flexible', joinSeconds: 30 });
+  const a = app.join('Ada'), b = app.join('Bea');
+  app.ready(a);
+  assert.equal(app.engine.snapshot(app.event.slug).state.readyDeadline, null);
+  app.advance(20_000);
+  app.engine.heartbeat(app.event.slug, a.token);
+  app.ready(b);
+  let state = app.engine.snapshot(app.event.slug).state;
+  assert.equal(Date.parse(state.readyDeadline), app.now + 30_000);
+  app.advance(10_000);
+  app.engine.heartbeat(app.event.slug, a.token);
+  app.engine.leave(app.event.slug, b.token);
+  assert.equal(app.engine.snapshot(app.event.slug).state.readyDeadline, null);
+  const c = app.join('Cy');
+  app.ready(c);
+  state = app.engine.snapshot(app.event.slug).state;
+  assert.equal(Date.parse(state.readyDeadline), app.now + 30_000);
+  app.advance(20_000);
+  app.engine.heartbeat(app.event.slug, a.token);
+  app.engine.heartbeat(app.event.slug, c.token);
+  app.advance(9_999);
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'lobby');
+  app.advance(1);
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'countdown');
+  app.store.close();
 });
 
 test('saving live lobby settings moves overflow players into the queue and applies a changed start mode', () => {
