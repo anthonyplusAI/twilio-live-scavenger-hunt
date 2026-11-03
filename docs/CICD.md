@@ -37,7 +37,10 @@ workflow does not reuse a mutable `latest` tag. Deployment concurrency queues
 runs rather than cancelling a rollout halfway through.
 
 GitHub's OIDC token can be exchanged only by the dedicated Entra application
-that trusts `repo:anthonyplusAI/twilio-live-scavenger-hunt:ref:refs/heads/main`.
+that trusts this repository's exact `main` branch subject. This GitHub repo
+uses an immutable subject prefix with numeric owner and repo IDs; the
+provisioner reads GitHub's OIDC customization endpoint before creating or
+updating the Entra credential.
 The service principal can push to this app's ACR and update only its resource
 group. The app has its own managed identity for image pull and Blob backup.
 See [infrastructure setup](INFRA_SETUP.md) for the exact roles and GitHub

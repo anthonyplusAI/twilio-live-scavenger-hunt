@@ -22,6 +22,7 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 require() { command -v "$1" >/dev/null 2>&1 || fail "Install '$1' before provisioning."; }
 require az
 require gh
+require jq
 require openssl
 
 # Pin the Azure subscription explicitly. A default CLI context is too easy to
@@ -192,14 +193,29 @@ ensure_role "$OIDC_PRINCIPAL" AcrPush "$ACR_ID"
 RG_ID="$(az group show -n "$RG" --query id -o tsv)"
 ensure_role "$OIDC_PRINCIPAL" Contributor "$RG_ID"
 
-OIDC_SUBJECT="repo:${ACTUAL_REPO}:ref:refs/heads/main"
+OIDC_CONFIG="$(gh api "repos/${ACTUAL_REPO}/actions/oidc/customization/sub")" \
+  || fail "Cannot read the repository's GitHub OIDC subject format."
+[[ "$(jq -r '.use_default' <<< "$OIDC_CONFIG")" == true ]] \
+  || fail "This repo uses a custom OIDC subject template; inspect it before creating Azure trust."
+if [[ "$(jq -r '.use_immutable_subject // false' <<< "$OIDC_CONFIG")" == true ]]; then
+  OIDC_PREFIX="$(jq -r '.sub_claim_prefix // empty' <<< "$OIDC_CONFIG")"
+  [[ "$OIDC_PREFIX" == repo:* && -n "$OIDC_PREFIX" ]] \
+    || fail "GitHub did not provide a valid immutable OIDC subject prefix."
+else
+  OIDC_PREFIX="repo:${ACTUAL_REPO}"
+fi
+OIDC_SUBJECT="${OIDC_PREFIX}:ref:refs/heads/main"
 EXISTING_SUBJECT="$(az ad app federated-credential list --id "$OIDC_APP_ID" \
   --query "[?name=='gha-main'].subject | [0]" -o tsv)"
 if [[ -n "$EXISTING_SUBJECT" && "$EXISTING_SUBJECT" != "$OIDC_SUBJECT" ]]; then
-  fail "Existing gha-main federated credential trusts $EXISTING_SUBJECT, not $OIDC_SUBJECT. Refusing to overwrite trust."
+  OIDC_PARAMETERS="$(jq -n --arg subject "$OIDC_SUBJECT" \
+    '{issuer:"https://token.actions.githubusercontent.com",subject:$subject,audiences:["api://AzureADTokenExchange"]}')"
+  az ad app federated-credential update --id "$OIDC_APP_ID" \
+    --federated-credential-id gha-main --parameters "$OIDC_PARAMETERS" -o none
 fi
 if [[ -z "$EXISTING_SUBJECT" ]]; then
-  OIDC_PARAMETERS="$(printf '{"name":"gha-main","issuer":"https://token.actions.githubusercontent.com","subject":"%s","audiences":["api://AzureADTokenExchange"]}' "$OIDC_SUBJECT")"
+  OIDC_PARAMETERS="$(jq -n --arg subject "$OIDC_SUBJECT" \
+    '{name:"gha-main",issuer:"https://token.actions.githubusercontent.com",subject:$subject,audiences:["api://AzureADTokenExchange"]}')"
   az ad app federated-credential create --id "$OIDC_APP_ID" \
     --parameters "$OIDC_PARAMETERS" -o none
 fi
