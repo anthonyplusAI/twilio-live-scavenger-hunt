@@ -79,13 +79,73 @@ If the database already has users, bootstrap leaves them unchanged. Treat the
 Container App secret and Blob replica as sensitive because the database holds
 accounts, event settings, metrics, and opt-in leads.
 
-## GitHub settings created by the script
+After signing in, use **Team** in the control room to create local operator
+usernames and passwords. The **My password** action changes an existing local
+account's password; changing `bootstrap-admin-password` after first boot does
+not. Local operator accounts work without Google OAuth.
+
+## Optional Google sign-in for Twilio operators
+
+Google sign-in is disabled until both OAuth credentials are configured. The
+server grants the **operator** role to any Google account whose signed ID token
+has a verified `@twilio.com` email **and** `hd=twilio.com`, the Google Workspace
+domain claim. A Google user never becomes an app admin automatically. The
+`hd` request parameter only helps choose an account; the server checks the
+returned claim. See [Google's OpenID Connect guidance](https://developers.google.com/identity/openid-connect/openid-connect).
+
+1. In a Google Cloud project you administer, configure **Google Auth Platform**
+   branding and audience. If the project belongs to the Twilio Workspace
+   organization, an **Internal** audience can limit who reaches the consent
+   screen. An **External** app in Testing is limited to named test users, so it
+   cannot meet the “any verified Twilio account” requirement until its
+   publishing setup allows that audience. The app enforces the Workspace claim
+   either way. See [Google's audience options](https://support.google.com/cloud/answer/15549945).
+2. In **Google Auth Platform → Clients**, create an OAuth client of type **Web
+   application**. Add this exact **Authorized redirect URI**:
+
+   ```text
+   https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/api/auth/google/callback
+   ```
+
+   The scheme, host, path, and trailing slash must match exactly. If the app
+   later gets a custom domain, register that new callback and update
+   `PUBLIC_BASE_URL` during a controlled rollout. For local tests, you may also
+   register `http://127.0.0.1:65111/api/auth/google/callback` and use a local
+   `.env` with that origin. See [Google's web-server OAuth setup](https://developers.google.com/identity/protocols/oauth2/web-server).
+3. In this GitHub repository, open **Settings → Secrets and variables → Actions**.
+   Add repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the
+   new client. Do not place the client secret in `.env.example`, the repo, or a
+   workflow variable. The deploy job reads these secrets; the CI and image-build
+   jobs do not.
+4. Dispatch `deploy.yml` on `main` between heats. The controlled rollout first
+   stops the old SQLite writer, then stores the client secret as a Container App
+   secret and attaches both settings to the candidate revision. Check
+   `/api/auth/providers` for `google.enabled: true`, then sign in on the stable
+   public hostname with a verified Twilio Workspace account. A non-Twilio
+   account should be denied. The Google button appears on `/login` only when
+   configured.
+
+If only one GitHub secret is present while enabling or refreshing Google
+sign-in, deployment fails **before** the old revision is stopped. If neither
+is present, deployment preserves any existing OAuth configuration. To turn
+Google sign-in off explicitly, set repository
+variable `GOOGLE_AUTH_DISABLE=1` and dispatch the same controlled deployment;
+the new revision has both OAuth environment variables removed. Set the variable to `0` and
+deploy with both secrets to re-enable it. The stored Container App secret is
+retained for rollback and no longer used while sign-in is disabled.
+
+## GitHub settings
+
+The provisioner creates the Azure and Litestream entries. Add the optional
+Google entries manually when you create the OAuth client.
 
 | Kind | Name | Use |
 | --- | --- | --- |
 | Variables | `ACR_NAME`, `ACA_NAME`, `ACA_RESOURCE_GROUP` | Image and rollout target. |
 | Variable | `LITESTREAM_REQUIRE_REPLICA` | Starts as `0`; set to `1` after the first backup has been verified. |
 | Secrets | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | OIDC identifiers for `azure/login`; no client secret. |
+| Optional secrets | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google operator sign-in; consumed by the deploy job only. |
+| Optional variable | `GOOGLE_AUTH_DISABLE` | Set to `1` for an explicit controlled sign-in disable; `0` re-enables when both secrets exist. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.

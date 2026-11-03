@@ -33,7 +33,20 @@ After an operator removes a player, that token receives HTTP `403` with `code: "
 
 ## Authentication and operator actions
 
-`POST /api/auth/login` takes `{username,password}` and sets an HttpOnly SameSite session cookie. `GET /api/auth/session` returns `{user:{id,username,role},csrfToken}`. Admin/operator mutations require `X-CSRF-Token`; `POST /api/auth/logout` ends the session. Admin can configure events and view leads; operator can run heats and review candidates. `scripts/create-user.mjs` bootstraps users; a first run with no users prints a generated one-time admin password to the server terminal.
+`POST /api/auth/login` takes `{username,password}` and sets an HttpOnly SameSite session cookie. `GET /api/auth/session` returns `{user:{id,username,role,authProvider},csrfToken}`. Admin/operator mutations require `X-CSRF-Token`; `POST /api/auth/logout` ends the session. Admin can configure events and view leads; operator can run heats and review candidates. A first run with no users prints a generated one-time admin password to the server terminal, unless `BOOTSTRAP_ADMIN_PASSWORD` was supplied. That bootstrap setting does not reset existing accounts.
+
+`GET /api/auth/providers` is public and returns `{google:{enabled:boolean}}`. Google is enabled only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both present with the canonical `PUBLIC_BASE_URL`. `GET /api/auth/google/start?next=...` begins an authorization-code flow with PKCE, nonce, and one-time state; it redirects to Google when configured. `GET /api/auth/google/callback` validates that state and Google's signed ID token, sets the same staff session cookie, then redirects to a safe same-origin `next` path. A failed sign-in returns to `/login` with a short error code. The server requires a verified `@twilio.com` email and `hd=twilio.com` in the token. It keys identity by Google's stable `sub` and creates an **operator** account on first sign-in; it never links to or creates an admin account based on an email address. The `hd` authorization parameter is a hint, not the access check.
+
+`POST /api/auth/password` takes `{currentPassword,newPassword}` for the signed-in local-password user and requires CSRF. It ends every session for that account, clears the current cookie, and requires a fresh sign-in. An admin can manage local operator accounts through the following global routes; they are not tied to an event:
+
+| Route | Role | Input / output |
+| --- | --- | --- |
+| `GET /api/admin/operators` | admin | `{operators:[{id,username,role,authProvider,email,createdAt}]}`; Google accounts are identified by provider and cannot receive local password resets. |
+| `POST /api/admin/operators` | admin + CSRF | `{username,password}` → `{operator}` with HTTP `201`; creates an `operator` only. |
+| `POST /api/admin/operators/:id/password` | admin + CSRF | `{password}` → `{operator}`; resets a local operator's password and revokes their sessions. |
+| `DELETE /api/admin/operators/:id` | admin + CSRF | HTTP `204`; removes a local operator and revokes their sessions. |
+
+Local usernames are normalized to lowercase and must be 3–80 characters using letters, digits, dots, dashes, or underscores, starting with a letter. Local passwords must be 12–1024 characters. These account routes reject role elevation and Google-account password operations. `scripts/create-user.mjs` remains available for a stopped local database; the hosted container does not include that recovery script.
 
 | Route | Role | Input / output |
 | --- | --- | --- |

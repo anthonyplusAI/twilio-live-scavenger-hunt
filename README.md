@@ -39,7 +39,7 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, consents to appear on the booth display, and joins with their phone camera. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
+A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display, checks their phone camera, and joins the heat. The phone checks the 2–20 character name and display consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
@@ -50,6 +50,7 @@ Spectators can take part through a web ballot. With configured senders, SMS or W
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
+| **Manage booth access** | An admin can create local operator accounts, reset or remove them, and change their own password from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts the operator role. |
 | **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
 | **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
@@ -85,14 +86,15 @@ After starting the app, open the read-only [four-player hunt](http://127.0.0.1:6
 The arena keeps the game QR large and gives the [source repository](https://github.com/anthonyplusAI/twilio-live-scavenger-hunt) a smaller star card with its own QR on booth displays. The player phone and spectator ballot keep **Star on GitHub** visible in their compact footers. Admin reports attribute GitHub referrals to the phone, ballot, wall QR, or wall link; they count outbound taps and scans, not confirmed visits or stars.
 
 <table>
-  <tr><th>Player phone · before joining</th><th>Spectator phone · between ballots</th></tr>
+  <tr><th>Player phone · before joining</th><th>Player phone · consent check</th><th>Spectator phone · between ballots</th></tr>
   <tr>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player join preview with an illustrated phone camera spot and Star on GitHub footer link" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player consent form showing an inline reminder to check display consent and the GitHub star footer" width="300"></td>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-vote.png" alt="Spectator ballot preview waiting for the next vote, with a Star on GitHub footer link" width="300"></td>
   </tr>
 </table>
 
-<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the spectator ballot is waiting for its next vote.</em></p>
+<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the consent screen shows the missing-checkbox message; the spectator ballot is waiting for its next vote.</em></p>
 
 ## Twilio product story
 
@@ -146,13 +148,29 @@ npm start
 
 The default server address is `127.0.0.1:65111`; adjust it with [.env.example](.env.example). Local rehearsal sends short-lived JPEG camera frames through the app at a lower frame rate than Twilio Video. Camera access on real phones requires a reachable **HTTPS** origin. Sign in as an operator in the same browser profile used for the arena wall to see player cameras there.
 
-Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret on first boot. The app then seeds the admin without printing the credential in retained server logs.
+Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret on first boot. The app then seeds the admin without printing the credential in retained server logs. Changing that secret after the first boot does not change the saved password.
+
+### Booth staff sign-in
+
+Sign in as `admin`, then open **Team** in the control room to create a named operator with a password, reset an operator password, or remove an operator who no longer needs access. **My password** changes the current local account's password. Operators can run heats but cannot edit event settings, see leads, or manage other accounts. These accounts work without Google or Twilio credentials.
+
+Google sign-in is optional and currently **off** until an OAuth client ID and secret are configured. Once enabled, any Google identity with a verified `@twilio.com` address **and** the `twilio.com` Workspace claim can enter as an operator; Google sign-in never grants admin. The server checks the signed ID token and tracks the stable Google subject rather than trusting the address alone. The [Azure setup guide](docs/INFRA_SETUP.md#optional-google-sign-in-for-twilio-operators) shows the exact callback URL and secret setup.
+
+<table>
+  <tr><th>Staff sign-in</th><th>Admin · Team</th></tr>
+  <tr>
+    <td><img src="docs/visuals/live-scavenger-hunt-login-google.png" alt="Local visual preview of the control-room sign-in screen with username and password fields and an optional Google button" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-team.png" alt="Local admin Team preview showing a named operator and controls to reset the password or remove access" width="680"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Local visual previews. The Google button illustrates the configured option; the hosted deployment keeps it off until OAuth credentials are added.</em></p>
 
 Run `npm run check` for the browser build, server tests, and README link check. The [runbook](docs/runbook.md) covers event setup, accounts, preflight, messaging registration, data care, and a full booth rehearsal.
 
 ## Metrics and leads
 
-The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
+The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The phone keeps in-progress form fields during arena updates, and its keyboard Go action advances or sends the request. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
 
 The app stores event configuration, heat history, votes, metrics, and requested leads in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
 
@@ -168,6 +186,7 @@ flowchart LR
     S -. SMS or WhatsApp ballot .-> M[Twilio Messaging]
     M -->|signed webhook| A
     O[Booth operator and admin] <-->|settings, judging, reports| A
+    G[Google Workspace] -. optional verified operator sign-in .-> A
     A <--> D[(SQLite)]
     D -. hosted backup via Litestream .-> B[(Azure Blob)]
     A -. optional judging .-> AI[OpenAI]
@@ -179,7 +198,7 @@ The server owns the round clock, sealed clue, slot assignment, winner decision, 
 
 ## Azure deployment
 
-The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) is deployed on Azure Container Apps in rehearsal mode. Its public HTTPS URL supports phone camera permissions; Twilio Video credentials are still needed for live Rooms.
+The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) is deployed on Azure Container Apps in rehearsal mode. Its public HTTPS URL supports phone camera permissions; Twilio Video credentials are still needed for live Rooms. Local operator passwords work now; Google sign-in remains disabled until its OAuth client is configured.
 
 The Azure setup follows the Birdies & Eagles pattern: a dedicated resource group in `centralus`, private Container Registry, Container Apps environment, Log Analytics, and GitHub OIDC deploys. The app keeps SQLite on fast local container storage and uses Litestream to restore and replicate it to a private Azure Blob container. An Azure Blob lease allows only one replica to open the database, including during platform maintenance. A controlled rollout stops the previous game process before the replacement starts, so a release includes a brief planned pause. The Container App serves a public HTTPS URL and is configured for one replica.
 

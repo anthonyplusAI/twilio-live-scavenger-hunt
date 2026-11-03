@@ -3,6 +3,8 @@ const message = document.getElementById("login-message");
 const submit = document.getElementById("submit-button");
 const password = document.getElementById("password");
 const show = document.getElementById("show-password");
+const googleSignin = document.getElementById("google-signin");
+const googleLink = document.getElementById("google-signin-link");
 
 function safeNext() {
   const raw = new URLSearchParams(location.search).get("next");
@@ -31,6 +33,35 @@ async function alreadySignedIn() {
     if (response.ok) location.replace(await homePath());
   } catch { /* the form remains usable while offline */ }
 }
+async function showConfiguredProviders() {
+  try {
+    const response = await fetch("/api/auth/providers", { credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const providers = await response.json();
+    if (!providers.google?.enabled) return;
+    const destination = new URL("/api/auth/google/start", location.origin);
+    const next = safeNext();
+    if (next) destination.searchParams.set("next", next);
+    googleLink.href = destination.pathname + destination.search;
+    googleSignin.hidden = false;
+    document.body.classList.add("google-enabled");
+  } catch { /* password sign-in remains available */ }
+}
+function showReturnMessage() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("notice") === "password-changed") {
+    message.textContent = "Password changed. Sign in with your new password.";
+    message.classList.add("success");
+    return;
+  }
+  const error = params.get("error");
+  if (!error) return;
+  message.textContent = error === "google_domain"
+    ? "Use a verified @twilio.com Google account."
+    : error === "google_cancelled" || error === "access_denied"
+      ? "Google sign-in was cancelled. Try again when you're ready."
+      : "Google sign-in could not finish. Try again or use your booth account.";
+}
 show.addEventListener("click", () => {
   const visible = password.type === "password";
   password.type = visible ? "text" : "password";
@@ -40,6 +71,7 @@ show.addEventListener("click", () => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   message.textContent = "";
+  message.classList.remove("success");
   submit.disabled = true;
   submit.querySelector("span").textContent = "Signing in…";
   try {
@@ -61,4 +93,6 @@ form.addEventListener("submit", async (event) => {
     password.focus();
   }
 });
+showReturnMessage();
+showConfiguredProviders();
 alreadySignedIn();

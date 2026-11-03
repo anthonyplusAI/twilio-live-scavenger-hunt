@@ -15,13 +15,22 @@ npm start
 
 The first local start creates `app/data/live-scavenger-hunt.sqlite` and prints a generated `admin` password **once** in that server terminal. An existing `app/data/signal-stadium.sqlite` is reused so earlier settings, leads, and metrics remain available; its original seeded event is renamed in place. Save the password in your secret manager. Hosted first boot supplies `BOOTSTRAP_ADMIN_PASSWORD` through a Container App secret, so the password does not enter retained logs. Sign in at `/login` or the event's `/operator` URL. The server reloads `.env` only when it starts; restart after changing secrets. `npm run check` builds the Video browser bundle and runs the test suite.
 
-To create another admin or a limited booth operator, stop the service and run:
+In the control room, an admin opens **Team** to create a local operator with a username and password, reset an operator password, or remove an operator. **My password** changes the signed-in local account's password; all of that account's sessions end, including the current one, so sign in again. A password needs at least 12 characters. Operators can run heats but cannot manage accounts, edit event settings, or view leads and reports. Team accounts are global to the app, so the same operator can work across events. Changing `BOOTSTRAP_ADMIN_PASSWORD` after the database has users does **not** change the admin login; use **My password** instead. Keep a separate admin account for configuration and reporting.
+
+Optional Google sign-in lets any verified `@twilio.com` Google Workspace account enter as an operator, with no approval list. The app checks the signed ID token's `hd=twilio.com` Workspace claim as well as the verified email address; it never grants admin from Google. The login button appears only after both OAuth credentials are present. Configure the client and exact hosted callback through [Azure infrastructure setup](INFRA_SETUP.md#optional-google-sign-in-for-twilio-operators). Google OAuth is independent of Twilio Video, messaging, and local operator passwords.
+
+Removing a person's Workspace access blocks a future Google sign-in, but an
+app session already issued to that person remains valid until its 12-hour
+expiry. The app does not recheck Google or revoke those sessions immediately.
+
+For a local recovery when the browser account manager is unavailable, stop the
+service before using the CLI to create another admin or limited operator:
 
 ```sh
 node scripts/create-user.mjs --username booth-operator --role operator
 ```
 
-The command prints a one-time generated password. Use `--role admin` for someone who may edit events and view leads. Add `--password-stdin` to supply a password without putting it in a shell argument. If you set `LIVE_SCAVENGER_HUNT_DB`, export the same value in the shell before running this CLI; the CLI does not load `.env` by itself. The earlier `SIGNAL_STADIUM_DB` setting remains supported for existing installs.
+The command prints a one-time generated password. Use `--role admin` for someone who may edit events and view leads. Add `--password-stdin` to supply a password without putting it in a shell argument. This CLI is a **stopped local database** recovery tool; the hosted container image does not include it. If you set `LIVE_SCAVENGER_HUNT_DB`, export the same value in the shell before running this CLI; the CLI does not load `.env` by itself. The earlier `SIGNAL_STADIUM_DB` setting remains supported for existing installs.
 
 ## 2. Rehearse without external credentials
 
@@ -36,6 +45,13 @@ Leave `REHEARSAL_MODE` blank or set it to `on`. Without complete Twilio Video cr
 | Admin-only metrics and leads | `/e/live-scavenger-hunt/metrics` |
 
 Rehearsal mode sends small JPEG snapshots over the local app connection. It proves the join, arena, clock, judging, vote, lead, and reporting flow; it is lower frame rate than a Twilio Video Room. Camera access requires a secure browser context. `http://localhost` and `http://127.0.0.1` work for a camera on the same computer; phones scanning the live arena's play, vote, or tracked GitHub QR need a reachable **HTTPS** URL. Set `PUBLIC_BASE_URL` to that exact public origin so all QR targets and signed callbacks use the correct address.
+
+On a player phone, **Continue** checks the 2–20 character screen name and
+requires the separate display-consent checkbox. Invalid or missing information produces an inline prompt;
+arena state updates keep that form intact while the visitor types. The next
+screen checks the camera, then **Join with camera** saves a spot and shows a
+progress state until the arena confirms it. A visitor can choose **Watch and
+vote instead** if they do not want to share their camera.
 
 ## 3. Prepare each event
 
@@ -96,6 +112,10 @@ The private Metrics screen filters by event and date. A single-event range uses 
 
 Admins see leads; operators may run heats but cannot open private reports. Lead capture can be disabled per event; when enabled, an admin chooses up to eight fields and their required flags. The build-guide option requires a required email field; an expert request may use email or phone. Every submission saves the field definition that visitor saw, so later form edits do not rewrite earlier leads. Joining and voting never require the lead form. The expert CTA saves a requested follow-up; it does not place a call.
 
+The phone preserves in-progress lead fields while live arena updates arrive.
+The keyboard's Go action advances to the next form page or sends the request;
+it does not navigate away from the game.
+
 Locally, SQLite lives in `app/data/`. In Azure, it runs on fast local container storage and Litestream replicates it to a private Azure Blob container; a replacement revision restores the backup before Node starts. A renewable Blob lease ensures that an extra Container Apps replica waits instead of opening a second game database.
 
 Lead retention defaults to **90 days** and can be set per event; the server prunes expired leads hourly. Activity records are retained until the database is deliberately archived or deleted. The anonymous vote secret is generated and stored in SQLite unless `VOTE_HMAC_SECRET` is set. Keep it stable across restores. Restrict database and export access to staff who need it, and delete individual leads through the admin API when required.
@@ -105,6 +125,7 @@ Litestream attempts to sync every second when Blob is healthy, but an outage can
 ## 8. Production handoff checklist
 
 - [ ] Verify the Azure Container App serves HTTPS with the exact `PUBLIC_BASE_URL`, one running replica, a healthy `/health` response, and a current Litestream backup; complete a restore drill before opening doors.
+- [ ] Sign in as admin, create and test named local operator accounts in **Team**, rotate the initial admin password, and remove accounts that no longer need access. If Google sign-in is enabled, complete a verified Twilio Workspace login on the stable public hostname and confirm a non-Twilio account is denied.
 - [ ] Add Video credentials and the Auth Token, then check a live Group Room, player publishing, wall subscription, and signed callbacks.
 - [ ] Register and configure any SMS/WhatsApp senders, exact inbound webhook URL, event codes, and event-specific channel toggles.
 - [ ] Configure optional OpenAI, Segment, and SendGrid only for the services the activation will use.

@@ -71,6 +71,12 @@ jobs:
       # An unset variable leaves the live setting untouched. Provisioning starts
       # at 0; after verifying the first Blob backup, set this repo variable to 1.
       LITESTREAM_REQUIRE_REPLICA: ${{ vars.LITESTREAM_REQUIRE_REPLICA }}
+      # Both are optional. When set, the stopped-writer rollout adds the client
+      # ID and an ACA secret reference to the replacement revision only.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      # Explicit emergency off switch; an unset value preserves the live state.
+      GOOGLE_AUTH_DISABLE: ${{ vars.GOOGLE_AUTH_DISABLE }}
     steps:
       - uses: actions/checkout@v7
         with:

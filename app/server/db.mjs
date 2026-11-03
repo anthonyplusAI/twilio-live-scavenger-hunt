@@ -53,12 +53,19 @@ CREATE TABLE IF NOT EXISTS leads (
 CREATE INDEX IF NOT EXISTS idx_leads_event_at ON leads(event_id, created_at);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
-  password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT NOT NULL
+  password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT NOT NULL,
+  auth_provider TEXT NOT NULL DEFAULT 'password', google_sub TEXT, email TEXT
 );
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   csrf_token TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS google_oauth_flows (
+  state_hash TEXT PRIMARY KEY, browser_hash TEXT NOT NULL, nonce TEXT NOT NULL,
+  code_verifier TEXT NOT NULL, next_path TEXT NOT NULL,
+  expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_google_oauth_flows_expiry ON google_oauth_flows(expires_at);
 CREATE TABLE IF NOT EXISTS audit (
   id TEXT PRIMARY KEY, event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
   user_id TEXT, action TEXT NOT NULL, at TEXT NOT NULL, details_json TEXT NOT NULL
@@ -99,6 +106,11 @@ export class Store {
     this.sql = new DatabaseSync(filename);
     if (filename !== ':memory:') this.sql.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
     this.sql.exec(schema);
+    const userColumns = new Set(this.sql.prepare('PRAGMA table_info(users)').all().map(column => column.name));
+    if (!userColumns.has('auth_provider')) this.sql.exec("ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'password'");
+    if (!userColumns.has('google_sub')) this.sql.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
+    if (!userColumns.has('email')) this.sql.exec('ALTER TABLE users ADD COLUMN email TEXT');
+    this.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
   }
 
   transaction(callback) {

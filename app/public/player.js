@@ -27,6 +27,7 @@ const app = {
   consent: false,
   camera: null,
   cameraVideo: null,
+  joinBusy: false,
   media: null,
   mediaMode: null,
   mediaBusy: null,
@@ -41,6 +42,7 @@ const app = {
   leadPage: 0,
   leadDraft: { fieldValues: {}, marketingOptIn: false },
   leadResult: null,
+  renderedLeadKey: '',
   outcome: null,
   resultRevealSeen: new Set(),
   idleSince: null,
@@ -54,7 +56,7 @@ const app = {
 
 const $ = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-const button = (label, action, secondary = false, disabled = false) => `<button type="button" class="${secondary ? 'secondary' : 'primary'}" data-action="${action}" ${disabled ? 'disabled' : ''}><span>${label}</span><span aria-hidden="true">↗</span></button>`;
+const button = (label, action, secondary = false, disabled = false, type = 'button') => `<button type="${type}" class="${secondary ? 'secondary' : 'primary'}" data-action="${action}" ${disabled ? 'disabled' : ''}><span>${label}</span><span aria-hidden="true">↗</span></button>`;
 const now = () => Date.now() + app.serverOffset;
 const timeLeft = deadline => deadline ? Math.max(0, Math.ceil((new Date(deadline).getTime() - now()) / 1000)) : 0;
 const pad = number => String(number || 0).padStart(2, '0');
@@ -292,14 +294,41 @@ function leadMarkup(settings) {
   const hasEmailField = settings.fields.some(field => field.type === 'email');
   const marketing = final && settings.marketingOptIn && hasEmailField
     ? `<label class="check"><input type="checkbox" name="marketingOptIn" ${app.leadDraft.marketingOptIn ? 'checked' : ''}><span>Yes, send me occasional Twilio product updates by email. Optional.</span></label>` : '';
-  return `<div class="card cardpad lead-card"><button type="button" class="back-link" data-action="back-to-build">← Back to products</button><div class="lead-heading"><p class="eyebrow">${app.leadIntent === 'guide' ? 'Build guide' : 'Twilio expert'}</p><span class="lead-step-count">${app.leadPage + 1} / ${pages}</span></div><h1 class="section-title">Stay in<br>touch.</h1><form id="leadForm"><div class="lead-fields-layout">${fields.map(fieldMarkup).join('')}</div>${marketing}${final ? '<p class="lead-note">The booth team will use these details for your request. Product updates are a separate choice.</p>' : ''}<p class="error" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="lead-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'SEND REQUEST' : 'CONTINUE', final ? 'lead-submit' : 'lead-next')}</div></form></div>`;
+  return `<div class="card cardpad lead-card"><button type="button" class="back-link" data-action="back-to-build">← Back to products</button><div class="lead-heading"><p class="eyebrow">${app.leadIntent === 'guide' ? 'Build guide' : 'Twilio expert'}</p><span class="lead-step-count">${app.leadPage + 1} / ${pages}</span></div><h1 class="section-title">Stay in<br>touch.</h1><form id="leadForm" novalidate><div class="lead-fields-layout">${fields.map(fieldMarkup).join('')}</div>${marketing}${final ? '<p class="lead-note">The booth team will use these details for your request. Product updates are a separate choice.</p>' : ''}<p class="error" id="leadError" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="lead-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'SEND REQUEST' : 'CONTINUE', final ? 'lead-submit' : 'lead-next', false, false, 'submit')}</div></form></div>`;
+}
+
+function leadRenderKey(settings) {
+  return JSON.stringify({ intent: app.leadIntent, page: app.leadPage, pageSize: leadPageSize(), settings });
 }
 
 function render(force = false) {
   if (!app.event || !app.state) return;
   const lead = leadSettings();
-  if (app.view === 'lead' && (!lead.enabled || (app.leadIntent === 'guide' && !lead.guideEnabled) || (app.leadIntent === 'expert' && !lead.expertEnabled))) app.view = 'build';
+  if (app.view === 'lead' && (!lead.enabled || (app.leadIntent === 'guide' && !lead.guideEnabled) || (app.leadIntent === 'expert' && !lead.expertEnabled))) {
+    syncLeadDraft();
+    app.view = 'build';
+  }
   const view = currentView();
+  // Arena updates, errors, or session checks can arrive while someone taps
+  // this form. Even a forced render must keep its DOM until the view changes.
+  if (view === 'consent' && screen.dataset.view === 'consent') {
+    $('consentError').textContent = app.error;
+    return;
+  }
+  if (view === 'lead' && screen.dataset.view === 'lead') {
+    if (leadRenderKey(lead) === app.renderedLeadKey) {
+      $('leadError').textContent = app.error;
+      return;
+    }
+    // A staff change to the form or a deliberate page change may rerender it.
+    // Capture any in-progress text before replacing the visible fields.
+    syncLeadDraft();
+    const allowed = new Set(lead.fields.map(field => field.id));
+    for (const id of Object.keys(app.leadDraft.fieldValues)) {
+      if (!allowed.has(id)) delete app.leadDraft.fieldValues[id];
+    }
+    if (!lead.marketingOptIn) app.leadDraft.marketingOptIn = false;
+  }
   const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, leadPage: app.leadPage, leadIntent: app.leadIntent, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
@@ -316,9 +345,9 @@ function render(force = false) {
   if (view === 'intro') {
     screen.innerHTML = `<p class="eyebrow">A live camera game</p><h1 class="hero intro-title" aria-label="Live Scavenger Hunt">LIVE<br>SCAVENGER<br><em>HUNT.</em></h1><p class="sub">Find it. Show it. Beat the clock.</p>${playerVisual()}<div class="actions">${button('JOIN THE GAME', 'intro-next')}<p class="caption">${app.event.minPlayers || 2}–${app.event.maxPlayers || 6} players per heat · ${app.event.roundSeconds || 20} seconds per challenge</p></div>`;
   } else if (view === 'consent') {
-    screen.innerHTML = `<div class="card cardpad"><p class="eyebrow">01 / Get ready</p><h1 class="section-title">Your moment<br>on the wall.</h1><p class="body">Your camera appears on the public booth display during your heat. The game may check camera images to judge a match.</p><form id="consentForm"><div class="field"><label for="alias">Screen name</label><input id="alias" name="alias" maxlength="20" autocomplete="nickname" placeholder="e.g. Pixel Pilot" value="${escapeHtml(app.alias)}" required></div><label class="check"><input id="consent" type="checkbox" required ${app.consent ? 'checked' : ''}><span>I agree to appear on the public game display while I play.</span></label><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${button('CONTINUE', 'consent-next')}</div></form></div>`;
+    screen.innerHTML = `<div class="card cardpad"><p class="eyebrow">01 / Get ready</p><h1 class="section-title">Your moment<br>on the wall.</h1><p class="body">Your camera appears on the public booth display during your heat. The game may check camera images to judge a match.</p><form id="consentForm" novalidate><div class="field"><label for="alias">Screen name</label><input id="alias" name="alias" maxlength="20" autocomplete="nickname" placeholder="e.g. Pixel Pilot" value="${escapeHtml(app.alias)}" aria-describedby="consentError" required></div><label class="check"><input id="consent" name="consent" type="checkbox" aria-describedby="consentError" required ${app.consent ? 'checked' : ''}><span>I agree to appear on the public game display while I play.</span></label><p class="error" id="consentError" role="alert">${escapeHtml(app.error)}</p><div class="actions">${button('CONTINUE', 'consent-next', false, false, 'submit')}</div></form></div>`;
   } else if (view === 'preview') {
-    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${app.camera ? 'You look ready. Keep this page open while your heat runs.' : 'Allow camera access to play on the arena wall.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'JOIN WITH CAMERA', 'join', false, app.event.mediaMode === 'unconfigured') : button('ENABLE CAMERA', 'camera')}<a class="secondary text-link" href="${voteUrl}"><span>Watch and vote instead</span><span aria-hidden="true">↗</span></a></div>`;
+    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${app.joinBusy ? 'Saving your spot on the arena…' : app.camera ? 'You look ready. Keep this page open while your heat runs.' : 'Allow camera access to play on the arena wall.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.joinBusy ? 'JOINING THE HEAT…' : app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'JOIN WITH CAMERA', 'join', false, app.joinBusy || app.event.mediaMode === 'unconfigured') : button('ENABLE CAMERA', 'camera')}<a class="secondary text-link" href="${voteUrl}"><span>Watch and vote instead</span><span aria-hidden="true">↗</span></a></div>`;
   } else if (view === 'queued') {
     screen.innerHTML = `<p class="eyebrow">You’re in line</p><h1 class="hero">NEXT<br><em>UP.</em></h1>${playerVisual('WAITING FOR A SPOT')}<div class="status">NEXT HEAT · ${app.state.queuedCount || 1} QUEUED</div><p class="sub">Your camera is off while you wait. Reconnect it when a spot opens.</p><p class="error" role="alert">${escapeHtml(app.error)}</p>`;
   } else if (view === 'waiting') {
@@ -343,6 +372,7 @@ function render(force = false) {
     screen.innerHTML = buildMarkup(lead);
   } else if (view === 'lead') {
     screen.innerHTML = leadMarkup(lead);
+    app.renderedLeadKey = leadRenderKey(lead);
   } else if (view === 'thanks') {
     screen.innerHTML = `<p class="eyebrow">Request received</p><div class="result-mark">✓</div><h1 class="hero">YOU'RE<br><em>ALL SET.</em></h1><p class="sub">Your ${app.leadIntent === 'expert' ? 'expert conversation' : 'build guide'} request is saved for this event. Visit the Twilio booth to keep the conversation going.</p><div class="actions">${button('PLAY ANOTHER HEAT', 'replay')}</div>`;
   } else if (view === 'left') {
@@ -604,16 +634,25 @@ function updateIdleCheck() {
 }
 
 async function join() {
+  if (app.joinBusy) return;
   if (!app.camera) throw new Error('Enable your camera before joining.');
-  const response = await request('/join', { method: 'POST', body: { alias: app.alias, displayConsent: true } });
-  app.token = response.token;
-  sessionStorage.setItem(sessionKey, app.token);
-  app.player = response.player;
-  app.view = 'live';
+  app.joinBusy = true;
   app.error = '';
-  if (response.state) applyState({ state: response.state });
   render(true);
-  if (hasSlot()) await ensureMediaReady();
+  try {
+    const response = await request('/join', { method: 'POST', body: { alias: app.alias, displayConsent: true } });
+    app.token = response.token;
+    sessionStorage.setItem(sessionKey, app.token);
+    app.player = response.player;
+    app.view = 'live';
+    app.error = '';
+    if (response.state) applyState({ state: response.state });
+    render(true);
+    if (hasSlot()) await ensureMediaReady();
+  } finally {
+    app.joinBusy = false;
+    if (app.view === 'preview') render(true);
+  }
 }
 
 function syncLeadDraft() {
@@ -660,19 +699,71 @@ async function submitLead() {
     render(true);
     return;
   }
-  app.leadResult = await request('/leads', { method: 'POST', auth: true, body: { intent: app.leadIntent, fieldValues: app.leadDraft.fieldValues, marketingOptIn: app.leadDraft.marketingOptIn } });
+  const fieldValues = Object.fromEntries(settings.fields.map(field => [field.id, app.leadDraft.fieldValues[field.id] || '']));
+  app.leadResult = await request('/leads', { method: 'POST', auth: true, body: { intent: app.leadIntent, fieldValues, marketingOptIn: app.leadDraft.marketingOptIn } });
   app.error = '';
   app.view = 'thanks';
   render(true);
 }
 
+async function advanceLead() {
+  if (app.leadPage >= leadPages(leadSettings()) - 1) {
+    await submitLead();
+    return;
+  }
+  if (!validateCurrentLeadPage()) return;
+  syncLeadDraft();
+  app.leadPage += 1;
+  app.error = '';
+  render(true);
+}
+
+function advanceConsent() {
+  const form = $('consentForm');
+  const aliasInput = form.elements.namedItem('alias');
+  const consentInput = form.elements.namedItem('consent');
+  app.alias = aliasInput.value.trim().replace(/\s+/g, ' ');
+  app.consent = consentInput.checked;
+  const invalidAlias = app.alias.length < 2 || app.alias.length > 20 || /[<>\x00-\x1f\x7f]/.test(app.alias);
+  if (invalidAlias || !app.consent) {
+    app.error = invalidAlias
+      ? app.alias ? 'Use 2–20 characters without < or >.' : 'Enter a screen name to continue.'
+      : 'Check the display consent box to continue.';
+    $('consentError').textContent = app.error;
+    (invalidAlias ? aliasInput : consentInput).focus();
+    return;
+  }
+  app.view = 'preview';
+  app.error = '';
+  render(true);
+}
+
 screen.addEventListener('input', event => {
   if (event.target.id === 'alias') app.alias = event.target.value;
+  if (event.target.id === 'alias' && app.view === 'consent' && app.error) {
+    app.error = '';
+    $('consentError').textContent = '';
+  }
   if (event.target.dataset.leadField) app.leadDraft.fieldValues[event.target.dataset.leadField] = event.target.value;
 });
 screen.addEventListener('change', event => {
-  if (event.target.id === 'consent') app.consent = event.target.checked;
+  if (event.target.id === 'consent') {
+    app.consent = event.target.checked;
+    if (app.view === 'consent' && app.error) {
+      app.error = '';
+      $('consentError').textContent = '';
+    }
+  }
   if (event.target.name === 'marketingOptIn') app.leadDraft.marketingOptIn = event.target.checked;
+});
+screen.addEventListener('submit', async event => {
+  if (event.target.id === 'consentForm') {
+    event.preventDefault();
+    advanceConsent();
+  } else if (event.target.id === 'leadForm') {
+    event.preventDefault();
+    try { await advanceLead(); } catch (error) { showError(error); }
+  }
 });
 screen.addEventListener('click', async event => {
   const productLink = event.target.closest('[data-twilio-product]');
@@ -684,13 +775,6 @@ screen.addEventListener('click', async event => {
   if (!action) return;
   try {
     if (action === 'intro-next') { app.view = 'consent'; app.error = ''; render(true); }
-    if (action === 'consent-next') {
-      const form = $('consentForm');
-      if (!form.reportValidity()) return;
-      app.alias = form.elements.alias.value.trim();
-      app.consent = form.elements.consent.checked;
-      app.view = 'preview'; app.error = ''; render(true);
-    }
     if (action === 'camera') await enableCamera();
     if (action === 'join') await join();
     if (action === 'retry-media') { if (!app.camera) await enableCamera(); await ensureMediaReady(); }
@@ -710,15 +794,7 @@ screen.addEventListener('click', async event => {
       activity('lead_form_opened');
       render(true);
     }
-    if (action === 'lead-next') {
-      if (!validateCurrentLeadPage()) return;
-      syncLeadDraft();
-      app.leadPage += 1;
-      app.error = '';
-      render(true);
-    }
     if (action === 'lead-previous') { syncLeadDraft(); app.leadPage -= 1; app.error = ''; render(true); }
-    if (action === 'lead-submit') await submitLead();
     if (action === 'replay-demo' && isResultDemo) { app.resultRevealSeen.clear(); render(true); }
     if (action === 'demo-result' && isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); }
     if (action === 'replay') { if (isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); } else await leaveGame('intro'); }

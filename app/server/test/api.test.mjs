@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import QRCode from 'qrcode';
 import { openDatabase } from '../db.mjs';
 import { GameEngine } from '../engine.mjs';
 import { AuthService } from '../auth.mjs';
+import { GoogleAuthService } from '../google-auth.mjs';
 import { MediaService } from '../media.mjs';
 import { JudgeService } from '../judge.mjs';
 import { Integrations } from '../integrations.mjs';
 import { createHttpServer } from '../http.mjs';
 
-async function fixture(changes = {}) {
+async function fixture(changes = {}, options = {}) {
   const store = openDatabase();
   let event = store.seedDefault();
   if (Object.keys(changes).length) event = store.saveEvent(event.slug, { ...event, ...changes }, event.revision);
@@ -22,7 +24,9 @@ async function fixture(changes = {}) {
   const judge = new JudgeService({ engine, vision: { enabled: () => false }, now: () => now });
   const integrations = new Integrations({ store, engine, media, env: {} });
   engine.telemetry = integrations;
-  const server = createHttpServer({ store, engine, auth, media, judge, integrations, defaultSlug: event.slug });
+  const googleAuth = options.googleAuthFactory?.({ store, auth });
+  const server = createHttpServer({ store, engine, auth, media, judge, integrations,
+    defaultSlug: event.slug, googleAuth });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const base = `http://127.0.0.1:${server.address().port}`;
   async function request(path, { method = 'GET', body, token, cookie, csrf, headers = {} } = {}) {
@@ -179,6 +183,116 @@ test('admin role, CSRF, and revision checks protect configuration, reports, and 
     assert.equal(command.response.status, 200);
     const preflight = await app.request(`/api/admin/e/${app.event.slug}/preflight`, { cookie: operator.cookie });
     assert.ok(preflight.value.checks.some(check => check.name === 'Twilio Video'));
+  } finally { await app.close(); }
+});
+
+test('admin API creates, resets, and removes local operators with CSRF and session revocation', async () => {
+  const app = await fixture();
+  const firstPassword = randomBytes(32).toString('hex');
+  const secondPassword = randomBytes(32).toString('hex');
+  try {
+    assert.equal((await app.request('/api/auth/providers')).value.google.enabled, false);
+    assert.equal((await app.request('/api/admin/operators')).response.status, 401);
+    const admin = await app.login();
+    const ordinary = await app.login('operator', 'operator-password-123');
+    assert.equal((await app.request('/api/admin/operators', { cookie: ordinary.cookie })).response.status, 403);
+    assert.equal((await app.request('/api/admin/operators', { method: 'POST', cookie: admin.cookie,
+      body: { username: 'floorhost', password: firstPassword } })).response.status, 403);
+    const created = await app.request('/api/admin/operators', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: 'floorhost', password: firstPassword, role: 'admin' } });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.value.operator.role, 'operator');
+    assert.equal(created.value.operator.authProvider, 'password');
+    assert.equal(JSON.stringify(created.value).includes(firstPassword), false);
+    const operatorId = created.value.operator.id;
+    const listing = await app.request('/api/admin/operators', { cookie: admin.cookie });
+    assert.ok(listing.value.operators.some(operator => operator.id === operatorId));
+    const firstSession = await app.login('floorhost', firstPassword);
+    assert.equal((await app.request(`/api/admin/operators/${operatorId}/password`, { method: 'POST',
+      cookie: ordinary.cookie, csrf: ordinary.csrf, body: { password: secondPassword } })).response.status, 403);
+    const reset = await app.request(`/api/admin/operators/${operatorId}/password`, { method: 'POST',
+      cookie: admin.cookie, csrf: admin.csrf, body: { password: secondPassword } });
+    assert.equal(reset.response.status, 200);
+    assert.equal((await app.request('/api/auth/session', { cookie: firstSession.cookie })).response.status, 401);
+    const secondSession = await app.login('floorhost', secondPassword);
+    const removed = await app.request(`/api/admin/operators/${operatorId}`, { method: 'DELETE',
+      cookie: admin.cookie, csrf: admin.csrf });
+    assert.equal(removed.response.status, 204);
+    assert.equal((await app.request('/api/auth/session', { cookie: secondSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/admin/operators', { cookie: admin.cookie })).value.operators
+      .some(operator => operator.id === operatorId), false);
+    assert.equal((await app.request(`/api/admin/operators/${admin.user.id}`, { method: 'DELETE',
+      cookie: admin.cookie, csrf: admin.csrf })).response.status, 404);
+  } finally { await app.close(); }
+});
+
+test('self-service password rotation verifies the old password and clears every session', async () => {
+  const app = await fixture();
+  const newPassword = randomBytes(32).toString('hex');
+  try {
+    const admin = await app.login();
+    const secondSession = await app.login();
+    assert.equal((await app.request('/api/auth/password', { method: 'POST', cookie: admin.cookie,
+      body: { currentPassword: 'correct-password-123', newPassword } })).response.status, 403);
+    assert.equal((await app.request('/api/auth/password', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'wrong-password', newPassword } })).response.status, 403);
+    const changed = await app.request('/api/auth/password', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'correct-password-123', newPassword } });
+    assert.equal(changed.response.status, 200);
+    assert.match(changed.response.headers.get('set-cookie'), /Max-Age=0/);
+    assert.equal((await app.request('/api/auth/session', { cookie: admin.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: secondSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'admin', password: 'correct-password-123',
+    } })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'admin', password: newPassword,
+    } })).response.status, 200);
+  } finally { await app.close(); }
+});
+
+test('Google callback creates an operator session only with matching browser state and verified claims', async () => {
+  const fake = { options: null };
+  const app = await fixture({}, { googleAuthFactory: ({ store, auth }) => new GoogleAuthService({
+    store, auth, publicBaseUrl: 'http://127.0.0.1:12345', clientId: 'fixture-client', clientSecret: 'fixture-secret',
+    client: {
+      async generateCodeVerifierAsync() { return { codeVerifier: 'fixture-verifier', codeChallenge: 'fixture-challenge' }; },
+      generateAuthUrl(options) {
+        fake.options = options;
+        const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        url.searchParams.set('state', options.state);
+        return url.toString();
+      },
+      async getToken() { return { tokens: { id_token: 'fixture-id-token' } }; },
+      async verifyIdToken() { return { getPayload: () => ({ iss: 'https://accounts.google.com',
+        sub: 'fixture-google-sub', email: 'booth@twilio.com', email_verified: true, hd: 'twilio.com',
+        nonce: fake.options.nonce }) }; },
+    },
+  }) });
+  try {
+    assert.equal((await app.request('/api/auth/providers')).value.google.enabled, true);
+    const start = await fetch(`${app.base}/api/auth/google/start?next=%2Fe%2Flive-scavenger-hunt%2Foperator%23team`,
+      { redirect: 'manual' });
+    assert.equal(start.status, 302);
+    const state = new URL(start.headers.get('location')).searchParams.get('state');
+    const flowCookie = start.headers.get('set-cookie').split(';')[0];
+    const rejected = await fetch(`${app.base}/api/auth/google/callback?state=${state}&code=fixture`,
+      { redirect: 'manual' });
+    assert.equal(rejected.status, 302);
+    assert.match(rejected.headers.get('location'), /error=google_failed/);
+    const callback = await fetch(`${app.base}/api/auth/google/callback?state=${state}&code=fixture`,
+      { redirect: 'manual', headers: { Cookie: flowCookie } });
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get('location'), '/e/live-scavenger-hunt/operator#team');
+    const sessionCookie = callback.headers.getSetCookie().find(cookie => cookie.startsWith('signal_stadium_session='))?.split(';')[0];
+    assert.ok(sessionCookie);
+    const session = await app.request('/api/auth/session', { cookie: sessionCookie });
+    assert.equal(session.value.user.role, 'operator');
+    assert.equal(session.value.user.username, 'booth@twilio.com');
+    const replay = await fetch(`${app.base}/api/auth/google/callback?state=${state}&code=fixture`,
+      { redirect: 'manual', headers: { Cookie: flowCookie } });
+    assert.match(replay.headers.get('location'), /error=google_failed/);
+    assert.equal(app.store.sql.prepare("SELECT COUNT(*) AS count FROM users WHERE auth_provider='google'").get().count, 1);
   } finally { await app.close(); }
 });
 

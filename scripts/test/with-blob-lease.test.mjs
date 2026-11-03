@@ -7,6 +7,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { ensureLockBlob, runProcess, runWithBlobLease } from '../with-blob-lease.mjs';
 
 const quiet = { log() {}, warn() {}, error() {} };
+const childStartupTimeoutMs = 10_000;
 
 async function waitUntil(predicate, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
@@ -118,7 +119,7 @@ test('normal shutdown keeps renewing the lease until the worker finishes its fin
         pidFile,
       ], { shutdownSignal: stop, leaseLostSignal: lost, terminationGraceMs: 500 }),
     });
-    await waitUntil(() => existsSync(pidFile));
+    await waitUntil(() => existsSync(pidFile), childStartupTimeoutMs);
     shutdown.abort(new Error('SIGTERM'));
     assert.equal(await guarded, 0);
     assert.ok(renewalsAfterStop >= 2, 'the lease must renew during graceful final sync');
@@ -184,7 +185,7 @@ test('normal shutdown lets Litestream forward SIGTERM to its app before final sy
       '--input-type=module', '-e', litestreamCode,
       parentReady, childReady, childTerm, premature, finalSync,
     ], { shutdownSignal: shutdown.signal, terminationGraceMs: 500, emergencyGraceMs: 75 });
-    await waitUntil(() => existsSync(parentReady));
+    await waitUntil(() => existsSync(parentReady), childStartupTimeoutMs);
     shutdown.abort(new Error('planned shutdown'));
     await assert.rejects(running, /planned shutdown/);
     assert.equal(existsSync(premature), false, 'app must not receive SIGTERM before Litestream forwards it');
