@@ -111,6 +111,24 @@ test('summary counts play, votes, lead intent, and safe activity properties', ()
   } finally { store.close(); }
 });
 
+test('follow-up requests use request dates even when the lead was captured earlier', () => {
+  const store = new Store(':memory:');
+  try {
+    const event = eventInZone(store, 'Follow-up Expo', 'follow-up-expo', 'UTC');
+    addLead(store, event, { id: 'captured-early', at: '2026-11-02T12:00:00.000Z', intent: 'capture',
+      values: { email: 'visitor@example.test' }, fields: [{ id: 'email', label: 'Email', type: 'email' }] });
+    store.markLeadRequest('captured-early', 'guide', '2026-11-03T12:00:00.000Z');
+    store.markLeadRequest('captured-early', 'expert', '2026-11-04T12:00:00.000Z');
+    const day = value => buildReport(store, { event: event.slug, from: value, to: value });
+    assert.deepEqual([day('2026-11-02').summary.leads, day('2026-11-02').summary.guideRequests], [1, 0]);
+    assert.equal(day('2026-11-03').leads.length, 0);
+    assert.deepEqual([day('2026-11-03').summary.guideRequests, day('2026-11-03').summary.expertRequests], [1, 0]);
+    assert.deepEqual([day('2026-11-04').summary.guideRequests, day('2026-11-04').summary.expertRequests], [0, 1]);
+    const all = buildReport(store, { event: 'all', from: '2026-11-03', to: '2026-11-03' });
+    assert.equal(all.summary.byEvent[0].guideRequests, 1);
+  } finally { store.close(); }
+});
+
 test('outbound product and repository clicks follow event and date filters', () => {
   const store = new Store(':memory:');
   try {
@@ -140,8 +158,9 @@ test('outbound product and repository clicks follow event and date filters', () 
     assert.equal(bothDay.summary.githubRepoClicks, 2);
     assert.deepEqual(bothDay.summary.githubRepoClicksBySource,
       { phone: 0, spectator: 1, arenaQr: 1, arenaLink: 0 });
-    assert.deepEqual(bothDay.summary.byEvent.map(row => [row.slug, row.twilioProductLinkClicks, row.githubRepoClicks]), [
-      ['west-expo', 2, 1], ['east-expo', 1, 1],
+    assert.deepEqual(bothDay.summary.byEvent.map(row => [row.slug, row.twilioProductLinkClicks, row.githubRepoClicks])
+      .sort((a, b) => a[0].localeCompare(b[0])), [
+      ['east-expo', 1, 1], ['west-expo', 2, 1],
     ]);
   } finally { store.close(); }
 });

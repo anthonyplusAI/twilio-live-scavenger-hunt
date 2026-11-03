@@ -285,8 +285,9 @@ settings preserve the existing ACA values.
    partial pair fails before downtime. Set `SENDGRID_REGION=eu` only for an EU
    regional account. The default uses the global API; `global` or `us` can
    explicitly switch a previously configured EU deployment back. A successful
-   requested-guide form submission sends one guide email; expert requests are
-   saved for staff follow-up and do not send a Voice call.
+   build-guide request after a player joins with saved contact details sends
+   one guide email; expert requests are saved for staff follow-up and do not
+   send a Voice call.
 
 After cutover, test one AI-assisted prompt, check that a safe game event appears
 in the intended Segment Source, and request a guide with a staff email address.

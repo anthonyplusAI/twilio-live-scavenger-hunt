@@ -387,7 +387,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       limiter.check(`join-booth:${slug}:${ip}`, 1800, 60_000);
       limiter.check(`join-browser:${slug}:${voterCookie(req, res, secure)}`, 8, 60_000);
       const body = await readJson(req, 4_000);
-      return json(res, 201, engine.join(slug, body));
+      return json(res, 201, engine.join(slug, body, { requireLead: true }));
     }
     if (tail === 'me' && method === 'GET') return json(res, 200, engine.me(slug, bearer(req)));
     if (tail === 'replay' && method === 'POST') return json(res, 200, engine.replay(slug, bearer(req)));

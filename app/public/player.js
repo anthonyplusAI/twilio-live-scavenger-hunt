@@ -27,6 +27,9 @@ const app = {
   consent: false,
   camera: null,
   cameraVideo: null,
+  cameraInput: null,
+  cameraCanvas: null,
+  cameraDrawTimer: null,
   joinBusy: false,
   replayBusy: false,
   media: null,
@@ -43,6 +46,8 @@ const app = {
   leadPage: 0,
   leadDraft: { fieldValues: {} },
   leadResult: null,
+  followupBusy: false,
+  queueRefreshBusy: false,
   renderedLeadKey: '',
   outcome: null,
   resultRevealSeen: new Set(),
@@ -100,9 +105,25 @@ function activity(type, properties = {}) {
 }
 githubFooterLink.addEventListener('click', () => activity('github_cta_opened', { source: 'phone' }));
 
+async function refreshQueuePosition() {
+  if (app.queueRefreshBusy || !app.token || app.player?.status !== 'queued') return;
+  const playerId = app.player.id;
+  app.queueRefreshBusy = true;
+  try {
+    const response = await request('/me', { auth: true });
+    if (app.player?.id !== playerId || app.view !== 'live') return;
+    app.player = { ...app.player, ...response.player };
+    if (response.state) applyState({ state: response.state });
+    else render();
+  } catch (error) {
+    if (error.status === 401) sessionExpired();
+  } finally { app.queueRefreshBusy = false; }
+}
+
 function applyState(payload) {
   if (!payload || !payload.state) return;
   const hadSlot = hasSlot();
+  const previousQueueCount = app.state?.queuedCount;
   if (payload.serverTime) app.serverOffset = new Date(payload.serverTime).getTime() - Date.now();
   if (payload.event) app.event = payload.event;
   app.state = payload.state;
@@ -111,6 +132,10 @@ function applyState(payload) {
   const roster = rosterPlayer();
   if (roster && app.player && !(app.player.status === 'queued' && phase() === 'result'))
     app.player = { ...app.player, ...roster, heat: app.state.heat };
+  if (app.player && app.view === 'preview' && !hasSlot()) {
+    releaseMedia(true);
+    app.view = 'live';
+  }
   if (app.player && app.view === 'live') {
     if (!hasSlot() && (app.media || app.camera)) releaseMedia(true);
     if (!hadSlot && hasSlot() && !app.camera && phase() !== 'result')
@@ -131,6 +156,9 @@ function applyState(payload) {
   }
   render();
   updateIdleCheck();
+  if (app.view === 'live' && app.player?.status === 'queued' &&
+      previousQueueCount != null && previousQueueCount !== app.state.queuedCount)
+    void refreshQueuePosition();
 }
 
 function showError(error) {
@@ -254,12 +282,13 @@ function buildMarkup(lead) {
   }
   const tabs = Object.entries(buildProducts).map(([key, item]) => `<button type="button" class="build-tab ${key === app.buildProduct ? 'is-active' : ''}" data-action="build-product" data-product="${key}" aria-pressed="${key === app.buildProduct}"><strong>${key === 'video' ? 'Video' : key === 'messaging' ? 'Messaging' : 'Segment'}</strong><small>${key === 'video' ? 'Game core' : 'Optional'}</small></button>`).join('');
   const flow = `<div class="build-flow build-flow-${app.buildProduct}" aria-hidden="true"><figure class="build-flow-end build-flow-source">${product.source}<figcaption>${product.from}</figcaption></figure><div class="build-flow-link"><span class="build-flow-line"></span><span class="build-flow-twilio"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="build-flow-line"></span></div><figure class="build-flow-end build-flow-destination">${product.destination}<figcaption>${product.to}</figcaption></figure></div>`;
-  const guide = lead.enabled && lead.guideEnabled ? '<button type="button" class="build-guide" data-action="guide">Request the build guide <span aria-hidden="true">↗</span></button>' : '';
-  const expert = lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${guide ? '' : 'is-primary'}" data-action="expert">Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '';
+  const busy = app.followupBusy ? 'disabled' : '';
+  const guide = lead.enabled && lead.guideEnabled ? `<button type="button" class="build-guide" data-action="guide" ${busy}>${app.followupBusy ? 'Saving your request…' : 'Request the build guide'} <span aria-hidden="true">↗</span></button>` : '';
+  const expert = lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${guide ? '' : 'is-primary'}" data-action="expert" ${busy}>Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '';
   const replay = isResultDemo ? '<button type="button" class="build-replay" data-action="demo-result">← Back to the result</button>' : '<button type="button" class="build-replay" data-action="replay">Play another heat</button>';
   const invitation = guide || expert ? '<p>Want to make a moment like this?</p>' : '<div class="build-booth-invite"><span class="build-booth-mark"><img src="/assets/twilio-bug-official.png" alt=""></span><span><strong>Build your own live moment.</strong><small>Talk to the Twilio team at the booth.</small></span></div>';
   const learnMore = `<a class="build-product-link" data-twilio-product="${app.buildProduct}" href="${product.url}" target="_blank" rel="noopener noreferrer" aria-label="Explore ${product.name} on Twilio (opens in a new tab)">Explore ${product.name} <span aria-hidden="true">↗</span></a>`;
-  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p>${learnMore}</div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${replay}${app.error ? `<p class="error" role="alert">${escapeHtml(app.error)}</p>` : ''}</div></div>`;
+  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p>${learnMore}</div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${app.error ? `<p class="build-error" role="alert">${escapeHtml(app.error)}</p>` : ''}${replay}</div></div>`;
 }
 
 function preview() {
@@ -279,55 +308,88 @@ function playerVisual(label = 'YOUR PLAYER SPOT') {
   return `<div class="player-visual" aria-hidden="true"><div class="player-visual-card"><div class="player-visual-top">${cameraIcon()}<span>PHONE CAMERA</span><i></i></div><div class="player-visual-person">${portraitArt()}</div><div class="player-visual-bottom"><span>01</span><strong>${label}</strong></div></div></div>`;
 }
 
-// Keep mobile pagination stable when the virtual keyboard changes viewport height.
-function leadPageSize() { return innerWidth <= 600 || innerHeight < 680 ? 2 : 3; }
-let renderedLeadPageSize = leadPageSize();
-function leadPages(settings) { return Math.max(1, Math.ceil(settings.fields.length / leadPageSize())); }
+function queueMarkup() {
+  const rank = Number(app.player?.queuePosition);
+  const position = Number.isInteger(rank) && rank > 0 ? rank : null;
+  const waiting = Number(app.state?.queuedCount || 0);
+  const capacity = Math.max(1, Number(app.event?.maxPlayers || 6));
+  const heatsAway = position ? Math.ceil(position / capacity) : null;
+  const estimate = heatsAway === 1 ? 'EXPECTED NEXT HEAT'
+    : heatsAway ? 'ABOUT ' + heatsAway + ' HEATS AWAY' : 'UPDATING YOUR PLACE';
+  const total = waiting + ' ' + (waiting === 1 ? 'PLAYER' : 'PLAYERS') + ' WAITING';
+  return `<p class="eyebrow">Your place in line</p><h1 class="hero">YOU'RE<br><em>ON DECK.</em></h1><div class="queue-ticket" aria-live="polite"><div class="queue-ticket-top"><span>LIVE WAITLIST</span><span class="queue-ticket-dot" aria-hidden="true"></span></div><strong class="queue-ticket-rank">${position ? '#' + pad(position) : '—'}</strong><div class="queue-ticket-bottom"><span>${estimate}</span><small>${total}</small></div></div><p class="sub queue-copy">Camera off while you wait. Keep this page open; reconnect when your spot opens.</p><p class="error" role="alert">${escapeHtml(app.error)}</p>`;
+}
+
+// Keep pagination stable when the Android virtual keyboard changes viewport height.
+const initialJoinHeight = innerHeight;
+function leadPageSize() { return innerWidth <= 600 || initialJoinHeight < 680 ? 2 : 3; }
+function compactFinalJoinPage() { return innerWidth <= 400 || initialJoinHeight < 700; }
+function leadLayoutKey() { return `${leadPageSize()}:${compactFinalJoinPage()}`; }
+let renderedLeadPageSize = leadLayoutKey();
+function leadFieldPages(settings) {
+  if (!settings.enabled) return [[]];
+  const pages = [];
+  for (let start = 0; start < settings.fields.length;) {
+    const remaining = settings.fields.length - start;
+    // Leave room for display and image-review consent on a small phone.
+    const size = compactFinalJoinPage() && remaining > 1 && remaining <= leadPageSize()
+      ? remaining - 1 : Math.min(leadPageSize(), remaining);
+    pages.push(settings.fields.slice(start, start + size));
+    start += size;
+  }
+  if (!pages.length) pages.push([]);
+  if (compactFinalJoinPage() && settings.fields.length === 1) pages.push([]);
+  return pages;
+}
+function pageForLeadField(settings, index) {
+  const id = settings.fields[index]?.id;
+  const page = leadFieldPages(settings).findIndex(fields => fields.some(field => field.id === id));
+  return Math.max(0, page);
+}
 function fieldMarkup(field) {
   const id = `lead-${field.id}`;
   const autocomplete = ({ name: 'name', email: 'email', company: 'organization', phone: 'tel', jobTitle: 'organization-title' })[field.id] || 'off';
   return `<div class="field"><label for="${id}">${escapeHtml(field.label)}${field.required ? ' *' : ' · optional'}</label><input id="${id}" data-lead-field="${field.id}" type="${field.type}" autocomplete="${autocomplete}" maxlength="${field.type === 'email' ? 254 : field.type === 'tel' ? 40 : 160}" ${field.required ? 'required' : ''} value="${escapeHtml(app.leadDraft.fieldValues[field.id] || '')}"></div>`;
 }
-function leadMarkup(settings) {
-  const pages = leadPages(settings);
-  app.leadPage = Math.max(0, Math.min(app.leadPage, pages - 1));
-  const fields = settings.fields.slice(app.leadPage * leadPageSize(), (app.leadPage + 1) * leadPageSize());
-  const final = app.leadPage === pages - 1;
-  return `<div class="card cardpad lead-card"><button type="button" class="back-link" data-action="back-to-build">← Back to products</button><div class="lead-heading"><p class="eyebrow">${app.leadIntent === 'guide' ? 'Build guide' : 'Twilio expert'}</p><span class="lead-step-count">${app.leadPage + 1} / ${pages}</span></div><h1 class="section-title">Stay in<br>touch.</h1><form id="leadForm" novalidate><div class="lead-fields-layout">${fields.map(fieldMarkup).join('')}</div>${final ? '<p class="lead-note">The booth team will use these details to respond to your request.</p>' : ''}<p class="error" id="leadError" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="lead-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'SEND REQUEST' : 'CONTINUE', final ? 'lead-submit' : 'lead-next', false, false, 'submit')}</div></form></div>`;
+function joinMarkup(settings) {
+  const pages = leadFieldPages(settings);
+  app.leadPage = Math.max(0, Math.min(app.leadPage, pages.length - 1));
+  const first = app.leadPage === 0;
+  const final = app.leadPage === pages.length - 1;
+  const fields = pages[app.leadPage];
+  const alias = first ? `<div class="field"><label for="alias">Screen name</label><input id="alias" name="alias" maxlength="20" minlength="2" autocomplete="nickname" placeholder="e.g. Pixel Pilot" value="${escapeHtml(app.alias)}" required></div>` : '';
+  const consent = final
+    ? `<label class="check"><input id="consent" name="consent" type="checkbox" required ${app.consent ? 'checked' : ''}><span>I agree to appear on the public display and have my camera images checked for matches.</span></label>` : '';
+  const heading = first ? 'Join the<br> hunt.' : 'Almost<br> ready.';
+  const intro = settings.enabled
+    ? first ? 'Share your details with the booth team before the camera check.' : 'Your details will be saved for this event when you join.'
+    : 'Your camera appears on the public booth display during your heat.';
+  const cameraNote = final ? '<p class="lead-note">When AI judging is enabled, OpenAI may review brief camera images to judge a match.</p>' : '';
+  return `<div class="card cardpad join-card"><div class="lead-heading"><p class="eyebrow">01 / ${settings.enabled ? 'Your details' : 'Get ready'}</p>${pages.length > 1 ? `<span class="lead-step-count">${app.leadPage + 1} / ${pages.length}</span>` : ''}</div><h1 class="section-title">${heading}</h1><p class="join-intro">${intro}</p><form id="consentForm" novalidate><div class="lead-fields-layout">${alias}${fields.map(fieldMarkup).join('')}</div>${cameraNote}${consent}<p class="error" id="consentError" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="join-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? app.joinBusy ? 'SAVING YOUR SPOT…' : 'SAVE & CHECK CAMERA' : 'CONTINUE', 'consent-next', false, app.joinBusy, 'submit')}</div></form>${first ? `<a class="join-spectate" href="${voteUrl}">Watch and vote instead <span aria-hidden="true">↗</span></a>` : ''}</div>`;
 }
 
-function leadRenderKey(settings) {
-  return JSON.stringify({ intent: app.leadIntent, page: app.leadPage, pageSize: leadPageSize(), settings });
+function joinRenderKey(settings) {
+  return JSON.stringify({ page: app.leadPage, layout: leadLayoutKey(), busy: app.joinBusy, settings });
 }
 
 function render(force = false) {
   if (!app.event || !app.state) return;
   const lead = leadSettings();
-  if (app.view === 'lead' && (!lead.enabled || (app.leadIntent === 'guide' && !lead.guideEnabled) || (app.leadIntent === 'expert' && !lead.expertEnabled))) {
-    syncLeadDraft();
-    app.view = 'build';
-  }
   const view = currentView();
-  // Arena updates, errors, or session checks can arrive while someone taps
-  // this form. Even a forced render must keep its DOM until the view changes.
+  // Preserve typed fields while live arena updates arrive. Rebuild only when
+  // staff edit the configured form or the visitor changes form pages.
   if (view === 'consent' && screen.dataset.view === 'consent') {
-    $('consentError').textContent = app.error;
-    return;
-  }
-  if (view === 'lead' && screen.dataset.view === 'lead') {
-    if (leadRenderKey(lead) === app.renderedLeadKey) {
-      $('leadError').textContent = app.error;
+    if (joinRenderKey(lead) === app.renderedLeadKey) {
+      $('consentError').textContent = app.error;
       return;
     }
-    // A staff change to the form or a deliberate page change may rerender it.
-    // Capture any in-progress text before replacing the visible fields.
-    syncLeadDraft();
+    syncJoinDraft();
     const allowed = new Set(lead.fields.map(field => field.id));
     for (const id of Object.keys(app.leadDraft.fieldValues)) {
       if (!allowed.has(id)) delete app.leadDraft.fieldValues[id];
     }
   }
-  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, leadPage: app.leadPage, leadIntent: app.leadIntent, buildProduct: app.buildProduct, connection: app.connection });
+  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, leadPage: app.leadPage, leadIntent: app.leadIntent, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
   screen.dataset.view = view;
@@ -338,19 +400,20 @@ function render(force = false) {
   const shortModeLabel = isResultDemo ? 'Visual preview' : app.event.mediaMode === 'twilio' ? 'Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal' : 'Booth setup';
   modeLabel.textContent = shortModeLabel;
   modeLabel.setAttribute('aria-label', fullModeLabel);
-  $('leaveButton').hidden = isResultDemo || !app.token || ['intro', 'consent', 'preview', 'left', 'removed'].includes(view);
+  $('leaveButton').hidden = isResultDemo || !app.token || ['intro', 'consent', 'left', 'removed'].includes(view);
 
   if (view === 'intro') {
     screen.innerHTML = `<p class="eyebrow">A live camera game</p><h1 class="hero intro-title" aria-label="Live Scavenger Hunt">LIVE<br>SCAVENGER<br><em>HUNT.</em></h1><p class="sub">Find it. Show it. Beat the clock.</p>${playerVisual()}<div class="actions">${button('JOIN THE GAME', 'intro-next')}<p class="caption">${app.event.minPlayers || 2}–${app.event.maxPlayers || 6} players per heat · ${app.event.roundSeconds || 45}s standard round; some clues vary</p></div>`;
   } else if (view === 'consent') {
-    screen.innerHTML = `<div class="card cardpad"><p class="eyebrow">01 / Get ready</p><h1 class="section-title">Your moment<br>on the wall.</h1><p class="body">Your camera appears on the public booth display during your heat. When AI judging is enabled, OpenAI may review brief camera images to judge a match.</p><form id="consentForm" novalidate><div class="field"><label for="alias">Screen name</label><input id="alias" name="alias" maxlength="20" autocomplete="nickname" placeholder="e.g. Pixel Pilot" value="${escapeHtml(app.alias)}" aria-describedby="consentError" required></div><label class="check"><input id="consent" name="consent" type="checkbox" aria-describedby="consentError" required ${app.consent ? 'checked' : ''}><span>I agree to appear on the public display and have my camera images checked for matches.</span></label><p class="error" id="consentError" role="alert">${escapeHtml(app.error)}</p><div class="actions">${button('CONTINUE', 'consent-next', false, false, 'submit')}</div></form></div>`;
+    screen.innerHTML = joinMarkup(lead);
+    app.renderedLeadKey = joinRenderKey(lead);
   } else if (view === 'preview') {
-    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${app.joinBusy ? 'Saving your spot on the arena…' : app.camera ? 'You look ready. Keep this page open while your heat runs.' : 'Allow camera access to play on the arena wall.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.joinBusy ? 'JOINING THE HEAT…' : app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'JOIN WITH CAMERA', 'join', false, app.joinBusy || app.event.mediaMode === 'unconfigured') : button('ENABLE CAMERA', 'camera')}<a class="secondary text-link" href="${voteUrl}"><span>Watch and vote instead</span><span aria-hidden="true">↗</span></a></div>`;
+    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${lead.enabled ? app.camera ? 'Your details are saved. Go live when ready.' : 'Your details are saved. Allow camera access to play.' : app.camera ? 'Your spot is reserved. Go live when ready.' : 'Your spot is reserved. Allow camera access to play.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'GO LIVE', 'join', false, app.event.mediaMode === 'unconfigured') : button('ENABLE CAMERA', 'camera')}${button('LEAVE SPOT & VOTE', 'spectate', true)}</div>`;
   } else if (view === 'queued') {
-    screen.innerHTML = `<p class="eyebrow">You’re in line</p><h1 class="hero">NEXT<br><em>UP.</em></h1>${playerVisual('WAITING FOR A SPOT')}<div class="status">NEXT HEAT · ${app.state.queuedCount || 1} QUEUED</div><p class="sub">Your camera is off while you wait. Reconnect it when a spot opens.</p><p class="error" role="alert">${escapeHtml(app.error)}</p>`;
+    screen.innerHTML = queueMarkup();
   } else if (view === 'waiting') {
     const slot = rosterPlayer()?.slot ?? app.player?.slot;
-    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">READY<br><em>TO GO.</em></h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} / ${app.event.maxPlayers || 6} READY</div><p class="caption">${app.media ? 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p>${app.media ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true)}</div>`}`;
+    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">READY<br><em>TO GO.</em></h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} READY</div><p class="caption" data-join-status>${joinStatusText()}</p><p class="caption">${app.media ? 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p>${app.media ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true)}</div>`}`;
   } else if (view === 'countdown') {
     screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Stand by</p><div class="result-mark countdown-figure" data-clock>3</div><h1 class="hero sealed-title">CLUE<br><em>SEALED.</em></h1><p class="sub">Everyone sees the challenge at GO. Hold your camera steady.</p>`;
   } else if (view === 'hunt') {
@@ -370,9 +433,6 @@ function render(force = false) {
     screen.innerHTML = `<p class="eyebrow">Visual preview · Next heat</p><h1 class="hero">NEXT<br><em>UP.</em></h1>${playerVisual('WAITING FOR A SPOT')}<p class="sub">Your camera is off between heats. When your spot opens, you reconnect and play again.</p><div class="actions">${button('BACK TO RESULT', 'demo-result', true)}</div>`;
   } else if (view === 'build') {
     screen.innerHTML = buildMarkup(lead);
-  } else if (view === 'lead') {
-    screen.innerHTML = leadMarkup(lead);
-    app.renderedLeadKey = leadRenderKey(lead);
   } else if (view === 'thanks') {
     screen.innerHTML = `<p class="eyebrow">Request received</p><div class="result-mark">✓</div><h1 class="hero">YOU'RE<br><em>ALL SET.</em></h1><p class="sub">Your ${app.leadIntent === 'expert' ? 'expert conversation' : 'build guide'} request is saved for this event. Visit the Twilio booth to keep the conversation going.</p><div class="actions">${button('PLAY NEXT HEAT', 'replay')}${button('LEAVE GAME', 'leave', true)}${app.error ? `<p class="error" role="alert">${escapeHtml(app.error)}</p>` : ''}</div>`;
   } else if (view === 'left') {
@@ -391,13 +451,61 @@ function attachCameraPreview() {
     video.play().catch(() => {});
   }
 }
+function joinStatusText() {
+  const ready = Number(app.state?.readyCount || 0);
+  const minimum = Number(app.event?.minPlayers || 2);
+  const maximum = Number(app.event?.maxPlayers || 6);
+  if (app.state?.readyDeadline && ['flexible', 'deadline'].includes(app.event?.startMode))
+    return `${timeLeft(app.state.readyDeadline)}s left for more players to join.`;
+  if (ready < minimum) return `Waiting for ${minimum - ready} more player${minimum - ready === 1 ? '' : 's'} · up to ${maximum} can join.`;
+  if (app.event?.startMode === 'capacity') return `Waiting for ${maximum - ready} more player${maximum - ready === 1 ? '' : 's'} to fill the heat.`;
+  if (app.event?.startMode === 'manual') return 'The booth team starts the heat when ready.';
+  return `Room open for up to ${maximum} players.`;
+}
+
 function updateClock() {
   if (!app.state) return;
   const view = currentView();
+  const joinStatus = screen.querySelector('[data-join-status]');
+  if (view === 'waiting' && joinStatus) joinStatus.textContent = joinStatusText();
   const clock = screen.querySelector('[data-clock]');
   if (!clock) return;
   if (view === 'countdown') clock.textContent = timeLeft(app.state.countdownEndsAt) || 'GO';
   if (view === 'hunt') clock.textContent = pad(timeLeft(app.state.roundEndsAt));
+}
+
+async function cameraDimensions(video) {
+  if (video.videoWidth && video.videoHeight) return true;
+  await Promise.race([
+    new Promise(resolve => video.addEventListener('loadedmetadata', resolve, { once: true })),
+    new Promise(resolve => setTimeout(resolve, 5000)),
+  ]);
+  return Boolean(video.videoWidth && video.videoHeight);
+}
+
+function portraitStream(raw, video) {
+  if (video.videoWidth <= video.videoHeight) return { stream: raw, canvas: null, timer: null };
+  if (!HTMLCanvasElement.prototype.captureStream)
+    throw new Error('This browser cannot publish portrait video. Update your browser or try another phone.');
+  const canvas = document.createElement('canvas');
+  canvas.width = 540;
+  canvas.height = 960;
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('Camera preview could not start. Try again.');
+  const draw = () => {
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    const sourceWidth = video.videoHeight * 9 / 16;
+    const left = (video.videoWidth - sourceWidth) / 2;
+    context.drawImage(video, left, 0, sourceWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
+  };
+  draw();
+  const timer = setInterval(draw, 1000 / 24);
+  try {
+    return { stream: canvas.captureStream(24), canvas, timer };
+  } catch {
+    clearInterval(timer);
+    throw new Error('This browser cannot publish portrait video. Update your browser or try another phone.');
+  }
 }
 
 async function enableCamera() {
@@ -406,28 +514,48 @@ async function enableCamera() {
     activity('camera_failed');
     throw new Error('Camera access needs HTTPS or localhost. You can still watch and vote.');
   }
-  let stream;
+  let raw;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 540 }, height: { ideal: 960 } }, audio: false });
-  } catch (error) {
+    raw = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 540 },
+        height: { ideal: 960 },
+        aspectRatio: { ideal: 9 / 16 },
+        resizeMode: 'crop-and-scale',
+      },
+      audio: false,
+    });
+  } catch {
     activity('camera_failed');
     throw new Error('Camera access was blocked or no camera was found. You can try again or vote as a spectator.');
   }
-  app.camera = stream;
-  app.cameraVideo = document.createElement('video');
-  app.cameraVideo.muted = true;
-  app.cameraVideo.autoplay = true;
-  app.cameraVideo.playsInline = true;
-  app.cameraVideo.srcObject = stream;
-  app.cameraVideo.className = 'capture-source';
-  document.body.append(app.cameraVideo);
-  app.cameraVideo.play().catch(() => {});
-  stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+  const source = document.createElement('video');
+  source.muted = true;
+  source.autoplay = true;
+  source.playsInline = true;
+  source.srcObject = raw;
+  source.className = 'capture-source';
+  document.body.append(source);
+  source.play().catch(() => {});
+  let portrait;
+  try {
+    if (!await cameraDimensions(source)) throw new Error('Camera preview did not start. Try enabling it again.');
+    portrait = portraitStream(raw, source);
+  } catch (error) {
+    raw.getTracks().forEach(track => track.stop());
+    source.remove();
+    activity('camera_failed');
+    throw error;
+  }
+  app.cameraInput = raw;
+  app.camera = portrait.stream;
+  app.cameraVideo = source;
+  app.cameraCanvas = portrait.canvas;
+  app.cameraDrawTimer = portrait.timer;
+  raw.getVideoTracks()[0]?.addEventListener('ended', () => {
     app.error = 'Your camera stopped. Reconnect it to keep playing.';
-    releaseMedia(false);
-    app.camera = null;
-    app.cameraVideo?.remove();
-    app.cameraVideo = null;
+    releaseMedia(true);
     render(true);
   }, { once: true });
   render(true);
@@ -435,15 +563,18 @@ async function enableCamera() {
 
 function frameBlob(quality = 0.52, maxWidth = 360) {
   return new Promise(resolve => {
-    const source = app.cameraVideo;
-    if (!source?.videoWidth || !source?.videoHeight) return resolve(null);
+    const source = app.cameraCanvas || app.cameraVideo;
+    const sourceWidth = source?.width || source?.videoWidth;
+    const sourceHeight = source?.height || source?.videoHeight;
+    if (!sourceWidth || !sourceHeight) return resolve(null);
     const canvas = document.createElement('canvas');
-    canvas.width = Math.min(maxWidth, source.videoWidth);
-    canvas.height = Math.round(canvas.width * source.videoHeight / source.videoWidth);
+    canvas.width = Math.min(maxWidth, sourceWidth);
+    canvas.height = Math.round(canvas.width * sourceHeight / sourceWidth);
     canvas.getContext('2d', { alpha: false }).drawImage(source, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(resolve, 'image/jpeg', quality);
   });
 }
+
 async function uploadFrame() {
   if (app.frameBusy || !app.token || !app.camera || !hasSlot()) return;
   if (!['lobby', 'countdown', 'locked', 'hunt', 'active', 'review', 'judging'].includes(phase())) return;
@@ -517,8 +648,13 @@ function releaseMedia(stopCamera) {
   app.media = null;
   if (stopCamera) {
     app.resultCameraStopAt = null;
+    if (app.cameraDrawTimer) clearInterval(app.cameraDrawTimer);
+    app.cameraDrawTimer = null;
     app.camera?.getTracks().forEach(track => track.stop());
+    app.cameraInput?.getTracks().forEach(track => track.stop());
     app.camera = null;
+    app.cameraInput = null;
+    app.cameraCanvas = null;
     app.cameraVideo?.remove();
     app.cameraVideo = null;
   }
@@ -621,6 +757,7 @@ async function leaveGame(destination = 'left') {
   if (destination === 'intro') {
     app.alias = '';
     app.consent = false;
+    app.leadPage = 0;
     app.leadDraft = { fieldValues: {} };
   }
   render(true);
@@ -638,9 +775,9 @@ async function leaveGame(destination = 'left') {
 function updateIdleCheck() {
   if (isResultDemo) return;
   const view = currentView();
-  const idleView = ['queued', 'waiting', 'review'].includes(view) ||
+  const idleView = ['preview', 'queued', 'waiting', 'review'].includes(view) ||
     (app.state?.paused && ['countdown', 'hunt'].includes(view));
-  const eligible = app.view === 'live' && !!app.token && idleView;
+  const eligible = !!app.token && idleView && ['preview', 'live'].includes(app.view);
   if (!eligible) {
     app.idleKey = null;
     app.idleSince = null;
@@ -651,7 +788,7 @@ function updateIdleCheck() {
       app.idleKey = key;
       app.idleSince = Date.now();
     }
-    if (!app.sessionDialogMode && Date.now() - app.idleSince >= 180_000) openSessionDialog('idle');
+    if (!app.sessionDialogMode && Date.now() - app.idleSince >= (view === 'preview' ? 60_000 : 180_000)) openSessionDialog('idle');
   }
   if (app.sessionDialogMode && app.idlePromptAt) {
     const remaining = Math.max(0, 30 - Math.floor((Date.now() - app.idlePromptAt) / 1_000));
@@ -660,101 +797,136 @@ function updateIdleCheck() {
   }
 }
 
-async function join() {
+async function joinBeforeCamera() {
   if (app.joinBusy) return;
-  if (!app.camera) throw new Error('Enable your camera before joining.');
   app.joinBusy = true;
   app.error = '';
   render(true);
   try {
-    const response = await request('/join', { method: 'POST', body: { alias: app.alias, displayConsent: true } });
+    const settings = leadSettings();
+    const body = { alias: app.alias, displayConsent: app.consent };
+    if (settings.enabled) {
+      body.lead = {
+        fieldValues: Object.fromEntries(settings.fields.map(field => [field.id, app.leadDraft.fieldValues[field.id] || ''])),
+      };
+    }
+    const response = await request('/join', { method: 'POST', body });
     app.token = response.token;
     sessionStorage.setItem(sessionKey, app.token);
     app.player = response.player;
-    app.view = 'live';
-    app.error = '';
+    app.view = response.player.slot ? 'preview' : 'live';
     if (response.state) applyState({ state: response.state });
+    app.error = '';
     render(true);
-    if (hasSlot()) await ensureMediaReady();
+  } catch (error) {
+    if (['invalid_lead', 'lead_form_changed', 'lead_disabled'].includes(error.code)) {
+      app.leadPage = 0;
+      try { applyState(await request('')); } catch { /* Keep the saved draft for retry. */ }
+    }
+    throw error;
   } finally {
     app.joinBusy = false;
-    if (app.view === 'preview') render(true);
+    if (app.view === 'consent') render(true);
   }
 }
 
-function syncLeadDraft() {
-  const form = $('leadForm');
+async function goLive() {
+  if (!app.token || !app.player) throw new Error('Your spot expired. Join again to play.');
+  if (!app.camera) throw new Error('Enable your camera before going live.');
+  app.view = 'live';
+  app.error = '';
+  render(true);
+  if (hasSlot()) await ensureMediaReady();
+}
+
+function syncJoinDraft() {
+  const form = $('consentForm');
   if (!form) return;
+  const alias = form.elements.namedItem('alias');
+  if (alias) app.alias = alias.value;
+  const consent = form.elements.namedItem('consent');
+  if (consent) app.consent = consent.checked;
   for (const input of form.querySelectorAll('[data-lead-field]')) app.leadDraft.fieldValues[input.dataset.leadField] = input.value.trim();
 }
-function validateCurrentLeadPage() {
-  const form = $('leadForm');
+
+function validateCurrentJoinPage() {
+  const form = $('consentForm');
   if (!form) return false;
+  const alias = form.elements.namedItem('alias');
+  if (alias) {
+    app.alias = alias.value.trim().replace(/\s+/g, ' ');
+    alias.setCustomValidity(app.alias.length < 2 || app.alias.length > 20 || /[<>\x00-\x1f\x7f]/.test(app.alias)
+      ? 'Use 2–20 characters without < or >.' : '');
+  }
   for (const input of form.querySelectorAll('[data-lead-field]')) {
     input.setCustomValidity('');
     if (input.type === 'tel' && input.value.trim()) {
       const digits = input.value.replace(/\D/g, '');
-      if (!/^[+0-9().\-\s]+$/.test(input.value) || digits.length < 7 || digits.length > 20) input.setCustomValidity('Enter a phone number with at least seven digits.');
+      if (!/^[+0-9().\-\s]+$/.test(input.value) || digits.length < 7 || digits.length > 20)
+        input.setCustomValidity('Enter a phone number with at least seven digits.');
     }
   }
-  return form.reportValidity();
-}
-async function submitLead() {
-  if (!validateCurrentLeadPage()) return;
-  syncLeadDraft();
-  const settings = leadSettings();
-  const missing = settings.fields.findIndex(field => field.required && !app.leadDraft.fieldValues[field.id]);
-  if (missing >= 0) {
-    app.leadPage = Math.floor(missing / leadPageSize());
-    app.error = 'Complete the required field to continue.';
-    render(true);
-    return;
-  }
-  const hasContact = settings.fields.some(field => ['email', 'tel'].includes(field.type) && app.leadDraft.fieldValues[field.id]);
-  if (!hasContact) {
-    const index = settings.fields.findIndex(field => ['email', 'tel'].includes(field.type));
-    app.leadPage = Math.max(0, Math.floor(index / leadPageSize()));
-    app.error = 'Add an email or phone number so the booth team can follow up.';
-    render(true);
-    return;
-  }
-  const fieldValues = Object.fromEntries(settings.fields.map(field => [field.id, app.leadDraft.fieldValues[field.id] || '']));
-  app.leadResult = await request('/leads', { method: 'POST', auth: true, body: { intent: app.leadIntent, fieldValues } });
-  app.error = '';
-  app.view = 'thanks';
-  render(true);
-}
-
-async function advanceLead() {
-  if (app.leadPage >= leadPages(leadSettings()) - 1) {
-    await submitLead();
-    return;
-  }
-  if (!validateCurrentLeadPage()) return;
-  syncLeadDraft();
-  app.leadPage += 1;
-  app.error = '';
-  render(true);
-}
-
-function advanceConsent() {
-  const form = $('consentForm');
-  const aliasInput = form.elements.namedItem('alias');
-  const consentInput = form.elements.namedItem('consent');
-  app.alias = aliasInput.value.trim().replace(/\s+/g, ' ');
-  app.consent = consentInput.checked;
-  const invalidAlias = app.alias.length < 2 || app.alias.length > 20 || /[<>\x00-\x1f\x7f]/.test(app.alias);
-  if (invalidAlias || !app.consent) {
-    app.error = invalidAlias
-      ? app.alias ? 'Use 2–20 characters without < or >.' : 'Enter a screen name to continue.'
-      : 'Check the consent box to continue.';
+  const consent = form.elements.namedItem('consent');
+  if (consent && !consent.checked) {
+    app.error = 'Check the consent box to continue.';
     $('consentError').textContent = app.error;
-    (invalidAlias ? aliasInput : consentInput).focus();
+    consent.focus();
+    return false;
+  }
+  if (!form.reportValidity()) {
+    const invalid = form.querySelector(':invalid');
+    app.error = invalid?.validationMessage || 'Complete the required fields to continue.';
+    $('consentError').textContent = app.error;
+    invalid?.focus();
+    return false;
+  }
+  syncJoinDraft();
+  app.error = '';
+  return true;
+}
+
+async function advanceConsent() {
+  if (!validateCurrentJoinPage()) return;
+  const settings = leadSettings();
+  const pages = leadFieldPages(settings);
+  if (app.leadPage < pages.length - 1) {
+    app.leadPage += 1;
+    render(true);
     return;
   }
-  app.view = 'preview';
+  if (settings.enabled) {
+    const missing = settings.fields.findIndex(field => field.required && !app.leadDraft.fieldValues[field.id]);
+    if (missing >= 0) {
+      app.leadPage = pageForLeadField(settings, missing);
+      app.error = 'Complete the required field to continue.';
+      render(true);
+      return;
+    }
+    const contactIndex = settings.fields.findIndex(field => ['email', 'tel'].includes(field.type) && app.leadDraft.fieldValues[field.id]);
+    if (contactIndex < 0) {
+      app.leadPage = pageForLeadField(settings, settings.fields.findIndex(field => ['email', 'tel'].includes(field.type)));
+      app.error = 'Add an email or phone number for booth follow-up.';
+      render(true);
+      return;
+    }
+  }
+  await joinBeforeCamera();
+}
+
+async function requestFollowup(intent) {
+  if (app.followupBusy) return;
+  app.followupBusy = true;
   app.error = '';
   render(true);
+  try {
+    app.leadResult = await request('/leads', { method: 'POST', auth: true, body: { intent } });
+    app.leadIntent = intent;
+    app.view = 'thanks';
+    app.error = '';
+  } finally {
+    app.followupBusy = false;
+    render(true);
+  }
 }
 
 screen.addEventListener('input', event => {
@@ -777,10 +949,7 @@ screen.addEventListener('change', event => {
 screen.addEventListener('submit', async event => {
   if (event.target.id === 'consentForm') {
     event.preventDefault();
-    advanceConsent();
-  } else if (event.target.id === 'leadForm') {
-    event.preventDefault();
-    try { await advanceLead(); } catch (error) { showError(error); }
+    try { await advanceConsent(); } catch (error) { showError(error); }
   }
 });
 screen.addEventListener('click', async event => {
@@ -792,27 +961,22 @@ screen.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   try {
-    if (action === 'intro-next') { app.view = 'consent'; app.error = ''; render(true); }
+    if (action === 'intro-next') { app.view = 'consent'; app.leadPage = 0; app.error = ''; if (leadSettings().enabled) activity('lead_form_opened'); render(true); }
     if (action === 'camera') await enableCamera();
-    if (action === 'join') await join();
+    if (action === 'join') await goLive();
     if (action === 'retry-media') { if (!app.camera) await enableCamera(); await ensureMediaReady(); }
-    if (action === 'build') { const fromResult = ['result', 'complete'].includes(currentView()); syncLeadDraft(); releaseMedia(true); app.view = 'build'; app.error = ''; if (fromResult) { app.buildProduct = 'video'; activity('cta_opened'); } render(true); }
-    if (action === 'back-to-build') { syncLeadDraft(); app.view = 'build'; app.error = ''; render(true); }
+    if (action === 'build') { const fromResult = ['result', 'complete'].includes(currentView()); releaseMedia(true); app.view = 'build'; app.error = ''; if (fromResult) { app.buildProduct = 'video'; activity('cta_opened'); } render(true); }
+    if (action === 'spectate') { await leaveGame('intro'); location.assign(voteUrl); return; }
+    if (action === 'join-previous') { syncJoinDraft(); app.leadPage = Math.max(0, app.leadPage - 1); app.error = ''; render(true); }
     if (action === 'build-product') {
       const product = event.target.closest('[data-product]')?.dataset.product;
       if (buildProducts[product]) { app.buildProduct = product; render(true); screen.querySelector(`[data-action="build-product"][data-product="${product}"]`)?.focus(); }
     }
     if (action === 'guide' || action === 'expert') {
       if (isResultDemo) return;
-      app.leadIntent = action;
-      app.leadPage = 0;
-      app.view = 'lead';
-      app.error = '';
       activity(`${action}_cta_opened`);
-      activity('lead_form_opened');
-      render(true);
+      await requestFollowup(action);
     }
-    if (action === 'lead-previous') { syncLeadDraft(); app.leadPage -= 1; app.error = ''; render(true); }
     if (action === 'replay-demo' && isResultDemo) { app.resultRevealSeen.clear(); render(true); }
     if (action === 'demo-result' && isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); }
     if (action === 'replay') await replayGame();
@@ -898,9 +1062,9 @@ async function initialize() {
 }
 screen.addEventListener('click', event => { if (event.target.closest('[data-action="reload"]')) location.reload(); });
 window.addEventListener('resize', () => {
-  const nextPageSize = leadPageSize();
-  if (app.view === 'lead' && nextPageSize !== renderedLeadPageSize) {
-    syncLeadDraft();
+  const nextPageSize = leadLayoutKey();
+  if (app.view === 'consent' && nextPageSize !== renderedLeadPageSize) {
+    syncJoinDraft();
     renderedLeadPageSize = nextPageSize;
     render(true);
   }

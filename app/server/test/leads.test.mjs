@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../db.mjs';
 import { GameEngine } from '../engine.mjs';
 import { submitLead, validateLead } from '../leads.mjs';
@@ -17,7 +21,28 @@ function setup() {
   return { store, event, engine, joined, tracked, integrations };
 }
 
-test('dynamic lead fields save their field snapshot and stay separate from joining or voting', async () => {
+test('existing lead rows survive the follow-up timestamp migration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'scavenger-leads-migration-'));
+  const filename = join(directory, 'legacy.sqlite');
+  try {
+    const old = new DatabaseSync(filename);
+    old.exec('CREATE TABLE leads (id TEXT PRIMARY KEY, event_id TEXT NOT NULL, created_at TEXT NOT NULL, intent TEXT NOT NULL, participant_id TEXT NOT NULL, heat_id TEXT, field_values_json TEXT NOT NULL, field_snapshot_json TEXT NOT NULL, name TEXT, email TEXT, phone TEXT, company TEXT, marketing_opt_in INTEGER NOT NULL, consent_version TEXT NOT NULL, delivery_status TEXT NOT NULL)');
+    old.prepare('INSERT INTO leads(id,event_id,created_at,intent,participant_id,field_values_json,field_snapshot_json,marketing_opt_in,consent_version,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run('legacy-guide', 'old-event', '2026-11-01T12:00:00.000Z', 'guide', 'old-player', '{}', '[]', 0, 'v1', 'pending');
+    old.close();
+    const store = openDatabase(filename);
+    try {
+      const columns = new Set(store.sql.prepare('PRAGMA table_info(leads)').all().map(column => column.name));
+      assert.ok(columns.has('guide_requested_at'));
+      assert.ok(columns.has('expert_requested_at'));
+      assert.equal(store.getLead('legacy-guide').guideRequestedAt, '2026-11-01T12:00:00.000Z');
+      store.markLeadRequest('legacy-guide', 'expert', '2026-11-02T12:00:00.000Z');
+      assert.equal(store.getLead('legacy-guide').expertRequestedAt, '2026-11-02T12:00:00.000Z');
+    } finally { store.close(); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('legacy player sessions can still request a guide with a saved field snapshot', async () => {
   const app = setup();
   assert.equal(app.store.listLeads().length, 0);
   let current = app.store.saveEvent(app.event.slug, { ...app.event, leadCapture: {
@@ -65,6 +90,9 @@ test('lead validation rejects unknown fields, missing contact, invalid email, an
     error => error.code === 'invalid_lead');
   assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: true }, state),
     error => error.code === 'invalid_lead');
+  assert.throws(() => validateLead(app.event, player, { ...base, intent: 'capture', marketingOptIn: true }, state),
+    error => error.code === 'invalid_lead');
+  assert.equal(validateLead(app.event, player, { ...base, intent: 'capture' }, state).marketingOptIn, false);
   assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: 'false' }, state),
     error => error.code === 'invalid_lead');
   assert.throws(() => validateLead(phoneEvent, player, { intent: 'guide', fieldValues: { phone: '+1 555 222 3333' }, marketingOptIn: false }, state),

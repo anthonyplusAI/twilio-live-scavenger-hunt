@@ -50,6 +50,8 @@
 .player-page .build-product-link:hover { color: #fff; }
 .player-page .build-next { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 4px; margin-top: 10px; }
 .player-page .build-next p { grid-column: 1 / -1; margin: 0 0 2px; color: var(--paper); font-size: 13px; font-weight: 800; }
+.player-page .build-next .build-error { color: #ffb2bb; font-size: 11px; font-weight: 650; line-height: 1.3; }
+.player-page .build-guide:disabled, .player-page .build-expert:disabled { opacity: .55; cursor: wait; }
 .player-page .build-booth-invite { grid-column: 1 / -1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid #ff6a7c88; border-radius: 11px; background: linear-gradient(105deg, #8e193743, #4f17372d); }
 .player-page .build-booth-mark { width:38px; height:38px; flex:none; display:grid; place-items:center; border-radius:9px; background:#fff; box-shadow:0 5px 14px #0005; }
 .player-page .build-booth-mark img { display:block; width:25px; height:25px; object-fit:contain; }
