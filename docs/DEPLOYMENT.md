@@ -43,20 +43,26 @@ is the deployment smoke target.
 3. The rollout pins traffic to the current revision, deactivates it, and waits
    for **zero old replicas**. This planned pause prevents two game engines or
    Litestream processes from writing at once. The old process attempts a final
-   sync before exiting. Do not release during a heat.
+   sync before exiting. When new credentials are supplied, the deploy job saves
+   their rollout-specific ACA secrets as a batch, waits for
+   Container App provisioning to settle, and verifies the expected secret
+   names before starting the candidate. Do not release during a heat.
 4. The workflow starts the candidate image as one replica, waits for its health
    state, and tests its revision-specific HTTPS address before directing the
    public hostname to it. A failed pre-cutover rollout stops the candidate
-   before reactivating the previous revision. This automatic rollback requires
-   schema changes to remain compatible with the previous image: candidate
-   startup can already have written to the shared database backup.
+   before reactivating the previous revision; Azure operations still in progress
+   are retried after provisioning settles. Recovery can still require a manual
+   restore if Azure does not settle or a rollback step fails. The previous image
+   also needs to read the current database schema: candidate startup can
+   already have written to the shared database backup.
 5. Confirm the public `/health` endpoint, arena, phone, vote page, operator
    login, and metrics after the rollout. Confirm Blob replication after first
    deploy and complete the restore drill in [INFRA_SETUP.md](INFRA_SETUP.md).
 
 When both Google repository secrets are present, the deploy job checks the
 pair before stopping the old revision. After it verifies zero old replicas,
-it saves `GOOGLE_CLIENT_SECRET` under a rollout-specific ACA secret name and
+it saves `GOOGLE_CLIENT_SECRET` with the other supplied credentials as a batch
+under rollout-specific names, verifies those names, and
 creates the candidate with `GOOGLE_CLIENT_ID` and a reference to that secret.
 Google sign-in uses the stable public hostname for its exact callback, so test
 a complete Google login **after** public cutover; the revision-specific smoke checks
@@ -73,7 +79,8 @@ Actions secrets `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`,
 `TWILIO_VIDEO_MODE=live`. The deploy script rejects a missing value, malformed
 SID, or whitespace in a secret before its first Azure call. After the old
 writer reaches zero replicas, it saves all four under rollout-specific ACA
-secret names, attaches only `secretref:` values to the candidate, and sets
+secret names as a batch, waits for provisioning and verifies their
+names, then attaches only `secretref:` values to the candidate and sets
 `REHEARSAL_MODE=off`. It never prints the credentials.
 `TWILIO_VIDEO_MODE=rehearsal` explicitly sets `REHEARSAL_MODE=on`; an unset
 mode preserves the active setting. A nonempty
@@ -123,9 +130,81 @@ Check the active image and logs when diagnosing a failure:
 ```sh
 az containerapp show -g rg-live-scavenger-hunt -n live-scavenger-hunt \
   --query '{fqdn:properties.configuration.ingress.fqdn,image:properties.template.containers[0].image,revision:properties.latestReadyRevisionName}'
-az containerapp revision list -g rg-live-scavenger-hunt -n live-scavenger-hunt -o table
+az containerapp revision list -g rg-live-scavenger-hunt -n live-scavenger-hunt --all -o table
 az containerapp logs show -g rg-live-scavenger-hunt -n live-scavenger-hunt --tail 100
 ```
+
+### Failed rollout recovery
+
+If a rollout reports `ContainerAppOperationInProgress` or leaves the app
+stopped, check the app's provisioning state and the revisions before rerunning
+the workflow. Azure may finish a secret update after its CLI call reports a
+failure. Inspect **secret names only**; never print their values in a shared
+terminal or CI log. Wait for provisioning to finish before another write:
+
+```sh
+az containerapp show -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --query 'properties.provisioningState' -o tsv
+az containerapp revision list -g rg-live-scavenger-hunt -n live-scavenger-hunt --all \
+  --query '[].{name:name,active:properties.active,replicas:properties.replicas,provisioning:properties.provisioningState}' -o table
+az containerapp secret list -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --query '[].name' -o tsv
+```
+
+Restore the previous revision **only for a pre-cutover failure** after
+confirming that public traffic never reached the candidate. The deploy script
+refuses automatic rollback once it may have admitted public traffic: the
+candidate could already hold game or lead writes. If cutover happened, or
+traffic history is uncertain, preserve the candidate and investigate its
+health, logs, and data before choosing a recovery plan. Do not run the
+old-revision commands below in that case.
+
+For a confirmed pre-cutover failure, use the previous revision recorded by the
+deploy log. The following commands restore its single writer and public
+traffic:
+
+If a candidate exists, deactivate it and confirm it has zero replicas before
+starting the previous revision:
+
+```sh
+CANDIDATE_REVISION='live-scavenger-hunt--replace-with-candidate-revision'
+az containerapp revision deactivate -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --revision "$CANDIDATE_REVISION"
+az containerapp revision show -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --revision "$CANDIDATE_REVISION" \
+  --query '{active:properties.active,replicas:properties.replicas,running:properties.runningState}'
+```
+
+Wait until the candidate reports `active: false` and `replicas: 0`. If the
+rollout changed the app ingress port, restore its previous value before
+reactivating the old image. The deploy log records this as `Changing ingress
+target port from X to 8080`; use `X` as `PREVIOUS_TARGET_PORT`:
+
+```sh
+PREVIOUS_TARGET_PORT='replace-with-port-from-deploy-log'
+az containerapp ingress update -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --target-port "$PREVIOUS_TARGET_PORT"
+```
+
+Skip that ingress command if the rollout did not change the port. When no
+candidate is running and provisioning has settled, set `PREVIOUS_REVISION` to
+its name from the all-revisions list, restore it, and check the public health
+endpoint:
+
+```sh
+PREVIOUS_REVISION='live-scavenger-hunt--replace-with-previous-revision'
+az containerapp revision activate -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --revision "$PREVIOUS_REVISION"
+az containerapp ingress traffic set -g rg-live-scavenger-hunt -n live-scavenger-hunt \
+  --revision-weight "${PREVIOUS_REVISION}=100"
+curl --fail --show-error \
+  https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/health
+```
+
+If Azure again reports an operation in progress, wait for provisioning to
+settle and retry the rejected command. Check for a healthy previous revision
+and 100% traffic before dispatching another release. A deployment failure may
+interrupt the public site until recovery succeeds.
 
 Use the Azure Portal or a private shell to read the generated admin password
 from the `bootstrap-admin-password` Container App secret. The initial username
@@ -146,9 +225,10 @@ corresponding GitHub Actions setting is unset. Configured credentials create
 rollout-specific ACA secret names, so a failed pre-cutover candidate cannot
 change the credentials used by the previous revision. Older secret versions
 remain for rollback; review and remove versions only after their referencing
-revisions are no longer needed. A secret or environment update itself can
-create a new revision, so make those changes in
-a maintenance window using the same stop-old-revision sequence. A direct
+revisions are no longer needed. An app-level secret update does not create a
+revision, but it can leave Container App provisioning in progress. An
+environment update can create a revision. Make either change in a maintenance
+window using the same stop-old-revision sequence. A direct
 `az containerapp update` against a live single-revision app can overlap two
 revisions and interrupt the game while the second waits for the writer lease;
 do not use it for a production change.

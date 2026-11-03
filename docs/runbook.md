@@ -125,7 +125,10 @@ Dispatch the [controlled deployment](INFRA_SETUP.md#activate-optional-ai-segment
 between heats. Blank values preserve the active ACA setting, so deleting a
 GitHub secret alone does not disable a previously configured integration.
 Credential updates use new ACA secret names per rollout, leaving older
-revisions' references intact for pre-cutover rollback. Remove old secret
+revisions' references intact for pre-cutover rollback. The deploy job writes
+all supplied secrets as a batch after the old writer stops,
+then waits for provisioning and checks the secret names before starting the
+candidate. Remove old secret
 versions only when those revisions are no longer needed.
 
 For guide delivery confirmation, create an Event Webhook in SendGrid at
@@ -171,7 +174,7 @@ Locally, SQLite lives in `app/data/`. In Azure, it runs on fast local container 
 
 Lead retention defaults to **90 days** and can be set per event; the server prunes expired leads hourly. Activity records are retained until the database is deliberately archived or deleted. The anonymous vote secret is generated and stored in SQLite unless `VOTE_HMAC_SECRET` is set. Keep it stable across restores. Restrict database and export access to staff who need it, and delete individual leads through the admin API when required.
 
-Litestream attempts to sync every second when Blob is healthy, but an outage can make backup lag much longer. Verify a current backup and restore before each event. Deploy between heats: the controlled rollout stops the old revision before starting the next one, with a short service interruption. Startup schema changes must stay compatible with the previous image for automatic pre-cutover rollback. For a local file-copy backup, stop the app first so SQLite and its WAL form a consistent snapshot.
+Litestream attempts to sync every second when Blob is healthy, but an outage can make backup lag much longer. Verify a current backup and restore before each event. Deploy between heats: the controlled rollout stops the old revision before starting the next one, with a planned service interruption. Azure operation-in-progress responses are retried after provisioning settles; if recovery still fails, follow the [failed rollout steps](DEPLOYMENT.md#failed-rollout-recovery) before another deployment. Startup schema changes must stay compatible with the previous image for pre-cutover rollback. For a local file-copy backup, stop the app first so SQLite and its WAL form a consistent snapshot.
 
 ## 8. Production handoff checklist
 
