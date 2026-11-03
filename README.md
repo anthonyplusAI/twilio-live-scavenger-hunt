@@ -148,11 +148,11 @@ npm start
 
 The default server address is `127.0.0.1:65111`; adjust it with [.env.example](.env.example). Local rehearsal sends short-lived JPEG camera frames through the app at a lower frame rate than Twilio Video. Camera access on real phones requires a reachable **HTTPS** origin. Sign in as an operator in the same browser profile used for the arena wall to see player cameras there.
 
-Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret on first boot. The app then seeds the admin without printing the credential in retained server logs. Changing that secret after the first boot does not change the saved password.
+Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret on first boot. The app then seeds the admin without printing the credential in retained server logs. Changing that secret after the first boot does not change the saved password; use **Team → Admin login** to update the existing account.
 
 ### Booth staff sign-in
 
-The first admin signs in as `admin`, then can use **Team → My username** to change that username after confirming the current password. The change signs out that account; use the new username at the next sign-in. Team also lets an admin create named local operators, change their usernames, reset passwords, or remove access. Renaming an operator ends their active sessions. **My password** changes the current local account's password. Local passwords have no minimum length or character rule; any nonempty value up to a 16 KB request-safety ceiling works. Google account names and passwords remain managed by Google. Operators can run heats but cannot edit event settings, see leads or metrics, or manage other accounts. **Team** and **Metrics** appear only for admins. Local accounts work without Google or Twilio credentials.
+The first local admin account is `admin`. In **Team → Admin login**, an admin can edit that existing account: leave the username as `admin` and enter a new password to reset it, change the username, or do both. A Google admin does not need the old local password. This updates the saved account and signs out its existing sessions. **Add operator** creates a separate staff account and cannot reuse `admin`. Team also lets admins create and manage local operators. Local passwords have no minimum length or character rule; any nonempty value up to a 16 KB request-safety ceiling works. Google account names and passwords remain managed by Google. Operators can run heats but cannot edit event settings, see leads or metrics, or manage other accounts. **Team** and **Metrics** appear only for admins. Local accounts work without Google or Twilio credentials.
 
 Google sign-in is optional and appears when an OAuth client ID and secret are configured. Any Google identity with a verified `@twilio.com` address **and** the `twilio.com` Workspace claim receives admin access, including **Team**, **Metrics**, and leads. The server checks the signed ID token and tracks the stable Google subject rather than trusting the address alone. An existing Google operator gains admin access on their next verified sign-in. The [Azure setup guide](docs/INFRA_SETUP.md#optional-google-sign-in-for-twilio-admins) shows the exact callback URL and secret setup.
 
@@ -160,7 +160,7 @@ Google sign-in is optional and appears when an OAuth client ID and secret are co
   <tr><th>Staff sign-in</th><th>Admin · Team</th></tr>
   <tr>
     <td><img src="docs/visuals/live-scavenger-hunt-login-google.png" alt="Local visual preview of the control-room sign-in screen with username, password, and Google admin sign-in" width="680"></td>
-    <td><img src="docs/visuals/live-scavenger-hunt-team.png" alt="Local Team preview showing Google admin status and the form to add a booth operator" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-team.png" alt="Local Team preview showing the existing admin login editor, Google sign-in status, and operator roster" width="680"></td>
   </tr>
 </table>
 

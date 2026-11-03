@@ -45,8 +45,11 @@ async function fixture(changes = {}, options = {}) {
       : await response.text();
     return { response, value };
   }
+  async function attemptLogin(username, password) {
+    return request('/api/auth/login', { method: 'POST', body: { username, password } });
+  }
   async function login(username = 'admin', password = 'correct-password-123') {
-    const { response, value } = await request('/api/auth/login', { method: 'POST', body: { username, password } });
+    const { response, value } = await attemptLogin(username, password);
     assert.equal(response.status, 200);
     return { cookie: response.headers.get('set-cookie').split(';')[0], csrf: value.csrfToken, user: value.user };
   }
@@ -60,7 +63,7 @@ async function fixture(changes = {}, options = {}) {
     return request(`/api/e/${event.slug}/ready`, { method: 'POST', token: player.token });
   }
   return {
-    store, event, engine, auth, media, integrations, base, request, login, join, ready,
+    store, event, engine, auth, media, integrations, base, request, attemptLogin, login, join, ready,
     get now() { return now; }, set now(value) { now = value; },
     async close() { server.closeAllConnections?.(); await new Promise(resolve => server.close(resolve)); store.close(); },
   };
@@ -235,6 +238,150 @@ test('admin API creates, resets, and removes local operators with CSRF and sessi
       .some(operator => operator.id === operatorId), false);
     assert.equal((await app.request(`/api/admin/operators/${admin.user.id}`, { method: 'DELETE',
       cookie: admin.cookie, csrf: admin.csrf })).response.status, 404);
+  } finally { await app.close(); }
+});
+
+test('a verified Google admin can reset the existing local admin password and rename its login', async () => {
+  const app = await fixture();
+  const replacementPassword = randomBytes(32).toString('hex');
+  const stalePassword = randomBytes(32).toString('hex');
+  try {
+    const resetBody = {
+      expectedUsername: 'admin',
+      username: 'admin',
+      password: replacementPassword,
+    };
+    const oldLocalSession = await app.login();
+    const otherLocalSession = await app.login();
+    const google = app.auth.loginGoogleIdentity({ sub: 'credential-editor', email: 'editor@twilio.com',
+      emailVerified: true, hostedDomain: 'twilio.com' });
+    const googleCookie = app.auth.cookie(google.token).split(';')[0];
+    const before = app.store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+    const path = '/api/admin/local-admin';
+    const initial = await app.request(path, { cookie: googleCookie });
+    assert.equal(initial.response.status, 200);
+    assert.deepEqual(initial.value.admin, { id: oldLocalSession.user.id,
+      username: 'admin', role: 'admin', authProvider: 'password' });
+
+    const reset = await app.request(path, { method: 'POST', cookie: googleCookie,
+      csrf: google.csrfToken, body: resetBody });
+    assert.equal(reset.response.status, 200);
+    assert.equal(reset.value.admin.id, oldLocalSession.user.id);
+    assert.equal(reset.value.admin.username, 'admin');
+    assert.equal(reset.value.usernameChanged, false);
+    assert.equal(reset.value.passwordChanged, true);
+    assert.equal(reset.value.signedOut, false);
+    assert.equal(JSON.stringify(reset.value).includes(replacementPassword), false);
+    assert.equal(app.store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, before);
+    assert.equal((await app.request('/api/auth/session', { cookie: oldLocalSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: otherLocalSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: googleCookie })).response.status, 200);
+    assert.equal((await app.attemptLogin('admin', 'correct-password-123')).response.status, 401);
+    const freshLocalSession = await app.login('admin', replacementPassword);
+
+    const rename = await app.request(path, { method: 'POST', cookie: googleCookie,
+      csrf: google.csrfToken, body: { expectedUsername: 'admin', username: 'newadmin' } });
+    assert.equal(rename.response.status, 200);
+    assert.equal(rename.value.admin.id, oldLocalSession.user.id);
+    assert.equal(rename.value.admin.username, 'newadmin');
+    assert.equal(rename.value.usernameChanged, true);
+    assert.equal(rename.value.passwordChanged, false);
+    assert.equal(rename.value.signedOut, false);
+    assert.equal((await app.request('/api/auth/session', { cookie: freshLocalSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: googleCookie })).response.status, 200);
+    assert.equal((await app.attemptLogin('admin', replacementPassword)).response.status, 401);
+    assert.equal((await app.attemptLogin('newadmin', replacementPassword)).response.status, 200);
+    assert.equal(app.store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, before);
+
+    const stale = await app.request(path, { method: 'POST', cookie: googleCookie,
+      csrf: google.csrfToken, body: {
+        expectedUsername: 'admin',
+        username: 'admin',
+        password: stalePassword,
+      } });
+    assert.equal(stale.response.status, 409);
+    assert.equal(stale.value.code, 'admin_changed');
+    assert.equal((await app.attemptLogin('newadmin', replacementPassword)).response.status, 200);
+    assert.equal((await app.attemptLogin('newadmin', stalePassword)).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: googleCookie })).response.status, 200);
+
+    const audits = app.store.sql.prepare("SELECT user_id,details_json FROM audit WHERE action='admin:local_credentials_changed' ORDER BY at").all();
+    assert.equal(audits.length, 2);
+    assert.ok(audits.every(entry => entry.user_id === google.user.id));
+    assert.deepEqual(audits.map(entry => JSON.parse(entry.details_json)), [
+      { targetUserId: oldLocalSession.user.id, usernameChanged: false, passwordChanged: true },
+      { targetUserId: oldLocalSession.user.id, usernameChanged: true, passwordChanged: false },
+    ]);
+    assert.equal(audits.some(entry => entry.details_json.includes(replacementPassword)), false);
+  } finally { await app.close(); }
+});
+
+test('editing the local admin requires an admin session and CSRF, rejects collisions, and signs out a local caller', async () => {
+  const app = await fixture();
+  const replacementPassword = 'x';
+  try {
+    const resetBody = {
+      expectedUsername: 'admin',
+      username: 'admin',
+      password: replacementPassword,
+    };
+    const collisionBody = {
+      expectedUsername: 'admin',
+      username: 'operator',
+      password: replacementPassword,
+    };
+    const path = '/api/admin/local-admin';
+    const admin = await app.login();
+    const operator = await app.login('operator', 'operator-password-123');
+    assert.equal((await app.request(path)).response.status, 401);
+    assert.equal((await app.request(path, { cookie: operator.cookie })).response.status, 403);
+    assert.equal((await app.request(path, { method: 'POST', body: resetBody })).response.status, 401);
+    assert.equal((await app.request(path, { method: 'POST', cookie: operator.cookie, csrf: operator.csrf,
+      body: resetBody })).response.status, 403);
+    assert.equal((await app.request(path, { method: 'POST', cookie: admin.cookie,
+      body: resetBody })).response.status, 403);
+    const noChanges = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: ' ADMIN ' } });
+    assert.equal(noChanges.response.status, 400);
+    assert.equal(noChanges.value.code, 'no_changes');
+    const blankPassword = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: 'admin', password: '' } });
+    assert.equal(blankPassword.response.status, 400);
+    assert.equal(blankPassword.value.code, 'invalid_password');
+    const collision = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: collisionBody });
+    assert.equal(collision.response.status, 409);
+    assert.equal(collision.value.code, 'username_exists');
+    assert.equal((await app.request('/api/auth/session', { cookie: admin.cookie })).response.status, 200);
+    assert.equal((await app.attemptLogin('admin', 'correct-password-123')).response.status, 200);
+    assert.equal(app.store.sql.prepare("SELECT COUNT(*) AS count FROM audit WHERE action='admin:local_credentials_changed'").get().count, 0);
+
+    const updated = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: resetBody });
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.value.signedOut, true);
+    assert.match(updated.response.headers.get('set-cookie'), /Max-Age=0/);
+    assert.equal((await app.request('/api/auth/session', { cookie: admin.cookie })).response.status, 401);
+    assert.equal((await app.attemptLogin('admin', replacementPassword)).response.status, 200);
+  } finally { await app.close(); }
+});
+
+test('local admin credential edits are rate limited per admin account', async () => {
+  const app = await fixture();
+  try {
+    const admin = await app.login();
+    const path = '/api/admin/local-admin';
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const result = await app.request(path, { method: 'POST', cookie: admin.cookie,
+        csrf: admin.csrf, body: { username: 'admin' } });
+      assert.equal(result.response.status, 400);
+      assert.equal(result.value.code, 'no_changes');
+    }
+    const limited = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: 'admin' } });
+    assert.equal(limited.response.status, 429);
+    assert.equal(limited.value.code, 'rate_limited');
+    assert.ok(Number(limited.response.headers.get('retry-after')) > 0);
   } finally { await app.close(); }
 });
 

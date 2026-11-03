@@ -219,6 +219,81 @@ test('admin account operations manage local operators and revoke changed session
   } finally { store.close(); }
 });
 
+test('primary local admin remains the oldest local account after a rename and updates atomically', () => {
+  const { store, auth } = makeAuth();
+  const oldPassword = testBootstrapPassword();
+  const newPassword = testBootstrapPassword();
+  const rejectedPassword = testBootstrapPassword();
+  try {
+    const primary = auth.createUser('admin', oldPassword, 'admin');
+    const backup = auth.createUser('backupadmin', testBootstrapPassword(), 'admin');
+    store.sql.prepare('UPDATE users SET created_at=? WHERE id=?').run('2025-01-01T00:00:00.000Z', primary.id);
+    store.sql.prepare('UPDATE users SET created_at=? WHERE id=?').run('2026-01-01T00:00:00.000Z', backup.id);
+    const google = auth.loginGoogleIdentity({ sub: 'admin-editor', email: 'editor@twilio.com', ...verifiedGoogle });
+    const googleCookie = auth.cookie(google.token).split(';')[0];
+    const local = auth.login('admin', oldPassword);
+    const localCookie = auth.cookie(local.token).split(';')[0];
+    assert.equal(auth.getPrimaryLocalAdmin().id, primary.id);
+    assert.equal(auth.getPrimaryLocalAdmin().authProvider, 'password');
+    const count = store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+
+    const updated = auth.updatePrimaryLocalAdmin({
+      username: '  STAGE.ADMIN  ',
+      password: newPassword,
+      actorId: google.user.id,
+    });
+    assert.deepEqual({ id: updated.admin.id, username: updated.admin.username,
+      usernameChanged: updated.usernameChanged, passwordChanged: updated.passwordChanged },
+    { id: primary.id, username: 'stage.admin', usernameChanged: true, passwordChanged: true });
+    assert.equal(auth.getPrimaryLocalAdmin().id, primary.id);
+    assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, count);
+    assert.equal(auth.session(localCookie), null);
+    assert.equal(auth.session(googleCookie).user.id, google.user.id);
+    assert.throws(() => auth.login('admin', oldPassword), { code: 'invalid_credentials' });
+    assert.equal(auth.login('stage.admin', newPassword).user.id, primary.id);
+
+    const current = auth.login('stage.admin', newPassword);
+    const currentCookie = auth.cookie(current.token).split(';')[0];
+    assert.throws(() => auth.updatePrimaryLocalAdmin({
+      expectedUsername: 'admin',
+      username: 'admin',
+      password: rejectedPassword,
+      actorId: google.user.id,
+    }), { status: 409, code: 'admin_changed' });
+    assert.equal(auth.session(currentCookie).user.id, primary.id);
+    assert.throws(() => auth.updatePrimaryLocalAdmin({
+      username: 'backupadmin',
+      password: rejectedPassword,
+      actorId: google.user.id,
+    }), { code: 'username_exists' });
+    assert.equal(auth.session(currentCookie).user.id, primary.id);
+    assert.equal(auth.getPrimaryLocalAdmin().username, 'stage.admin');
+    assert.equal(auth.login('stage.admin', newPassword).user.id, primary.id);
+    assert.throws(() => auth.login('stage.admin', rejectedPassword), { code: 'invalid_credentials' });
+    const audits = store.sql.prepare("SELECT user_id,details_json FROM audit WHERE action='admin:local_credentials_changed'").all();
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].user_id, google.user.id);
+    assert.deepEqual(JSON.parse(audits[0].details_json), {
+      targetUserId: primary.id, usernameChanged: true, passwordChanged: true,
+    });
+    assert.ok(!audits[0].details_json.includes(newPassword));
+  } finally { store.close(); }
+});
+
+test('Google-managed admins are never selected for local credential updates', () => {
+  const { store, auth } = makeAuth();
+  try {
+    const google = auth.loginGoogleIdentity({ sub: 'google-only-admin', email: 'only@twilio.com', ...verifiedGoogle });
+    const cookie = auth.cookie(google.token).split(';')[0];
+    assert.throws(() => auth.getPrimaryLocalAdmin(), { status: 404, code: 'not_found' });
+    assert.throws(() => auth.updatePrimaryLocalAdmin({ username: 'admin', actorId: google.user.id }),
+      { status: 404, code: 'not_found' });
+    assert.equal(auth.session(cookie).user.id, google.user.id);
+    assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, 1);
+    assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM audit').get().count, 0);
+  } finally { store.close(); }
+});
+
 test('changing a local password requires the current password and signs out every session', () => {
   const { store, auth } = makeAuth();
   const oldPassword = testBootstrapPassword();

@@ -121,6 +121,53 @@ export class AuthService {
       .all('operator').map(publicOperator);
   }
 
+  _primaryLocalAdminRow() {
+    return this.store.sql.prepare("SELECT * FROM users WHERE role='admin' AND auth_provider='password' ORDER BY created_at ASC,id ASC LIMIT 1")
+      .get();
+  }
+
+  getPrimaryLocalAdmin() {
+    const row = this._primaryLocalAdminRow();
+    if (!row) throw new AuthError('Local admin account not found.', 404, 'not_found');
+    return publicUser(row);
+  }
+
+  updatePrimaryLocalAdmin({ username, password, expectedUsername, actorId } = {}) {
+    const normalized = this._validatedUsername(username);
+    const expected = expectedUsername === undefined ? null : this._validatedUsername(expectedUsername);
+    const passwordChanged = password !== undefined;
+    if (passwordChanged) this._validatedPassword(password);
+    return this.store.transaction(() => {
+      const row = this._primaryLocalAdminRow();
+      if (!row) throw new AuthError('Local admin account not found.', 404, 'not_found');
+      if (expected !== null && expected !== row.username) {
+        throw new AuthError('The local admin login changed. Reload and try again.', 409, 'admin_changed');
+      }
+      const usernameChanged = normalized !== row.username;
+      if (!usernameChanged && !passwordChanged) {
+        throw new AuthError('Change the username or enter a new password.', 400, 'no_changes');
+      }
+      let { password_hash: passwordHash, salt } = row;
+      if (passwordChanged) {
+        salt = randomBytes(16).toString('hex');
+        passwordHash = this._hashPassword(password, salt).toString('hex');
+      }
+      try {
+        this.store.sql.prepare('UPDATE users SET username=?,password_hash=?,salt=? WHERE id=?')
+          .run(normalized, passwordHash, salt, row.id);
+      } catch (error) {
+        if (String(error.message).includes('UNIQUE constraint failed')) {
+          throw new AuthError('Username already exists.', 409, 'username_exists');
+        }
+        throw error;
+      }
+      this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(row.id);
+      this.store.audit(null, actorId, 'admin:local_credentials_changed',
+        { targetUserId: row.id, usernameChanged, passwordChanged });
+      return { admin: publicUser({ ...row, username: normalized }), usernameChanged, passwordChanged };
+    });
+  }
+
   resetOperatorPassword(id, password) {
     this._validatedPassword(password);
     return this.store.transaction(() => {

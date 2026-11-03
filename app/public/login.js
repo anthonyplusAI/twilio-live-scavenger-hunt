@@ -49,6 +49,13 @@ async function showConfiguredProviders() {
 }
 function showReturnMessage() {
   const params = new URLSearchParams(location.search);
+  if (params.get("notice") === "admin-credentials-changed") {
+    const username = String(params.get("username") || "").trim().toLowerCase();
+    if (/^[a-z][a-z0-9._-]{2,79}$/.test(username)) document.getElementById("username").value = username;
+    message.textContent = "Admin login saved. Sign in with the updated credentials.";
+    message.classList.add("success");
+    return;
+  }
   if (params.get("notice") === "username-changed") {
     const username = String(params.get("username") || "").trim().toLowerCase();
     if (/^[a-z][a-z0-9._-]{2,79}$/.test(username)) {

@@ -282,6 +282,22 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         store.audit(null, session.user.id, 'account:username_changed', { username: user.username });
         return json(res, 200, { user }, { 'Set-Cookie': auth.clearCookie({ secure }) });
       }
+      if (pathname === '/api/admin/local-admin') {
+        if (method === 'GET') {
+          auth.require(req.headers.cookie, 'admin');
+          return json(res, 200, { admin: auth.getPrimaryLocalAdmin() });
+        }
+        if (method === 'POST') {
+          const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+          limiter.check(`local-admin-write:${session.user.id}`, 8, 10 * 60_000);
+          const body = await readJson(req, BODY_LIMIT);
+          const result = auth.updatePrimaryLocalAdmin({ username: body.username, password: body.password,
+            expectedUsername: body.expectedUsername, actorId: session.user.id });
+          const signedOut = result.admin.id === session.user.id;
+          return json(res, 200, { ...result, signedOut },
+            signedOut ? { 'Set-Cookie': auth.clearCookie({ secure }) } : {});
+        }
+      }
       if (pathname === '/api/admin/operators') {
         if (method === 'GET') {
           auth.require(req.headers.cookie, 'admin');

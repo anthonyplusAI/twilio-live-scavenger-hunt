@@ -75,17 +75,17 @@ az containerapp secret list \
 ```
 
 The first username is `admin`. Keep the retrieved password in a password manager.
-After signing in, **Team → My username** can change the admin login name;
-the account signs out and must use the new username on the next sign-in.
+After signing in, **Team → Admin login** edits that existing local account.
+Leave the username as `admin` and enter a new password to reset it, or change
+the username as well. The account's active sessions end after either change.
 If the database already has users, bootstrap leaves them unchanged. Treat the
 Container App secret and Blob replica as sensitive because the database holds
 accounts, event settings, metrics, and opt-in leads.
 
-After signing in, use **Team** in the control room to create local operator
-usernames and passwords. The **My password** action changes an existing local
-account's password; changing `bootstrap-admin-password` after first boot does
-not change the saved password or the admin username. Local operator accounts
-work without Google OAuth.
+After signing in, use **Team → Add operator** in the control room to create
+separate local operator accounts. An admin can reset and rename those accounts
+from Team. Changing `bootstrap-admin-password` after first boot does not change
+the saved admin login. Local operator accounts work without Google OAuth.
 
 ## Optional Google sign-in for Twilio admins
 

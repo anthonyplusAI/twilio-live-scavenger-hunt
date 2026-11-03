@@ -135,18 +135,29 @@
       <section id="view-team" class="view" aria-label="Operator accounts">
         <div id="team-workspace" class="team-workspace" data-step="list">
           <div class="surface team-roster">
-            <div class="team-heading"><div><span class="eyebrow">Global access</span><h1 class="display">Booth crew</h1><p>Manage operator accounts and Google sign-in.</p></div><button id="team-add-button" class="btn primary" type="button">+ Add operator</button></div>
+            <div class="team-heading"><div><span class="eyebrow">Global access</span><h1 class="display">Booth crew</h1><p>Manage login access for every event.</p></div><button id="team-add-button" class="btn primary" type="button">+ Add operator</button></div>
+            <button id="team-admin-button" class="team-admin-card" type="button" aria-pressed="true"><span class="team-admin-mark" aria-hidden="true">A</span><span class="team-admin-card-copy"><small>Primary local account</small><strong>Admin login</strong><span id="team-admin-card-username">Loading account…</span></span><span class="team-admin-card-arrow" aria-hidden="true">↗</span></button>
             <div id="team-google-status" class="team-google-status"><span class="team-google-dot" aria-hidden="true"></span><div><strong>Google sign-in</strong><small id="team-google-status-copy">Checking configuration…</small></div></div>
-            <div class="team-list-head"><strong>Operators <span id="team-count">0</span></strong><div class="team-account-actions"><button id="team-my-username-button" class="team-text-button" type="button">My username ↗</button><button id="team-my-password-button" class="team-text-button" type="button">My password ↗</button></div></div>
+            <div class="team-list-head"><strong>Operators <span id="team-count">0</span></strong></div>
             <div id="team-list" class="team-list" aria-live="polite"></div>
             <div class="team-pagination"><span id="team-page-label">0 operators</span><div><button id="team-prev" class="btn quiet" type="button" aria-label="Previous operators">‹</button><button id="team-next" class="btn quiet" type="button" aria-label="Next operators">›</button></div></div>
           </div>
           <div class="surface team-detail">
-            <div class="team-detail-head"><div><span id="team-detail-kicker" class="eyebrow">New account</span><h2 id="team-detail-title" class="display" tabindex="-1">Add an operator</h2><p id="team-detail-copy">Create a username and password for booth staff.</p></div><button id="team-back-button" class="btn outline" type="button">Crew list</button></div>
-            <form id="team-create-form" class="team-form" autocomplete="off">
+            <div class="team-detail-head"><div><span id="team-detail-kicker" class="eyebrow">Primary local account</span><h2 id="team-detail-title" class="display" tabindex="-1">Admin login</h2><p id="team-detail-copy">Update the existing admin username or password.</p></div><button id="team-back-button" class="btn outline" type="button">Crew list</button></div>
+            <form id="team-admin-form" class="team-form team-admin-form" autocomplete="off">
+              <div class="team-admin-identity"><span id="team-admin-initial" aria-hidden="true">A</span><div><strong id="team-admin-current">Loading account…</strong><small>Local administrator · all events</small></div><span class="team-admin-active">Active</span></div>
+              <div class="field"><label for="team-admin-username">Username</label><input id="team-admin-username" class="input" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="80" pattern="[A-Za-z][A-Za-z0-9._\-]{2,79}" title="Use 3–80 letters, numbers, dots, dashes, or underscores; start with a letter." required></div>
+              <div class="field"><label for="team-admin-password">New password <span class="team-optional">Optional</span></label><input id="team-admin-password" class="input" type="password" name="password" autocomplete="new-password" placeholder="Leave blank to keep current password"></div>
+              <div class="field"><label for="team-admin-confirm">Confirm new password</label><input id="team-admin-confirm" class="input" type="password" autocomplete="new-password" placeholder="Enter the new password again"></div>
+              <div id="team-admin-stale" class="team-admin-stale" role="status" hidden><div><strong>Admin login changed elsewhere.</strong><small>The current username is <b id="team-admin-stale-current">admin</b>. Review your draft before saving.</small></div><div><button id="team-admin-use-current" type="button">Use current username</button><button id="team-admin-keep-draft" type="button">Keep my draft</button></div></div>
+              <p class="team-help">Leave the password blank to keep it. Changes to this account end its active sessions.</p>
+              <button id="team-admin-submit" class="btn primary team-submit" type="submit" disabled>Save admin login</button>
+            </form>
+            <form id="team-create-form" class="team-form" autocomplete="off" hidden>
               <div class="field"><label for="team-create-username">Username</label><input id="team-create-username" class="input" type="text" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="3" maxlength="80" required placeholder="booth-operator"></div>
               <div class="field"><label for="team-create-password">Password</label><input id="team-create-password" class="input" type="password" name="password" autocomplete="new-password" required placeholder="Choose a password"></div>
               <div class="field"><label for="team-create-confirm">Confirm password</label><input id="team-create-confirm" class="input" type="password" autocomplete="new-password" required placeholder="Enter it again"></div>
+              <div id="team-admin-collision" class="team-admin-collision" hidden><div><strong>That is the admin login.</strong><small>Edit the existing account to change its password.</small></div><button id="team-admin-from-create" type="button">Edit admin login ↗</button></div>
               <p class="team-help">Give each person their own account. Passwords are never shown again.</p>
               <button id="team-create-submit" class="btn primary team-submit" type="submit">Create operator</button>
             </form>
@@ -167,20 +178,6 @@
               <button id="team-rename-back-button" class="team-text-button team-form-back" type="button">← Back to operator</button>
             </form>
             <div id="team-google-detail" class="team-google-detail" hidden><div class="team-account-chip"><span aria-hidden="true">G</span><div><strong id="team-google-name">Twilio teammate</strong><small>Google account</small></div></div><p>This account signs in with a verified <strong>@twilio.com</strong> Google identity. Access is managed by the Google Workspace account.</p></div>
-            <form id="team-self-username-form" class="team-form" autocomplete="off" hidden>
-              <div class="team-account-chip"><span id="team-self-initial" aria-hidden="true">A</span><div><strong id="team-self-current">admin</strong><small>Current username</small></div></div>
-              <div class="field"><label for="team-self-username">New username</label><input id="team-self-username" class="input" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="80" pattern="[A-Za-z][A-Za-z0-9._\-]{2,79}" title="Use 3–80 letters, numbers, dots, dashes, or underscores; start with a letter." required></div>
-              <div class="field"><label for="team-self-username-password">Current password</label><input id="team-self-username-password" class="input" type="password" autocomplete="current-password" required></div>
-              <p class="team-help">Renaming your login signs you out everywhere. Sign back in with the new username and your current password.</p>
-              <button id="team-self-username-submit" class="btn primary team-submit" type="submit">Change my username</button>
-            </form>
-            <form id="team-self-form" class="team-form" autocomplete="off" hidden>
-              <div class="field"><label for="team-current-password">Current password</label><input id="team-current-password" class="input" type="password" autocomplete="current-password" required></div>
-              <div class="field"><label for="team-new-password">New password</label><input id="team-new-password" class="input" type="password" autocomplete="new-password" required placeholder="Choose a password"></div>
-              <div class="field"><label for="team-new-confirm">Confirm new password</label><input id="team-new-confirm" class="input" type="password" autocomplete="new-password" required placeholder="Enter it again"></div>
-              <p class="team-help">Your other signed-in sessions will end when you save.</p>
-              <button id="team-self-submit" class="btn primary team-submit" type="submit">Change my password</button>
-            </form>
           </div>
         </div>
       </section>
