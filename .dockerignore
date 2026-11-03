@@ -1,0 +1,17 @@
+.git/
+.github/
+.playwright-mcp/
+node_modules/
+coverage/
+app/data/
+app/public/vendor/
+app/server/test/
+docs/visuals/
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+.DS_Store

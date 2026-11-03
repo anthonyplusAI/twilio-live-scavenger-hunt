@@ -1,6 +1,6 @@
 # Live Scavenger Hunt runbook
 
-This guide covers a local rehearsal and the setup still needed for a public expo. The app stores each event's configuration, heat state, players, ballots, metrics, and requested leads in SQLite. Twilio credentials and production deployment are deliberately left for the event owner.
+This guide covers local and Azure rehearsals plus the setup still needed for a public expo. The app stores each event's configuration, heat state, players, ballots, metrics, and requested leads in SQLite. The [Azure infrastructure guide](INFRA_SETUP.md) and [deployment guide](DEPLOYMENT.md) cover the hosted service; Twilio credentials remain an event-specific setup step.
 
 ## 1. Install and sign in
 
@@ -13,7 +13,7 @@ cp .env.example .env
 npm start
 ```
 
-The first start creates `app/data/live-scavenger-hunt.sqlite` and prints a generated `admin` password **once** in that server terminal. An existing `app/data/signal-stadium.sqlite` is reused so earlier settings, leads, and metrics remain available; its original seeded event is renamed in place. Save the password in your secret manager. Sign in at `/login` or the event's `/operator` URL. The server reloads `.env` only when it starts; restart after changing secrets. `npm run check` builds the Video browser bundle and runs the test suite.
+The first local start creates `app/data/live-scavenger-hunt.sqlite` and prints a generated `admin` password **once** in that server terminal. An existing `app/data/signal-stadium.sqlite` is reused so earlier settings, leads, and metrics remain available; its original seeded event is renamed in place. Save the password in your secret manager. Hosted first boot supplies `BOOTSTRAP_ADMIN_PASSWORD` through a Container App secret, so the password does not enter retained logs. Sign in at `/login` or the event's `/operator` URL. The server reloads `.env` only when it starts; restart after changing secrets. `npm run check` builds the Video browser bundle and runs the test suite.
 
 To create another admin or a limited booth operator, stop the service and run:
 
@@ -96,11 +96,15 @@ The private Metrics screen filters by event and date. A single-event range uses 
 
 Admins see leads; operators may run heats but cannot open private reports. Lead capture can be disabled per event; when enabled, an admin chooses up to eight fields and their required flags. The build-guide option requires a required email field; an expert request may use email or phone. Every submission saves the field definition that visitor saw, so later form edits do not rewrite earlier leads. Joining and voting never require the lead form. The expert CTA saves a requested follow-up; it does not place a call.
 
-The app keeps SQLite in `app/data/` by default. Lead retention defaults to **90 days** and can be set per event; the server prunes expired leads hourly. Activity records are retained until the database is deliberately archived or deleted. The anonymous vote secret is generated and stored in SQLite unless `VOTE_HMAC_SECRET` is set. Keep the secret stable across restores. Back up the database to encrypted storage and test a restore before the event; for a simple file copy, stop the app first so the SQLite/WAL files form a consistent snapshot. Restrict database and export access to staff who need it, and delete individual leads through the admin API when required.
+Locally, SQLite lives in `app/data/`. In Azure, it runs on fast local container storage and Litestream replicates it to a private Azure Blob container; a replacement revision restores the backup before Node starts. A renewable Blob lease ensures that an extra Container Apps replica waits instead of opening a second game database.
+
+Lead retention defaults to **90 days** and can be set per event; the server prunes expired leads hourly. Activity records are retained until the database is deliberately archived or deleted. The anonymous vote secret is generated and stored in SQLite unless `VOTE_HMAC_SECRET` is set. Keep it stable across restores. Restrict database and export access to staff who need it, and delete individual leads through the admin API when required.
+
+Litestream attempts to sync every second when Blob is healthy, but an outage can make backup lag much longer. Verify a current backup and restore before each event. Deploy between heats: the controlled rollout stops the old revision before starting the next one, with a short service interruption. Startup schema changes must stay compatible with the previous image for automatic pre-cutover rollback. For a local file-copy backup, stop the app first so SQLite and its WAL form a consistent snapshot.
 
 ## 8. Production handoff checklist
 
-- [ ] Deploy the Node process behind trusted HTTPS with a reachable `PUBLIC_BASE_URL`; keep the process and SQLite storage persistent and back them up.
+- [ ] Verify the Azure Container App serves HTTPS with the exact `PUBLIC_BASE_URL`, one running replica, a healthy `/health` response, and a current Litestream backup; complete a restore drill before opening doors.
 - [ ] Add Video credentials and the Auth Token, then check a live Group Room, player publishing, wall subscription, and signed callbacks.
 - [ ] Register and configure any SMS/WhatsApp senders, exact inbound webhook URL, event codes, and event-specific channel toggles.
 - [ ] Configure optional OpenAI, Segment, and SendGrid only for the services the activation will use.

@@ -25,6 +25,7 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
   <a href="#star-the-build">Star the build</a> ·
   <a href="#twilio-product-story">Twilio product story</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#azure-deployment">Azure deployment</a> ·
   <a href="#production-handoff">Production handoff</a>
 </p>
 
@@ -125,7 +126,7 @@ npm ci
 npm start
 ```
 
-`npm start` builds the browser Video client before starting the server. On a new database, the terminal prints a generated admin username and one-time password. Save the password, then open:
+`npm start` builds the browser Video client before starting the server. On a new local database, the terminal prints a generated admin username and one-time password. Save the password, then open:
 
 | Screen | Local URL |
 | --- | --- |
@@ -136,6 +137,8 @@ npm start
 | Private metrics and leads | [Open metrics](http://127.0.0.1:65111/e/live-scavenger-hunt/metrics) |
 
 The default server address is `127.0.0.1:65111`; adjust it with [.env.example](.env.example). Local rehearsal sends short-lived JPEG camera frames through the app at a lower frame rate than Twilio Video. Camera access on real phones requires a reachable **HTTPS** origin. Sign in as an operator in the same browser profile used for the arena wall to see player cameras there.
+
+Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret on first boot. The app then seeds the admin without printing the credential in retained server logs.
 
 Run `npm run check` for the browser build, server tests, and README link check. The [runbook](docs/runbook.md) covers event setup, accounts, preflight, messaging registration, data care, and a full booth rehearsal.
 
@@ -158,6 +161,7 @@ flowchart LR
     M -->|signed webhook| A
     O[Booth operator and admin] <-->|settings, judging, reports| A
     A <--> D[(SQLite)]
+    D -. hosted backup via Litestream .-> B[(Azure Blob)]
     A -. optional judging .-> AI[OpenAI]
     A -. optional events .-> SG[Segment]
     A -. requested guide .-> E[SendGrid]
@@ -165,8 +169,14 @@ flowchart LR
 
 The server owns the round clock, sealed clue, slot assignment, winner decision, operator permissions, and event-scoped reports. The [API contract](docs/full-app-api.md) lists routes and payloads; the [challenge library](docs/concepts/find-it-first-challenge-library.md) helps plan an event prompt deck.
 
+## Azure deployment
+
+The Azure setup follows the Birdies & Eagles pattern: a dedicated resource group in `centralus`, private Container Registry, Container Apps environment, Log Analytics, and GitHub OIDC deploys. The app keeps SQLite on fast local container storage and uses Litestream to restore and replicate it to a private Azure Blob container. An Azure Blob lease allows only one replica to open the database, including during platform maintenance. A controlled rollout stops the previous game process before the replacement starts, so a release includes a brief planned pause. The Container App serves a public HTTPS URL and is configured for one replica.
+
+Start with [one-time infrastructure setup](docs/INFRA_SETUP.md), then use the [deployment guide](docs/DEPLOYMENT.md) for releases, backup checks, and recovery. [CI details](docs/CICD.md) describe the `Validate` gate that runs before an image can deploy. The first cloud boot uses rehearsal mode while Twilio credentials are pending. Litestream attempts to sync every second when Blob is healthy; backup lag can grow during a storage outage. Verify a current backup and restore before an event.
+
 ## Production handoff
 
-**The app is ready for local rehearsal. Twilio account configuration and production deployment are still pending.** Before opening a public booth, add Video credentials and the webhook Auth Token, deploy behind HTTPS with persistent storage, and test the wall with real phones on the venue network. SMS/WhatsApp, AI vision, Segment, and SendGrid are optional integrations that each need their own setup. Follow the [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
+**The Azure deployment path is included; the first cloud release runs in rehearsal mode.** Before opening a public booth, add Video credentials and the webhook Auth Token, verify the Blob backup and restore, and test the wall with real phones on the venue network. SMS/WhatsApp, AI vision, Segment, and SendGrid are optional integrations that each need their own setup. Follow the [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
 
 When changing app behavior, screens, settings, or integrations, update this README and the relevant runbook/API sections in the same change. [Project guidance](AGENTS.md) records that maintenance rule.
