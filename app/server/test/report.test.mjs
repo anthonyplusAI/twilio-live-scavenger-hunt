@@ -111,6 +111,21 @@ test('summary counts play, votes, lead intent, and safe activity properties', ()
   } finally { store.close(); }
 });
 
+test('join sessions and repeat browser visits are reported separately', () => {
+  const store = new Store(':memory:');
+  try {
+    const event = eventInZone(store, 'Repeat Visitor Expo', 'repeat-visitor-expo', 'UTC');
+    const at = '2026-11-02T12:00:00.000Z';
+    store.recordActivity(event.id, 'player_joined', { playerId: 'first-join', sessionId: 'browser-one' }, at);
+    store.recordActivity(event.id, 'player_joined', { playerId: 'second-join', sessionId: 'browser-one' }, at);
+    store.recordActivity(event.id, 'player_joined', { playerId: 'third-join', sessionId: 'browser-two' }, at);
+    const summary = buildReport(store, { event: event.slug }).summary;
+    assert.equal(summary.joinSessions, 3);
+    assert.equal(summary.uniqueVisitorSessions, 2);
+    assert.equal(summary.totalParticipants, 3);
+  } finally { store.close(); }
+});
+
 test('follow-up requests use request dates even when the lead was captured earlier', () => {
   const store = new Store(':memory:');
   try {
@@ -126,6 +141,36 @@ test('follow-up requests use request dates even when the lead was captured earli
     assert.deepEqual([day('2026-11-04').summary.guideRequests, day('2026-11-04').summary.expertRequests], [0, 1]);
     const all = buildReport(store, { event: 'all', from: '2026-11-03', to: '2026-11-03' });
     assert.equal(all.summary.byEvent[0].guideRequests, 1);
+  } finally { store.close(); }
+});
+
+test('pending expert work remains visible across date filters while respecting the event filter', () => {
+  const store = new Store(':memory:');
+  try {
+    const first = eventInZone(store, 'First Expo', 'first-expo', 'UTC');
+    const second = eventInZone(store, 'Second Expo', 'second-expo', 'UTC');
+    for (const [event, id] of [[first, 'first-lead'], [second, 'second-lead']]) {
+      addLead(store, event, { id, at: '2026-11-01T12:00:00.000Z', intent: 'capture',
+        values: { email: `${id}@example.test` }, fields: [{ id: 'email', label: 'Email', type: 'email' }] });
+      store.markLeadRequest(id, 'expert', '2026-11-01T13:00:00.000Z');
+    }
+
+    const filters = { from: '2026-11-03', to: '2026-11-03' };
+    const firstReport = buildReport(store, { ...filters, event: first.slug });
+    assert.equal(firstReport.summary.leads, 0);
+    assert.equal(firstReport.summary.expertRequests, 0);
+    assert.equal(firstReport.summary.pendingExpertRequests, 1);
+    assert.deepEqual(firstReport.expertQueue.map(row => row.id), ['first-lead']);
+    assert.equal(firstReport.summary.byEvent[0].pendingExpertRequests, 1);
+
+    const allReport = buildReport(store, { ...filters, event: 'all' });
+    assert.equal(allReport.summary.pendingExpertRequests, 2);
+    assert.deepEqual(allReport.expertQueue.map(row => row.id).sort(), ['first-lead', 'second-lead']);
+
+    store.setExpertFollowupStatus('first-lead', 'contacted');
+    const resolved = buildReport(store, { ...filters, event: first.slug });
+    assert.equal(resolved.summary.pendingExpertRequests, 0);
+    assert.deepEqual(resolved.expertQueue, []);
   } finally { store.close(); }
 });
 

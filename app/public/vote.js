@@ -4,6 +4,8 @@ const slug = slugMatch ? decodeURIComponent(slugMatch[1]) : "";
 const state = {
   event: null, game: null, serverOffset: 0, source: null,
   pending: false, blockedWindowId: null, error: "", renderedWindow: "", expiredWindowId: null,
+  lead: { open: false, intent: "guide", page: 0, values: {}, marketingOptIn: false,
+    pending: false, error: "", success: false, response: null, previousFocus: null },
 };
 const make = (tag, className = "", value = null) => {
   const node = document.createElement(tag);
@@ -170,8 +172,225 @@ function render() {
     document.title = `${state.event.name || "Live Scavenger Hunt"} / Audience vote`;
   }
   $("play-link").href = slug ? `/e/${encodeURIComponent(slug)}/play` : "#";
+  renderFooter();
   const vote = state.game?.vote;
   if (isOpen(vote) && normalizeOptions(vote).length) renderOpen(vote); else renderClosed(vote);
+}
+
+function leadSettings() {
+  const raw = state.event?.leadCapture || {};
+  const fields = (Array.isArray(raw.fields) ? raw.fields : []).filter(field =>
+    field && /^[a-z][a-z0-9-]{0,79}$/i.test(field.id) &&
+    ["text", "email", "tel"].includes(field.type) && field.label
+  ).slice(0, 8).map(field => ({ id: field.id, label: String(field.label),
+    type: field.type, required: Boolean(field.required) }));
+  return {
+    enabled: raw.enabled === true,
+    guideEnabled: raw.guideEnabled === true,
+    expertEnabled: raw.expertEnabled === true,
+    marketingOptIn: raw.marketingOptIn === true,
+    fields,
+  };
+}
+function availableLeadIntents() {
+  const lead = leadSettings();
+  if (!lead.enabled || !lead.fields.length) return [];
+  return [lead.guideEnabled ? "guide" : null, lead.expertEnabled ? "expert" : null].filter(Boolean);
+}
+function primaryAction() {
+  const selected = state.event?.cta?.primary;
+  return ["guide", "expert"].includes(selected) && availableLeadIntents().includes(selected)
+    ? selected : "github";
+}
+function renderFooter() {
+  const primary = primaryAction();
+  const intents = availableLeadIntents();
+  const followup = $("followup-cta"), github = $("github-link");
+  const intent = primary === "github" ? intents[0] : primary;
+  followup.hidden = !intent;
+  followup.dataset.intent = intent || "";
+  followup.classList.toggle("is-primary", primary !== "github");
+  github.classList.toggle("is-primary", primary === "github");
+  github.style.order = primary === "github" ? "0" : "1";
+  followup.style.order = primary === "github" ? "1" : "0";
+  $("play-link").style.order = "2";
+  $("followup-cta-copy").textContent = intent === "expert"
+    ? primary === "expert" ? "Talk to Twilio" : "Ask an expert"
+    : primary === "guide" ? "Request build guide" : "Get build guide";
+  followup.setAttribute("aria-label", intent === "expert" ? "Request a Twilio expert" : "Request the build guide");
+}
+
+function leadPages() { return Math.max(1, Math.ceil(leadSettings().fields.length / 2)); }
+function leadPageFields() { return leadSettings().fields.slice(state.lead.page * 2, state.lead.page * 2 + 2); }
+function renderLeadIntents() {
+  const host = $("lead-intents");
+  host.replaceChildren();
+  const intents = availableLeadIntents();
+  host.hidden = state.lead.success || intents.length < 2;
+  for (const intent of intents) {
+    const button = make("button", "lead-intent", intent === "guide" ? "Build guide" : "Twilio expert");
+    button.type = "button";
+    button.classList.toggle("active", state.lead.intent === intent);
+    button.setAttribute("aria-pressed", String(state.lead.intent === intent));
+    button.addEventListener("click", () => {
+      if (state.lead.intent === intent || state.lead.pending) return;
+      state.lead.intent = intent;
+      state.lead.page = 0;
+      state.lead.error = "";
+      recordActivity(`${intent}_cta_opened`);
+      renderLeadForm();
+      $("lead-fields").querySelector("input")?.focus();
+    });
+    host.append(button);
+  }
+}
+function fieldAutocomplete(field) {
+  if (field.type === "email") return "email";
+  if (field.type === "tel") return "tel";
+  if (/name/i.test(field.id)) return "name";
+  if (/company/i.test(field.id)) return "organization";
+  return "off";
+}
+function renderLeadForm() {
+  const lead = state.lead, settings = leadSettings();
+  renderLeadIntents();
+  $("lead-title").innerHTML = lead.intent === "expert" ? "Make the next<br><em>connection.</em>" : "Build a moment<br><em>of your own.</em>";
+  $("lead-description").textContent = lead.intent === "expert"
+    ? "Ask the booth team to follow up. Your details are sent only when you submit."
+    : "Request the build guide. Your details are sent only when you submit.";
+  $("lead-form").hidden = lead.success;
+  $("lead-success").hidden = !lead.success;
+  if (lead.success) {
+    $("lead-success-title").textContent = "Request saved.";
+    $("lead-success-detail").textContent = lead.intent === "expert"
+      ? "The booth team can follow up. Visit Twilio while you are here."
+      : lead.response?.deliveryStatus === "pending-configuration"
+        ? "Email delivery is being configured. Ask the Twilio team at the booth."
+        : lead.response?.deliveryStatus === "recent-request"
+          ? "A guide was requested for this address recently. Check your inbox or ask the Twilio team at the booth."
+        : ["failed", "needs-review", "bounced", "dropped"].includes(lead.response?.deliveryStatus)
+          ? "Email delivery needs staff attention. Ask the Twilio team at the booth."
+          : "Check your inbox for the guide. Visit the Twilio booth for more.";
+    return;
+  }
+  const host = $("lead-fields");
+  host.replaceChildren();
+  for (const field of leadPageFields()) {
+    const label = make("label", "lead-field"), caption = make("span", "lead-field-label", field.label);
+    const input = make("input", "lead-input");
+    input.name = field.id;
+    input.id = `lead-field-${field.id}`;
+    input.type = field.type;
+    input.required = field.required;
+    input.maxLength = field.type === "email" ? 254 : field.type === "tel" ? 40 : 160;
+    input.autocomplete = fieldAutocomplete(field);
+    input.value = lead.values[field.id] || "";
+    if (field.type === "tel") input.inputMode = "tel";
+    if (field.type === "email") input.inputMode = "email";
+    input.placeholder = field.type === "email" ? "you@company.com" : field.type === "tel" ? "+1 555 123 4567" : `Your ${field.label.toLowerCase()}`;
+    input.addEventListener("input", () => {
+      lead.values[field.id] = input.value;
+      if (lead.error) { lead.error = ""; $("lead-error").hidden = true; }
+    });
+    if (field.required) caption.append(make("b", "lead-required", " *"));
+    label.append(caption, input);
+    host.append(label);
+  }
+  const last = lead.page >= leadPages() - 1;
+  $("lead-marketing-row").hidden = !(last && settings.marketingOptIn);
+  $("lead-marketing").checked = lead.marketingOptIn;
+  $("lead-prev").hidden = lead.page === 0;
+  $("lead-progress").textContent = `${lead.page + 1} / ${leadPages()}`;
+  $("lead-next").disabled = lead.pending;
+  $("lead-next").innerHTML = lead.pending ? "Saving request…" : last
+    ? "Send request <span aria-hidden=\"true\">↗</span>"
+    : "Continue <span aria-hidden=\"true\">→</span>";
+  $("lead-error").hidden = !lead.error;
+  $("lead-error").textContent = lead.error;
+}
+function openLead(intent) {
+  if (!availableLeadIntents().includes(intent)) return;
+  state.lead = { open: true, intent, page: 0, values: {}, marketingOptIn: false,
+    pending: false, error: "", success: false, response: null, previousFocus: document.activeElement };
+  $("lead-overlay").hidden = false;
+  $("voter-app").inert = true;
+  renderLeadForm();
+  $("lead-dialog").focus();
+  recordActivity("cta_opened");
+  recordActivity(`${intent}_cta_opened`);
+  recordActivity("lead_form_opened");
+}
+function closeLead() {
+  if (!state.lead.open) return;
+  const previous = state.lead.previousFocus;
+  state.lead.requestController?.abort();
+  state.lead.pending = false;
+  state.lead.open = false;
+  $("lead-overlay").hidden = true;
+  $("voter-app").inert = false;
+  previous?.focus?.();
+}
+function validateCurrentLeadPage() {
+  for (const field of leadPageFields()) {
+    const input = $(`lead-field-${field.id}`);
+    const value = String(input?.value || "").trim();
+    if (field.required && !value) {
+      state.lead.error = `${field.label} is required.`;
+      input?.focus();
+      return false;
+    }
+    if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      state.lead.error = `Enter a valid ${field.label.toLowerCase()}.`;
+      input?.focus();
+      return false;
+    }
+    if (value && field.type === "tel" && value.replace(/\D/g, "").length < 7) {
+      state.lead.error = `Enter a valid ${field.label.toLowerCase()}.`;
+      input?.focus();
+      return false;
+    }
+    state.lead.values[field.id] = value;
+  }
+  state.lead.error = "";
+  return true;
+}
+async function submitLeadForm(event) {
+  event.preventDefault();
+  if (state.lead.pending || !validateCurrentLeadPage()) {
+    $("lead-error").textContent = state.lead.error;
+    $("lead-error").hidden = !state.lead.error;
+    return;
+  }
+  if (state.lead.page < leadPages() - 1) {
+    state.lead.page++;
+    renderLeadForm();
+    $("lead-fields").querySelector("input")?.focus();
+    return;
+  }
+  state.lead.pending = true;
+  state.lead.marketingOptIn = leadSettings().marketingOptIn && $("lead-marketing").checked;
+  const lead = state.lead;
+  lead.requestController = new AbortController();
+  renderLeadForm();
+  try {
+    const response = await fetch(`/api/e/${encodeURIComponent(slug)}/spectator-leads`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intent: state.lead.intent,
+        fieldValues: state.lead.values, marketingOptIn: state.lead.marketingOptIn }),
+      signal: lead.requestController.signal,
+    });
+    if (state.lead !== lead || !lead.open) return;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Request could not be saved (${response.status})`);
+    state.lead.success = true;
+    state.lead.response = payload;
+  } catch (error) {
+    if (state.lead === lead && lead.open && error.name !== "AbortError")
+      lead.error = error.message || "Connection lost. Try again.";
+  } finally {
+    if (state.lead === lead && lead.open) { lead.pending = false; lead.requestController = null; renderLeadForm(); }
+  }
 }
 
 function setConnection(label, mode) {
@@ -258,7 +477,34 @@ async function submitVote(choice) {
 }
 
 setInterval(updateClock, 250);
-$("github-link").addEventListener("click", () => recordActivity("github_cta_opened", { source: "spectator" }));
+$("github-link").addEventListener("click", () => {
+  recordActivity("cta_opened");
+  recordActivity("github_cta_opened", { source: "spectator" });
+});
+$("followup-cta").addEventListener("click", () => openLead($("followup-cta").dataset.intent));
+$("lead-close").addEventListener("click", closeLead);
+$("lead-done").addEventListener("click", closeLead);
+$("lead-overlay").addEventListener("click", event => { if (event.target === $("lead-overlay")) closeLead(); });
+$("lead-prev").addEventListener("click", () => {
+  if (state.lead.pending || state.lead.page === 0) return;
+  state.lead.page--;
+  state.lead.error = "";
+  renderLeadForm();
+  $("lead-fields").querySelector("input")?.focus();
+});
+$("lead-marketing").addEventListener("change", () => { state.lead.marketingOptIn = $("lead-marketing").checked; });
+$("lead-form").addEventListener("submit", submitLeadForm);
+document.addEventListener("keydown", event => {
+  if (!state.lead.open) return;
+  if (event.key === "Escape") { event.preventDefault(); closeLead(); return; }
+  if (event.key !== "Tab") return;
+  const focusable = [...$("lead-dialog").querySelectorAll("button:not([disabled]), input:not([disabled])")]
+    .filter(element => !element.hidden && !element.closest("[hidden]") && element.getClientRects().length);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable.at(-1);
+  if (event.shiftKey && [first, $("lead-dialog")].includes(document.activeElement)) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 window.addEventListener("pagehide", () => state.source?.close());
 refresh();

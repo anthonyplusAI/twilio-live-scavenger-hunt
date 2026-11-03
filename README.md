@@ -21,7 +21,7 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
   <a href="https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/play?demo=build"><strong>Explore the product story</strong></a>
 </p>
 
-<p align="center"><em>Read-only previews on the Azure rehearsal deployment. Live Twilio Video awaits account configuration.</em></p>
+<p align="center"><em>Read-only visual previews on the hosted app. A live heat uses the media mode shown in Operator → Preflight.</em></p>
 
 ![Four-player Live Scavenger Hunt arena preview with a prominent play QR and smaller GitHub star QR](docs/visuals/live-scavenger-hunt-arena-4-players.png)
 
@@ -39,22 +39,28 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR and enters a screen name. If the event enables lead capture, the same join flow asks for the admin-configured contact fields. When the visitor saves their spot, the player and lead are stored together **before** the camera check. They then allow camera access and go live. With capture switched off, joining asks only for a screen name and display consent. A visitor can choose **Watch and vote instead** without filling out the player form. The arena adjusts its portrait-card layout to the number of players, and the phone requests portrait capture; when a browser returns a landscape track, it makes a portrait stream for the preview and Twilio publishing if canvas capture is supported. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
+A visitor scans the arena's prominent **Scan to play** QR, enters a screen name, agrees to appear on the public display, and checks their camera. **Go live** reserves a spot only after the camera works. If access was denied, the phone shows where to allow it in the browser and a **Try camera again** button. A camera switch changes between front and rear cameras. Lead capture is configurable: the default asks for contact details only after someone voluntarily requests a guide or a Twilio expert; an admin can instead collect the configured fields at join or turn capture off. A visitor can choose **Watch and vote instead** without joining. The arena adjusts its portrait-card layout to the number of players, and the phone requests portrait capture; when a browser returns a landscape track, it makes a portrait stream for the preview and Twilio publishing if canvas capture is supported. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
 
 When all configured player spots are occupied, or a heat has locked, a new visitor enters the next-heat waitlist with their camera off. Their phone shows a private, exact place in line and a capacity-based estimate in heats; the app does not promise a minute countdown because booth pauses and judging can vary. The oldest waiting visitor takes the next open lobby spot when someone leaves, is removed, times out, or an admin increases capacity. New arrivals cannot jump ahead. At the next heat, the oldest queued visitors get the available spots and reconnect their cameras.
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot without providing player details. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and optionally request a guide or a conversation with the booth team using the details saved at join. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot.
+Admins set each clue to **Standard** or **Low** rotation priority in the prompt editor. Simple color-only clues default to Low. Automatic rotation holds Low until every enabled Standard clue has appeared, then allows a Low clue at most once in five automatically selected rounds. It draws among the least-played clues in the chosen priority tier. Category votes and operator-queued clues take precedence over that cadence.
+
+<p align="center"><img src="docs/visuals/live-scavenger-hunt-operator-prompt-priority.png" alt="Local operator visual preview editing a simple color prompt with Low rotation priority" width="880"></p>
+
+<p align="center"><em>Local operator preview of the saved prompt-priority control.</em></p>
+
+Spectators can take part through a web ballot without providing player details. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and **star the source on GitHub** as the default main action. An admin can make the build guide or Twilio expert the main action instead. Players and web spectators can voluntarily request a guide or conversation through the configured contact form. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot.
 
 | Booth moment | What the app does |
 | --- | --- |
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
-| **Keep the race fair** | The server seals the prompt until GO. In the Flexible and After wait modes, the join timer starts when the configured minimum is ready; more players can join until it expires. The waitlist fills vacated lobby spots in join order. An operator can start a ready heat manually. |
-| **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
+| **Keep the race fair** | The server seals the prompt until GO. In the Flexible and After wait modes, the join timer starts when the configured minimum is ready; more players can join until it expires. The waitlist fills vacated lobby spots in join order. A disconnected live Video player cannot submit a winning find. An operator can start a ready heat manually. |
+| **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. If AI review fails, the automatic award holds for a manual winner, tie, or no-match decision. |
 | **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts admin access. |
-| **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
-| **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
+| **Measure engagement** | Private reports filter by event and date and cover join sessions, distinct browser sessions where available, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
+| **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, lead timing and form, and main CTA. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
 ## See the moment
 
@@ -96,45 +102,55 @@ The arena keeps the game QR large and gives the [source repository](https://gith
 <table>
   <tr><th>Player phone · before joining</th><th>Player phone · join details</th><th>Spectator phone · between ballots</th></tr>
   <tr>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player join preview with an illustrated phone camera spot and Star on GitHub footer link" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player join form with screen name, configurable contact fields, and a GitHub star footer" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player landing screen with an illustrated phone camera spot and GitHub star footer" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Default player join form asks for a screen name and public-display consent before checking the camera" width="300"></td>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-vote.png" alt="Spectator ballot preview waiting for the next vote, with a Star on GitHub footer link" width="300"></td>
   </tr>
 </table>
 
-<p align="center"><em>Local visual previews. The player portrait is an illustration, not a live camera feed. The join form shows configured fields before the camera check; the spectator ballot is waiting for its next vote.</em></p>
+<p align="center"><em>Local visual previews. The player portrait is an illustration, not a live camera feed. The join form shown uses the default after-play contact setting.</em></p>
+
+<table>
+  <tr><th>Camera access · recover and retry</th><th>Spectator · voluntary follow-up</th></tr>
+  <tr>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-camera-blocked.png" alt="Player camera check showing a blocked camera, site permission instructions, and a Try camera again button" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-spectator-lead.png" alt="Spectator opens an optional build-guide contact form from the ballot while waiting for the next vote, without joining a heat" width="300"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Local interface previews of recovery and optional follow-up; no live camera feed appears.</em></p>
 
 <p align="center"><img src="docs/visuals/live-scavenger-hunt-phone-waitlist.png" alt="Local rehearsal phone waitlist preview showing the player's private first place in line and an expected next-heat estimate" width="300"></p>
 <p align="center"><em>Local visual preview of the waitlist. The card shows a queue rank and an estimate in heats, not a live camera feed or a guaranteed time.</em></p>
 
 ## Twilio product story
 
-The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path.
+The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path. Its main action is **Star this game on GitHub** by default; an admin can select **Build guide** or **Twilio expert** instead.
 
-Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link is visible from joining through the result and product story. Guide and expert requests use the contact details already saved at join; they do not open another form.
+Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link is visible from joining through the result and product story. With the default after-play setting, a guide or expert tap opens the short configured contact form. The confirmation screen links back to the product story, where a compatible second request reuses saved contact details. If the admin chose at-join capture, a request uses the details already saved at join.
 
 <table>
   <tr><th>Dark display</th><th>Light display</th></tr>
   <tr>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story.png" alt="Dark phone product story with a camera-to-arena diagram, Twilio Video learn-more link, and GitHub star link" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story-light.png" alt="Light phone product story with the same Twilio Video and GitHub links" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story.png" alt="Dark phone product story with a camera-to-arena diagram, Twilio Video learn-more link, and prominent GitHub star action" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story-light.png" alt="Light phone product story with Twilio Video explanation and a prominent GitHub star action" width="300"></td>
   </tr>
 </table>
 
-<p align="center"><em>Read-only visual previews with lead capture off. When an event enables lead capture, guide and expert request actions use the details collected during joining.</em></p>
+<p align="center"><em>Read-only visual previews. Contact collection happens only when someone takes a configured follow-up action, unless the admin selects at-join capture.</em></p>
 
 | Product | Role in the activation | Setup state |
 | --- | --- | --- |
 | **Twilio Video** | Phone cameras publish into an unrecorded room; the booth wall subscribes to the players' video. | Built in; needs the Account SID, API Key SID and secret, Auth Token, and a public HTTPS origin for a live event. |
 | **Twilio Messaging** | Spectators send SMS or WhatsApp ballots and receive an automated TwiML acknowledgment reply. A web ballot is available without a sender. | Optional; needs event senders, inbound webhook setup, and registration that covers the replies. |
-| **Twilio Segment** | Can mirror a limited, contact-free activity stream. The local report works without Segment. | Optional Write Key. Lead identity is sent only with separate marketing opt-in and explicit configuration. |
-| **Twilio SendGrid** | Can email a requested build guide. Expert requests are saved for staff follow-up. | Optional API key and verified sender. |
+| **Twilio Segment** | Can mirror a limited, contact-free activity stream using an anonymous browser session ID. The local report works without Segment. | Optional Write Key. An opted-in lead's identity can be linked to that session only with separate marketing opt-in and explicit configuration. |
+| **Twilio SendGrid** | Can email a requested build guide. Accepted sends are tracked separately from confirmed delivery; an admin can follow expert requests in a private queue. | Optional API key, verified sender, and signed Event Webhook for delivery confirmation. |
 
 Optional **OpenAI vision** can assess camera evidence for prompts that cannot be handled by the built-in color rule. The booth operator can always review or override a decision. The expert CTA records a request; it does **not** place a Voice call or launch Agent Connect.
 
 ## Player safety and booth control
 
-Players have a visible **Leave** action from the camera check onward, while queued, or while playing. Leaving releases their spot and turns off their camera. A reserved spot waiting at the camera check asks “Still here?” after one minute and releases the spot 30 seconds later. A phone left idle in the queue, lobby, paused heat, or operator review asks after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
+Players can leave a reserved spot, queue, or active heat from the phone. The camera check happens before joining, so a denied permission cannot hold a tile; the phone offers a retry and browser settings guidance. After joining, **Leave** releases the spot and turns off the camera. A phone left idle in the queue, lobby, paused heat, or operator review asks after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
 
 Staff can open **Manage players** in the operator view, choose a current or queued player, and confirm removal. Removal clears the slot, requests a Twilio Video disconnect when configured, invalidates that player session, and records a removal metric. The command reports whether the Video disconnect succeeded. This is session-level moderation: a person with a new browser session can scan again, so booth staff should monitor the arena.
 
@@ -181,13 +197,20 @@ Run `npm run check` for the browser build, server tests, and README link check. 
 
 ## Metrics and leads
 
-The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. A lead is captured once at join before the camera step, appears in Metrics even if the visitor never requests a guide, and keeps a snapshot of the fields shown. Guide and expert request counts are tracked separately on that lead and use their request dates in the selected Metrics range. The lead total and roster use the capture date. The phone keeps in-progress join fields during arena updates and splits larger forms into short pages on compact screens; the keyboard Go action advances the form or saves the spot. Marketing updates require a separate, unchecked choice.
+The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. These are outbound actions, not confirmed page loads or GitHub stars. Join sessions are counted separately from distinct browser sessions; the latter is a browser-level measure, not a count of unique people, and older joins without a session ID are identified as unattributed. Local reports persist in SQLite even when Segment is not configured.
+
+Lead capture can be turned off per event. When enabled, an admin chooses whether to ask at join or after play, the main post-heat action, and up to eight contact fields. **After play** and **Star on GitHub** are the defaults. Guide or expert requests open a voluntary form after play; a second request can reuse compatible contact details from the first. Web spectators can request either without joining a heat. At-join capture remains available for events that need it, and its saved details can be reused for later requests. Every lead keeps a snapshot of the fields shown. Metrics separate leads, guide requests, accepted and delivered guide email, delivery failures, and an expert follow-up queue that staff can mark contacted. Guide and expert counts use their request dates in the selected range; the lead roster and CSV use capture date. Marketing updates require a separate, unchecked choice. A guide requested for the same event and email within 24 hours is recorded without sending another email. SendGrid Mail Send acceptance means the request reached SendGrid; a configured signed Event Webhook confirms delivery or reports a bounce/drop.
 
 <table>
-  <tr><th>Admin · configurable join fields</th><th>Admin · captured leads</th></tr>
+  <tr><th>Admin · lead timing and main action</th><th>Admin · configurable contact fields</th></tr>
   <tr>
-    <td><img src="docs/visuals/live-scavenger-hunt-operator-lead-fields.png" alt="Local operator visual preview editing the join form field order and required flags" width="680"></td>
-    <td><img src="docs/visuals/live-scavenger-hunt-metrics-leads.png" alt="Local metrics visual preview showing leads captured at join and separate guide and expert request counts" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-operator-lead-capture.png" alt="Local operator visual preview choosing after-play contact capture and GitHub as the main action" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-operator-lead-fields.png" alt="Local operator visual preview editing contact form field order and required flags" width="680"></td>
+  </tr>
+  <tr><th>Admin · engagement overview</th><th>Admin · captured leads</th></tr>
+  <tr>
+    <td><img src="docs/visuals/live-scavenger-hunt-metrics-overview.png" alt="Local metrics visual preview showing event activity and engagement across the selected date range" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-metrics-leads.png" alt="Local metrics visual preview showing leads and separate guide and expert request counts" width="680"></td>
   </tr>
 </table>
 
@@ -213,20 +236,21 @@ flowchart LR
     A -. optional judging .-> AI[OpenAI]
     A -. optional events .-> SG[Segment]
     A -. requested guide .-> E[SendGrid]
+    E -. signed delivery events .-> A
 ```
 
 The server owns the round clock, sealed clue, slot assignment, winner decision, operator permissions, and event-scoped reports. The [API contract](docs/full-app-api.md) lists routes and payloads; the [challenge library](docs/concepts/find-it-first-challenge-library.md) helps plan an event prompt deck.
 
 ## Azure deployment
 
-The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) runs on Azure Container Apps. Provisioning starts it in rehearsal mode; the operator **Preflight** view reports the current media configuration. Its public HTTPS URL supports phone camera permissions, and the four Twilio Video and Auth Token settings enable live Rooms. Local passwords work without Google; Google sign-in appears when its OAuth client credentials are deployed.
+The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) runs on Azure Container Apps. Provisioning starts it in rehearsal mode; the operator **Preflight** view reports the current media configuration and optional integrations. Its public HTTPS URL supports phone camera permissions, and the four Twilio Video and Auth Token settings enable live Rooms. Local passwords work without Google; Google sign-in appears when its OAuth client credentials are deployed.
 
 The Azure setup follows the Birdies & Eagles pattern: a dedicated resource group in `centralus`, private Container Registry, Container Apps environment, Log Analytics, and GitHub OIDC deploys. The app keeps SQLite on fast local container storage and uses Litestream to restore and replicate it to a private Azure Blob container. An Azure Blob lease allows only one replica to open the database, including during platform maintenance. A controlled rollout stops the previous game process before the replacement starts, so a release includes a brief planned pause. The Container App serves a public HTTPS URL and is configured for one replica.
 
-Start with [one-time infrastructure setup](docs/INFRA_SETUP.md), then use the [deployment guide](docs/DEPLOYMENT.md) for releases, backup checks, and recovery. [CI details](docs/CICD.md) describe the `Validate` gate that runs before an image can deploy. GitHub Actions can activate live Video through the controlled rollout with four Twilio secrets and `TWILIO_VIDEO_MODE=live`; `rehearsal` switches back to snapshots, and an unset mode preserves the current setting. The same safe rollout accepts optional OpenAI, Segment, and SendGrid keys as GitHub Actions secrets; a verified SendGrid sender is also needed before requested guide emails can be delivered. Segment lead identification stays off unless explicitly enabled for visitors who separately opt in. Litestream attempts to sync every second when Blob is healthy; backup lag can grow during a storage outage. Verify a current backup and restore before an event.
+Start with [one-time infrastructure setup](docs/INFRA_SETUP.md), then use the [deployment guide](docs/DEPLOYMENT.md) for releases, backup checks, and recovery. [CI details](docs/CICD.md) describe the `Validate` gate that runs before an image can deploy. GitHub Actions can activate live Video through the controlled rollout with four Twilio secrets and `TWILIO_VIDEO_MODE=live`; `rehearsal` switches back to snapshots, and an unset mode preserves the current setting. The same safe rollout accepts optional OpenAI, Segment, and SendGrid keys. A verified SendGrid sender is needed for guide sends; a signed Event Webhook and its public verification key are needed to confirm delivery. Segment lead identification stays off unless explicitly enabled for visitors who separately opt in. Litestream attempts to sync every second when Blob is healthy; backup lag can grow during a storage outage. Verify a current backup and restore before an event.
 
 ## Production handoff
 
-**The Azure deployment path is included and starts in rehearsal mode.** Before opening a public booth, add the Account SID, US1 Standard API Key SID and secret, and account Auth Token as GitHub Actions secrets; set `TWILIO_VIDEO_MODE=live` and deploy between heats. Verify the Blob backup and restore, then test the wall with real phones on the venue network. SMS/WhatsApp ballots are optional and need an inbound sender webhook plus registration for automated acknowledgment replies. AI vision, Segment, and SendGrid are optional integrations with [separate setup](docs/INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email). Follow the [Twilio activation steps](docs/INFRA_SETUP.md#activate-twilio-video) and [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
+**The Azure deployment path is included and starts in rehearsal mode.** Before opening a public booth, add the Account SID, US1 Standard API Key SID and secret, and account Auth Token as GitHub Actions secrets; set `TWILIO_VIDEO_MODE=live` and deploy between heats. Verify the Blob backup and restore, then test the wall with real phones on the venue network, including a denied camera and a front/rear switch. SMS/WhatsApp ballots are optional and need an inbound sender webhook plus registration for automated acknowledgment replies. AI vision, Segment, and SendGrid are optional integrations with [separate setup](docs/INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email). For SendGrid, confirm both API acceptance and a signed delivery event; without the webhook, requests remain accepted but delivery is unconfirmed. Follow the [Twilio activation steps](docs/INFRA_SETUP.md#activate-twilio-video) and [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
 
 When changing app behavior, screens, settings, or integrations, update this README and the relevant runbook/API sections in the same change. [Project guidance](AGENTS.md) records that maintenance rule.

@@ -30,6 +30,8 @@ const vision = new OpenAIVision();
 const judge = new JudgeService({ engine, vision });
 const integrations = new Integrations({ store, engine, media, publicBaseUrl });
 engine.telemetry = integrations;
+store.pruneLeads();
+store.enqueuePreviouslyUnsentGuides();
 const server = createHttpServer({ store, engine, auth, media, judge, integrations,
   publicBaseUrl, defaultSlug: firstEvent.slug });
 
@@ -38,6 +40,11 @@ const retention = setInterval(() => {
   catch (error) { console.error(`Retention sweep: ${error.message}`); }
 }, 60 * 60_000);
 retention.unref?.();
+const deliveries = setInterval(() => {
+  void integrations.processDueDeliveryJobs().catch(error => console.error(`Guide queue: ${error.message}`));
+}, 15_000);
+deliveries.unref?.();
+void integrations.processDueDeliveryJobs().catch(error => console.error(`Guide queue startup: ${error.message}`));
 engine.startTicker();
 
 server.listen(port, host, () => {
@@ -52,6 +59,7 @@ async function close() {
   if (closing) return;
   closing = true;
   clearInterval(retention);
+  clearInterval(deliveries);
   engine.close();
   server.closeAllConnections?.();
   await new Promise(resolve => server.close(resolve));

@@ -2,6 +2,7 @@ const slug = decodeURIComponent(location.pathname.split('/')[2] || 'demo');
 const apiBase = `/api/e/${encodeURIComponent(slug)}`;
 const arenaUrl = `/e/${encodeURIComponent(slug)}/arena`;
 const voteUrl = `/e/${encodeURIComponent(slug)}/vote`;
+const githubUrl = 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt';
 const sessionKey = `signal-stadium-player:${slug}`;
 const demoMode = new URLSearchParams(location.search).get('demo');
 const isResultDemo = ['win', 'lose', 'tie', 'no-match', 'build'].includes(demoMode);
@@ -30,10 +31,16 @@ const app = {
   cameraInput: null,
   cameraCanvas: null,
   cameraDrawTimer: null,
+  cameraFacing: 'user',
+  cameraBusy: false,
+  cameraHelp: '',
+  mediaLinkUp: false,
+  mediaGeneration: 0,
   joinBusy: false,
   media: null,
   mediaMode: null,
   mediaBusy: null,
+  mediaBusyGeneration: null,
   resultReleaseTimer: null,
   resultCameraStopAt: null,
   frameTimer: null,
@@ -46,8 +53,10 @@ const app = {
   leadDraft: { fieldValues: {}, marketingOptIn: false },
   leadResult: null,
   followupBusy: false,
+  followupPage: 0,
   queueRefreshBusy: false,
   renderedLeadKey: '',
+  renderedFollowupKey: '',
   outcome: null,
   resultRevealSeen: new Set(),
   idleSince: null,
@@ -69,6 +78,7 @@ const visibleRoster = () => Array.isArray(app.state?.roster) ? app.state.roster 
 const rosterPlayer = () => visibleRoster().find(entry => entry.id === app.player?.id);
 const hasSlot = () => Boolean(rosterPlayer()?.slot) && !['queued', 'left'].includes(app.player?.status);
 const phase = () => app.state?.phase || 'lobby';
+const cameraOnline = () => Boolean(app.camera && app.media && (app.mediaMode !== 'twilio' || app.mediaLinkUp));
 
 async function request(path, { method = 'GET', body, auth = false, headers = {}, keepalive = false } = {}) {
   const options = { method, headers: { ...headers }, credentials: 'same-origin', keepalive };
@@ -177,11 +187,19 @@ function leadSettings() {
   ).map(field => ({ id: field.id, label: String(field.label), type: field.type, required: !!field.required }));
   return {
     enabled: raw.enabled !== false,
+    timing: raw.timing === 'join' ? 'join' : 'after-play',
     guideEnabled: raw.guideEnabled !== false,
     expertEnabled: raw.expertEnabled !== false,
     marketingOptIn: raw.marketingOptIn !== false,
     fields,
   };
+}
+
+function primaryCta(lead = leadSettings()) {
+  const selected = app.event?.cta?.primary;
+  if (selected === 'guide' && lead.enabled && lead.guideEnabled) return 'guide';
+  if (selected === 'expert' && lead.enabled && lead.expertEnabled) return 'expert';
+  return 'github';
 }
 
 function currentView() {
@@ -217,7 +235,7 @@ function displayWinnerNames(winners) {
 }
 
 function resultTechCta() {
-  return `<button type="button" class="result-tech-cta" data-action="build"><span class="result-tech-cta-mark" aria-hidden="true"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="result-tech-cta-copy"><strong>SEE THE LIVE-EVENT BUILD</strong><small>Twilio Video: phone → arena</small></span><span class="result-tech-cta-arrow" aria-hidden="true">↗</span></button>`;
+  return `<button type="button" class="result-tech-cta" data-action="build"><span class="result-tech-cta-mark" aria-hidden="true"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="result-tech-cta-copy"><strong>SEE HOW IT'S BUILT</strong><small>Video · Messaging · Segment</small></span><span class="result-tech-cta-arrow" aria-hidden="true">↗</span></button>`;
 }
 
 function resultMarkup(winners, heat) {
@@ -281,17 +299,38 @@ function buildMarkup(lead) {
   const tabs = Object.entries(buildProducts).map(([key, item]) => `<button type="button" class="build-tab ${key === app.buildProduct ? 'is-active' : ''}" data-action="build-product" data-product="${key}" aria-pressed="${key === app.buildProduct}"><strong>${key === 'video' ? 'Video' : key === 'messaging' ? 'Messaging' : 'Segment'}</strong><small>${key === 'video' ? 'Game core' : 'Optional'}</small></button>`).join('');
   const flow = `<div class="build-flow build-flow-${app.buildProduct}" aria-hidden="true"><figure class="build-flow-end build-flow-source">${product.source}<figcaption>${product.from}</figcaption></figure><div class="build-flow-link"><span class="build-flow-line"></span><span class="build-flow-twilio"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="build-flow-line"></span></div><figure class="build-flow-end build-flow-destination">${product.destination}<figcaption>${product.to}</figcaption></figure></div>`;
   const busy = app.followupBusy ? 'disabled' : '';
-  const guide = lead.enabled && lead.guideEnabled ? `<button type="button" class="build-guide" data-action="guide" ${busy}>${app.followupBusy ? 'Saving your request…' : 'Request the build guide'} <span aria-hidden="true">↗</span></button>` : '';
-  const expert = lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${guide ? '' : 'is-primary'}" data-action="expert" ${busy}>Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '';
+  const primary = primaryCta(lead);
+  const actions = {
+    github: isPrimary => `<a class="build-github ${isPrimary ? 'is-primary' : ''}" data-github-source="phone" href="${githubUrl}" target="_blank" rel="noopener noreferrer" aria-label="Star Live Scavenger Hunt on GitHub (opens in a new tab)"><span class="build-github-star" aria-hidden="true">★</span><span>${isPrimary ? 'Star this game on GitHub' : 'Star on GitHub'}</span><span aria-hidden="true">↗</span></a>`,
+    guide: isPrimary => lead.enabled && lead.guideEnabled ? `<button type="button" class="build-guide ${isPrimary ? 'is-primary' : ''}" data-action="guide" ${busy}>Request the build guide <span aria-hidden="true">↗</span></button>` : '',
+    expert: isPrimary => lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${isPrimary ? 'is-primary' : ''}" data-action="expert" ${busy}>Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '',
+  };
+  const primaryAction = actions[primary](true);
+  const secondaryActions = ['github', 'guide', 'expert'].filter(action => action !== primary)
+    .map(action => actions[action](false)).filter(Boolean).join('');
   const replay = isResultDemo ? '<button type="button" class="build-replay" data-action="demo-result">← Back to the result</button>' : '<button type="button" class="build-replay" data-action="replay">Play another heat</button>';
-  const invitation = guide || expert ? '<p>Want to make a moment like this?</p>' : '<div class="build-booth-invite"><span class="build-booth-mark"><img src="/assets/twilio-bug-official.png" alt=""></span><span><strong>Build your own live moment.</strong><small>Talk to the Twilio team at the booth.</small></span></div>';
   const learnMore = `<a class="build-product-link" data-twilio-product="${app.buildProduct}" href="${product.url}" target="_blank" rel="noopener noreferrer" aria-label="Explore ${product.name} on Twilio (opens in a new tab)">Explore ${product.name} <span aria-hidden="true">↗</span></a>`;
-  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p>${learnMore}</div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${app.error ? `<p class="build-error" role="alert">${escapeHtml(app.error)}</p>` : ''}${replay}</div></div>`;
+  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p>${learnMore}</div></section><div class="build-next"><p>Make your own live moment. Talk to us at the booth.</p>${primaryAction}<div class="build-next-links">${secondaryActions}${replay}</div>${app.error ? `<p class="build-error" role="alert">${escapeHtml(app.error)}</p>` : ''}</div></div>`;
 }
 
 function preview() {
   const slot = rosterPlayer()?.slot ?? app.player?.slot;
-  return `<div class="preview ${app.camera ? 'has-camera' : ''}"><div class="preview-placeholder" ${app.camera ? 'hidden' : ''}>${portraitArt()}<span class="camera-waiting">${cameraIcon()}<span>Camera off</span></span></div><video id="camera" autoplay muted playsinline ${app.camera ? '' : 'hidden'}></video><div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div><span class="preview-topline"><b></b>${app.camera ? 'CAMERA ON' : 'CAMERA CHECK'}</span><span class="slot">${slot ? `SLOT ${pad(slot)}` : 'YOUR CAMERA'}</span></div>`;
+  const nextFacing = app.cameraFacing === 'user' ? 'rear' : 'front';
+  return `<div class="preview ${app.camera ? 'has-camera' : ''} ${app.cameraFacing === 'environment' ? 'is-rear' : ''}"><div class="preview-placeholder" ${app.camera ? 'hidden' : ''}>${portraitArt()}<span class="camera-waiting">${cameraIcon()}<span>Camera off</span></span></div><video id="camera" autoplay muted playsinline ${app.camera ? '' : 'hidden'}></video><div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div><span class="preview-topline"><b></b>${app.camera ? 'CAMERA ON' : 'CAMERA CHECK'}</span>${app.camera ? `<button type="button" class="camera-flip" data-action="flip-camera" aria-label="Switch to ${nextFacing} camera" title="Switch to ${nextFacing} camera" ${app.cameraBusy || app.mediaBusy ? 'disabled' : ''}><span aria-hidden="true">↻</span></button>` : ''}<span class="slot">${slot ? `SLOT ${pad(slot)}` : 'YOUR CAMERA'}</span></div>`;
+}
+
+function cameraHelpMarkup() {
+  if (!app.cameraHelp) return '';
+  if (app.cameraHelp !== 'permission') return `<p class="camera-recovery" role="status">${app.cameraHelp === 'secure' ? 'Open this game over HTTPS to use your camera.' : 'Check that your camera is connected and no other app is using it, then retry.'}</p>`;
+  const userAgent = navigator.userAgent || '';
+  const instructions = /iPhone|iPad|iPod/i.test(userAgent)
+    ? /CriOS/i.test(userAgent)
+      ? 'On iPhone, open Settings → Chrome → Camera and allow access. Return here and retry.'
+      : 'Safari: tap the address-bar page menu → Settings for This Website → Camera → Allow. Return and retry.'
+    : /Android/i.test(userAgent)
+      ? 'In Chrome, tap the site controls beside the address bar → Permissions → Camera → Allow. Return here and retry.'
+      : 'Open this site’s controls beside the address bar → Camera → Allow. Return here and retry.';
+  return `<div class="camera-recovery" role="status"><strong>Camera blocked?</strong><span>${instructions}</span></div>`;
 }
 
 function cameraIcon() {
@@ -325,7 +364,7 @@ function compactFinalJoinPage() { return innerWidth <= 400 || initialJoinHeight 
 function leadLayoutKey() { return `${leadPageSize()}:${compactFinalJoinPage()}`; }
 let renderedLeadPageSize = leadLayoutKey();
 function leadFieldPages(settings) {
-  if (!settings.enabled) return [[]];
+  if (!settings.enabled || settings.timing !== 'join') return [[]];
   const pages = [];
   for (let start = 0; start < settings.fields.length;) {
     const remaining = settings.fields.length - start;
@@ -350,6 +389,7 @@ function fieldMarkup(field) {
   return `<div class="field"><label for="${id}">${escapeHtml(field.label)}${field.required ? ' *' : ' · optional'}</label><input id="${id}" data-lead-field="${field.id}" type="${field.type}" autocomplete="${autocomplete}" maxlength="${field.type === 'email' ? 254 : field.type === 'tel' ? 40 : 160}" ${field.required ? 'required' : ''} value="${escapeHtml(app.leadDraft.fieldValues[field.id] || '')}"></div>`;
 }
 function joinMarkup(settings) {
+  const captureAtJoin = settings.enabled && settings.timing === 'join';
   const pages = leadFieldPages(settings);
   app.leadPage = Math.max(0, Math.min(app.leadPage, pages.length - 1));
   const first = app.leadPage === 0;
@@ -357,16 +397,29 @@ function joinMarkup(settings) {
   const fields = pages[app.leadPage];
   const hasEmailField = settings.fields.some(field => field.type === 'email');
   const alias = first ? `<div class="field"><label for="alias">Screen name</label><input id="alias" name="alias" maxlength="20" minlength="2" autocomplete="nickname" placeholder="e.g. Pixel Pilot" value="${escapeHtml(app.alias)}" required></div>` : '';
-  const marketing = final && settings.enabled && settings.marketingOptIn && hasEmailField
+  const marketing = final && captureAtJoin && settings.marketingOptIn && hasEmailField
     ? `<label class="check"><input type="checkbox" name="marketingOptIn" ${app.leadDraft.marketingOptIn ? 'checked' : ''}><span>Yes, send me occasional Twilio product updates by email. Optional.</span></label>` : '';
   const consent = final
     ? `<label class="check"><input id="consent" name="consent" type="checkbox" required ${app.consent ? 'checked' : ''}><span>I agree to appear on the public game display while I play.</span></label>` : '';
   const heading = first ? 'Join the<br> hunt.' : 'Almost<br> ready.';
-  const intro = settings.enabled
+  const intro = captureAtJoin
     ? first ? 'Share your details with the booth team before the camera check.' : 'Your details will be saved for this event when you join.'
-    : 'Your camera appears on the public booth display during your heat.';
+    : 'Your camera appears on the public booth display during your heat. You can choose a follow-up after playing.';
   const cameraNote = final ? '<p class="lead-note">The game may check camera images to judge a match.</p>' : '';
-  return `<div class="card cardpad join-card"><div class="lead-heading"><p class="eyebrow">01 / ${settings.enabled ? 'Your details' : 'Get ready'}</p>${pages.length > 1 ? `<span class="lead-step-count">${app.leadPage + 1} / ${pages.length}</span>` : ''}</div><h1 class="section-title">${heading}</h1><p class="join-intro">${intro}</p><form id="consentForm" novalidate><div class="lead-fields-layout">${alias}${fields.map(fieldMarkup).join('')}</div>${cameraNote}${consent}${marketing}<p class="error" id="consentError" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="join-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? app.joinBusy ? 'SAVING YOUR SPOT…' : 'SAVE & CHECK CAMERA' : 'CONTINUE', 'consent-next', false, app.joinBusy, 'submit')}</div></form>${first ? `<a class="join-spectate" href="${voteUrl}">Watch and vote instead <span aria-hidden="true">↗</span></a>` : ''}</div>`;
+  return `<div class="card cardpad join-card"><div class="lead-heading"><p class="eyebrow">01 / ${captureAtJoin ? 'Your details' : 'Get ready'}</p>${pages.length > 1 ? `<span class="lead-step-count">${app.leadPage + 1} / ${pages.length}</span>` : ''}</div><h1 class="section-title">${heading}</h1><p class="join-intro">${intro}</p><form id="consentForm" novalidate><div class="lead-fields-layout">${alias}${fields.map(fieldMarkup).join('')}</div>${cameraNote}${consent}${marketing}<p class="error" id="consentError" role="alert">${escapeHtml(app.error)}</p>${app.leadPage ? '<button type="button" class="lead-prev" data-action="join-previous">← Previous fields</button>' : ''}<div class="actions">${button(final ? 'CHECK CAMERA' : 'CONTINUE', 'consent-next', false, false, 'submit')}</div></form>${first ? `<a class="join-spectate" href="${voteUrl}">Watch and vote instead <span aria-hidden="true">↗</span></a>` : ''}</div>`;
+}
+
+function followupMarkup(settings) {
+  const pages = leadFieldPages({ ...settings, timing: 'join' });
+  app.followupPage = Math.max(0, Math.min(app.followupPage, pages.length - 1));
+  const final = app.followupPage === pages.length - 1;
+  const hasEmailField = settings.fields.some(field => field.type === 'email');
+  const marketing = final && settings.marketingOptIn && hasEmailField
+    ? `<label class="check"><input type="checkbox" name="marketingOptIn" ${app.leadDraft.marketingOptIn ? 'checked' : ''}><span>Yes, send me occasional Twilio product updates by email. Optional.</span></label>` : '';
+  const heading = app.leadIntent === 'expert' ? 'Talk to a<br>Twilio expert.' : 'Get the<br>build guide.';
+  const intro = app.leadIntent === 'expert' ? 'Leave your details so the booth team can follow up.' : 'Tell us where to send your guide.';
+  const action = final ? app.leadIntent === 'expert' ? 'REQUEST AN EXPERT' : 'SEND ME THE GUIDE' : 'CONTINUE';
+  return `<div class="card cardpad followup-card"><div class="lead-heading"><p class="eyebrow">Your choice · ${app.leadIntent === 'expert' ? 'Expert' : 'Build guide'}</p>${pages.length > 1 ? `<span class="lead-step-count">${app.followupPage + 1} / ${pages.length}</span>` : ''}</div><h1 class="section-title">${heading}</h1><p class="join-intro">${intro}</p><form id="followupForm" novalidate><div class="lead-fields-layout">${pages[app.followupPage].map(fieldMarkup).join('')}</div>${marketing}<p class="error" id="followupError" role="alert">${escapeHtml(app.error)}</p><div class="followup-controls"><button type="button" class="lead-prev" data-action="followup-back">← ${app.followupPage ? 'Previous fields' : 'How it works'}</button></div><div class="actions">${button(app.followupBusy ? 'SAVING REQUEST…' : action, 'followup-next', false, app.followupBusy, 'submit')}</div></form><p class="lead-note">Your request is optional. Product updates stay off unless you check the box.</p></div>`;
 }
 
 function joinRenderKey(settings) {
@@ -391,7 +444,15 @@ function render(force = false) {
     }
     if (!lead.marketingOptIn) app.leadDraft.marketingOptIn = false;
   }
-  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, media: !!app.media, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, leadPage: app.leadPage, leadIntent: app.leadIntent, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
+  if (view === 'followup' && screen.dataset.view === 'followup') {
+    const key = JSON.stringify({ page: app.followupPage, busy: app.followupBusy, intent: app.leadIntent, settings: lead });
+    if (key === app.renderedFollowupKey) {
+      $('followupError').textContent = app.error;
+      return;
+    }
+    syncFollowupDraft();
+  }
+  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, cameraBusy: app.cameraBusy, cameraHelp: app.cameraHelp, media: !!app.media, mediaBusy: !!app.mediaBusy, mediaLinkUp: app.mediaLinkUp, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, leadPage: app.leadPage, leadIntent: app.leadIntent, followupPage: app.followupPage, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
   screen.dataset.view = view;
@@ -410,22 +471,23 @@ function render(force = false) {
     screen.innerHTML = joinMarkup(lead);
     app.renderedLeadKey = joinRenderKey(lead);
   } else if (view === 'preview') {
-    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${lead.enabled ? app.camera ? 'Your details are saved. Go live when ready.' : 'Your details are saved. Allow camera access to play.' : app.camera ? 'Your spot is reserved. Go live when ready.' : 'Your spot is reserved. Allow camera access to play.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'GO LIVE', 'join', false, app.event.mediaMode === 'unconfigured') : button('ENABLE CAMERA', 'camera')}${button('LEAVE SPOT & VOTE', 'spectate', true)}</div>`;
+    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${app.token ? 'Your spot is set. Go live when ready.' : app.camera ? 'Camera ready. Your spot is reserved when you go live.' : 'Allow camera access before reserving your spot.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.joinBusy ? 'RESERVING SPOT…' : app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'GO LIVE', 'join', false, app.joinBusy || app.event.mediaMode === 'unconfigured') : button(app.cameraBusy ? 'OPENING CAMERA…' : app.cameraHelp ? 'TRY CAMERA AGAIN' : 'ENABLE CAMERA', 'camera', false, app.cameraBusy)}${button(app.token ? 'LEAVE SPOT & VOTE' : 'WATCH & VOTE', 'spectate', true)}</div>${app.token ? '' : '<button type="button" class="preview-edit" data-action="edit-details">Edit your details</button>'}`;
   } else if (view === 'queued') {
     screen.innerHTML = queueMarkup();
   } else if (view === 'waiting') {
     const slot = rosterPlayer()?.slot ?? app.player?.slot;
-    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">READY<br><em>TO GO.</em></h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} READY</div><p class="caption" data-join-status>${joinStatusText()}</p><p class="caption">${app.media ? 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p><p class="error" role="alert">${escapeHtml(app.error)}</p>${app.media ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true)}</div>`}`;
+    const needsReady = app.player?.status === 'joined';
+    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">READY<br><em>TO GO.</em></h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} READY</div><p class="caption" data-join-status>${joinStatusText()}</p><p class="caption">${cameraOnline() ? needsReady ? 'Your camera is connected. Waiting for booth confirmation…' : 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>${cameraOnline() && !needsReady ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true, !!app.mediaBusy)}</div>`}`;
   } else if (view === 'countdown') {
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Stand by</p><div class="result-mark countdown-figure" data-clock>3</div><h1 class="hero sealed-title">CLUE<br><em>SEALED.</em></h1><p class="sub">Everyone sees the challenge at GO. Hold your camera steady.</p>`;
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Stand by</p><div class="result-mark countdown-figure" data-clock>3</div><h1 class="hero sealed-title">CLUE<br><em>SEALED.</em></h1><p class="sub">Everyone sees the challenge at GO. Hold your camera steady.</p>${cameraOnline() ? '' : `<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>${cameraHelpMarkup()}`}`;
   } else if (view === 'hunt') {
     // The server omits prompt before GO. Never infer it from an event deck or a URL.
     const clue = app.state.prompt?.text || 'LOOK AT THE ARENA';
     const clueSize = clue.length > 80 ? 'is-extra-long' : clue.length > 50 ? 'is-long' : '';
-    const reconnect = !app.camera || !app.media;
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Find it first</p><h1 class="section-title hunt-prompt ${clueSize}">${escapeHtml(clue)}</h1><div class="status"><span data-clock>00</span> SEC LEFT</div><div class="hunt-preview">${preview()}</div>${reconnect ? '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>' : '<p class="caption">Bring your find into the camera guide and hold it steady.</p>'}<p class="error" role="alert">${escapeHtml(app.error)}</p>`;
+    const reconnect = !cameraOnline();
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Find it first</p><h1 class="section-title hunt-prompt ${clueSize}">${escapeHtml(clue)}</h1><div class="status"><span data-clock>00</span> SEC LEFT</div><div class="hunt-preview">${preview()}</div>${reconnect ? '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>' : '<p class="caption">Bring your find into the camera guide and hold it steady.</p>'}${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>`;
   } else if (view === 'review') {
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Checking</p><h1 class="hero">DID YOU<br><em>FIND IT?</em></h1>${playerVisual('REVIEWING FINDS')}<p class="sub">The judge is checking each find. Close calls can be ties.</p>${!app.camera || !app.media ? '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>' : ''}`;
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Checking</p><h1 class="hero">DID YOU<br><em>FIND IT?</em></h1>${playerVisual('REVIEWING FINDS')}<p class="sub">The judge is checking each find. Close calls can be ties.</p>${cameraOnline() ? '' : '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>'}`;
   } else if (view === 'result') {
     const winners = app.outcome?.winners || app.state.winners || [];
     screen.innerHTML = resultMarkup(winners, app.outcome?.heat || app.state.heat);
@@ -433,8 +495,21 @@ function render(force = false) {
     screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.player?.heat)} · Complete</p><div class="result-mark">↗</div><h1 class="hero">NICE<br><em>RUN.</em></h1><p class="sub">See how your camera became part of the live arena.</p><div class="actions">${resultTechCta()}</div>`;
   } else if (view === 'build') {
     screen.innerHTML = buildMarkup(lead);
+  } else if (view === 'followup') {
+    screen.innerHTML = followupMarkup(lead);
+    app.renderedFollowupKey = JSON.stringify({ page: app.followupPage, busy: app.followupBusy, intent: app.leadIntent, settings: lead });
   } else if (view === 'thanks') {
-    screen.innerHTML = `<p class="eyebrow">Request received</p><div class="result-mark">✓</div><h1 class="hero">YOU'RE<br><em>ALL SET.</em></h1><p class="sub">Your ${app.leadIntent === 'expert' ? 'expert conversation' : 'build guide'} request is saved for this event. Visit the Twilio booth to keep the conversation going.</p><div class="actions">${button('PLAY ANOTHER HEAT', 'replay')}</div>`;
+    const guideStatus = app.leadResult?.deliveryStatus;
+    const followupDetail = app.leadIntent === 'expert'
+      ? 'Your expert conversation request is saved. Visit the Twilio booth to keep talking.'
+      : guideStatus === 'recent-request'
+        ? 'A guide was requested for this address recently. Check your inbox or ask the Twilio team at the booth.'
+        : guideStatus === 'pending-configuration'
+          ? 'Your guide request is saved. Email delivery is being configured; ask the Twilio team at the booth.'
+          : ['failed', 'needs-review', 'bounced', 'dropped'].includes(guideStatus)
+            ? 'Your guide request is saved, but email delivery needs staff attention. Ask the Twilio team at the booth.'
+            : 'Your build guide request is saved for this event. Visit the Twilio booth to keep the conversation going.';
+    screen.innerHTML = `<p class="eyebrow">Request received</p><div class="result-mark">✓</div><h1 class="hero">YOU'RE<br><em>ALL SET.</em></h1><p class="sub">${followupDetail}</p><div class="actions"><a class="build-github is-primary" data-github-source="phone" href="${githubUrl}" target="_blank" rel="noopener noreferrer" aria-label="Star Live Scavenger Hunt on GitHub (opens in a new tab)"><span class="build-github-star" aria-hidden="true">★</span><span>Star this game on GitHub</span><span aria-hidden="true">↗</span></a><div class="build-next-links thanks-next-links"><button type="button" class="build-replay" data-action="build">More ways to connect</button><button type="button" class="build-replay" data-action="replay">Play another heat</button></div></div>`;
   } else if (view === 'left') {
     screen.innerHTML = `<p class="eyebrow">You're out of this heat</p><div class="result-mark">↗</div><h1 class="hero">CAMERA<br><em>OFF.</em></h1><p class="sub">Your spot is open for someone else. You can join another heat when you're ready.</p><div class="actions">${button('JOIN AGAIN', 'rejoin')}</div>`;
   } else if (view === 'removed') {
@@ -509,56 +584,94 @@ function portraitStream(raw, video) {
 }
 
 async function enableCamera() {
+  if (app.cameraBusy || app.camera) return;
+  app.cameraBusy = true;
   app.error = '';
-  if (!navigator.mediaDevices?.getUserMedia) {
-    activity('camera_failed');
-    throw new Error('Camera access needs HTTPS or localhost. You can still watch and vote.');
-  }
-  let raw;
   try {
-    raw = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'user' },
-        width: { ideal: 540 },
-        height: { ideal: 960 },
-        aspectRatio: { ideal: 9 / 16 },
-        resizeMode: 'crop-and-scale',
-      },
-      audio: false,
-    });
-  } catch {
-    activity('camera_failed');
-    throw new Error('Camera access was blocked or no camera was found. You can try again or vote as a spectator.');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      app.cameraHelp = 'secure';
+      activity('camera_failed');
+      throw new Error('Camera access needs HTTPS or a supported browser. You can still watch and vote.');
+    }
+    app.cameraHelp = '';
+    render(true);
+    let raw;
+    try {
+      raw = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: app.cameraFacing },
+          width: { ideal: 540 },
+          height: { ideal: 960 },
+          aspectRatio: { ideal: 9 / 16 },
+          resizeMode: 'crop-and-scale',
+        },
+        audio: false,
+      });
+    } catch (error) {
+      app.cameraHelp = ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error?.name)
+        ? 'permission' : 'hardware';
+      activity('camera_failed');
+      throw new Error(app.cameraHelp === 'permission'
+        ? 'Camera access is blocked. Change this site’s camera permission, then tap Try camera again.'
+        : 'The camera could not start. Check your device and try again.');
+    }
+    const source = document.createElement('video');
+    source.muted = true;
+    source.autoplay = true;
+    source.playsInline = true;
+    source.srcObject = raw;
+    source.className = 'capture-source';
+    document.body.append(source);
+    source.play().catch(() => {});
+    let portrait;
+    try {
+      if (!await cameraDimensions(source)) throw new Error('Camera preview did not start. Try enabling it again.');
+      const actualFacing = raw.getVideoTracks()[0]?.getSettings?.()?.facingMode;
+      if (['user', 'environment'].includes(actualFacing) && actualFacing !== app.cameraFacing)
+        throw new Error(`${app.cameraFacing === 'environment' ? 'Rear' : 'Front'} camera is unavailable on this device.`);
+      portrait = portraitStream(raw, source);
+    } catch (error) {
+      raw.getTracks().forEach(track => track.stop());
+      source.remove();
+      app.cameraHelp = 'hardware';
+      activity('camera_failed');
+      throw error;
+    }
+    app.cameraInput = raw;
+    app.camera = portrait.stream;
+    app.cameraVideo = source;
+    app.cameraCanvas = portrait.canvas;
+    app.cameraDrawTimer = portrait.timer;
+    app.cameraHelp = '';
+    raw.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (app.cameraInput !== raw) return;
+      app.error = 'Your camera stopped. Reconnect it to keep playing.';
+      releaseMedia(true);
+      render(true);
+    }, { once: true });
+  } finally {
+    app.cameraBusy = false;
+    render(true);
   }
-  const source = document.createElement('video');
-  source.muted = true;
-  source.autoplay = true;
-  source.playsInline = true;
-  source.srcObject = raw;
-  source.className = 'capture-source';
-  document.body.append(source);
-  source.play().catch(() => {});
-  let portrait;
+}
+
+async function switchCamera() {
+  if (!app.camera || app.cameraBusy || app.mediaBusy) return;
+  const previousFacing = app.cameraFacing;
+  const live = Boolean(app.token && app.view === 'live' && hasSlot());
+  releaseMedia(true);
+  app.cameraFacing = previousFacing === 'user' ? 'environment' : 'user';
   try {
-    if (!await cameraDimensions(source)) throw new Error('Camera preview did not start. Try enabling it again.');
-    portrait = portraitStream(raw, source);
+    await enableCamera();
   } catch (error) {
-    raw.getTracks().forEach(track => track.stop());
-    source.remove();
-    activity('camera_failed');
+    app.cameraFacing = previousFacing;
+    try {
+      await enableCamera();
+      if (live) await ensureMediaReady();
+    } catch { /* Keep the original camera error visible for recovery. */ }
     throw error;
   }
-  app.cameraInput = raw;
-  app.camera = portrait.stream;
-  app.cameraVideo = source;
-  app.cameraCanvas = portrait.canvas;
-  app.cameraDrawTimer = portrait.timer;
-  raw.getVideoTracks()[0]?.addEventListener('ended', () => {
-    app.error = 'Your camera stopped. Reconnect it to keep playing.';
-    releaseMedia(true);
-    render(true);
-  }, { once: true });
-  render(true);
+  if (live) await ensureMediaReady();
 }
 
 function frameBlob(quality = 0.52, maxWidth = 360) {
@@ -576,50 +689,95 @@ function frameBlob(quality = 0.52, maxWidth = 360) {
 }
 
 async function uploadFrame() {
-  if (app.frameBusy || !app.token || !app.camera || !hasSlot()) return;
+  if (app.frameBusy || !app.token || !app.camera || !hasSlot() ||
+    (app.mediaMode === 'twilio' && !app.mediaLinkUp)) return;
   if (!['lobby', 'countdown', 'locked', 'hunt', 'active', 'review', 'judging'].includes(phase())) return;
   app.frameBusy = true;
   try {
     let blob = await frameBlob();
     if (blob?.size > 150_000) blob = await frameBlob(0.36, 260);
-    if (blob?.size && blob.size <= 150_000) await request('/frame', { method: 'POST', body: blob, auth: true });
+    if (blob?.size && blob.size <= 150_000 && app.camera &&
+      (app.mediaMode !== 'twilio' || app.mediaLinkUp))
+      await request('/frame', { method: 'POST', body: blob, auth: true });
   } catch (error) {
     if (error.status === 401) sessionExpired();
   } finally { app.frameBusy = false; }
 }
 
 async function ensureMediaReady() {
-  if (app.mediaBusy) return app.mediaBusy;
-  if (app.media || !app.camera || !app.token || !hasSlot()) return;
+  if (app.mediaBusy && app.mediaBusyGeneration === app.mediaGeneration) return app.mediaBusy;
+  if (!app.camera || !app.token || !hasSlot()) return;
+  if (app.media && (app.player?.status !== 'joined' || phase() !== 'lobby')) return;
+  const generation = app.mediaGeneration;
   app.mediaBusy = (async () => {
-    const data = await request('/media-token', { auth: true });
-    app.mediaMode = data.mode;
-    if (data.mode === 'twilio') {
-      if (!data.token || !data.roomName) throw new Error('Twilio Video is not ready for this heat. Ask the booth team for help.');
-      const sdk = await import('/vendor/video-client.js');
-      app.media = await sdk.connectPlayer({
-        token: data.token,
-        roomName: data.roomName,
-        stream: app.camera,
-        onDisconnected: () => { app.media = null; if (!app.outcome && hasSlot()) { app.error = 'Video disconnected. Tap retry to reconnect.'; render(true); } },
-        onReconnecting: () => { app.error = 'Video reconnecting…'; render(true); },
-        onReconnected: () => { app.error = ''; render(true); },
-      });
-      // Low-rate transient snapshots keep vision judging available if the wall
-      // browser reconnects or has not been authenticated yet.
-      await uploadFrame();
-      app.frameTimer = setInterval(uploadFrame, 1600);
-    } else if (data.mode === 'rehearsal') {
-      app.media = { disconnect() {} };
-      await uploadFrame();
-      app.frameTimer = setInterval(uploadFrame, 800);
-    } else {
-      throw new Error('The booth has not configured a video mode yet.');
+    if (!app.media) {
+      const data = await request('/media-token', { auth: true });
+      if (generation !== app.mediaGeneration) return;
+      app.mediaMode = data.mode;
+      if (data.mode === 'twilio') {
+        if (!data.token || !data.roomName) throw new Error('Twilio Video is not ready for this heat. Ask the booth team for help.');
+        const sdk = await import('/vendor/video-client.js');
+        if (generation !== app.mediaGeneration) return;
+        let linkUp = true;
+        let disconnected = false;
+        const connection = await sdk.connectPlayer({
+          token: data.token,
+          roomName: data.roomName,
+          stream: app.camera,
+          onDisconnected: () => {
+            if (generation !== app.mediaGeneration) return;
+            disconnected = true;
+            linkUp = false;
+            app.media = null;
+            app.mediaLinkUp = false;
+            stopFrameTimer();
+            if (!app.outcome && hasSlot()) { app.error = 'Video disconnected. Tap retry to reconnect.'; render(true); }
+          },
+          onReconnecting: () => {
+            if (generation !== app.mediaGeneration) return;
+            linkUp = false;
+            app.mediaLinkUp = false;
+            stopFrameTimer();
+            app.error = 'Video reconnecting…';
+            render(true);
+          },
+          onReconnected: () => {
+            if (generation !== app.mediaGeneration) return;
+            linkUp = true;
+            app.mediaLinkUp = true;
+            startFrameTimer(1600);
+            app.error = '';
+            render(true);
+          },
+        });
+        if (generation !== app.mediaGeneration || disconnected) {
+          connection.disconnect?.();
+          return;
+        }
+        app.media = connection;
+        app.mediaLinkUp = linkUp;
+        // Low-rate transient snapshots keep vision judging available if the wall
+        // browser reconnects or has not been authenticated yet.
+        if (linkUp) {
+          await uploadFrame();
+          if (generation === app.mediaGeneration && app.media && app.mediaLinkUp) startFrameTimer(1600);
+        }
+      } else if (data.mode === 'rehearsal') {
+        app.media = { disconnect() {} };
+        app.mediaLinkUp = true;
+        await uploadFrame();
+        startFrameTimer(800);
+      } else {
+        throw new Error('The booth has not configured a video mode yet.');
+      }
     }
-    app.error = '';
+    app.error = app.mediaLinkUp ? '' : 'Video reconnecting…';
     render(true);
-    // The Video webhook can arrive just after connect; retry while it catches up.
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (generation !== app.mediaGeneration || app.player?.status !== 'joined' || phase() !== 'lobby') return;
+    // The signed Video callback may arrive after the SDK connects. Give it
+    // time without tearing down an otherwise healthy room connection.
+    const readyDeadline = Date.now() + (app.mediaMode === 'twilio' ? 15_000 : 0);
+    while (true) {
       try {
         const response = await request('/ready', { method: 'POST', auth: true });
         if (response.player) app.player = response.player;
@@ -628,22 +786,44 @@ async function ensureMediaReady() {
         return;
       } catch (error) {
         if (error.status === 401) { sessionExpired(); return; }
-        if (attempt === 7) throw error;
+        if (error.code !== 'media_required') throw error;
+        if (Date.now() >= readyDeadline) {
+          const delayed = new Error('Your video is connected, but the booth has not confirmed it yet. Tap Retry connection.');
+          delayed.keepMedia = true;
+          throw delayed;
+        }
         await new Promise(resolve => setTimeout(resolve, 650));
       }
     }
   })().catch(error => {
-    releaseMedia(false);
+    if (!error.keepMedia && generation === app.mediaGeneration) releaseMedia(false);
     throw error;
-  }).finally(() => { app.mediaBusy = null; });
+  }).finally(() => {
+    if (app.mediaBusyGeneration !== generation) return;
+    app.mediaBusy = null;
+    app.mediaBusyGeneration = null;
+    render(true);
+  });
+  app.mediaBusyGeneration = generation;
   return app.mediaBusy;
+}
+
+function stopFrameTimer() {
+  if (app.frameTimer) clearInterval(app.frameTimer);
+  app.frameTimer = null;
+}
+
+function startFrameTimer(intervalMs) {
+  stopFrameTimer();
+  app.frameTimer = setInterval(uploadFrame, intervalMs);
 }
 
 function releaseMedia(stopCamera) {
   if (app.resultReleaseTimer) clearTimeout(app.resultReleaseTimer);
   app.resultReleaseTimer = null;
-  if (app.frameTimer) clearInterval(app.frameTimer);
-  app.frameTimer = null;
+  stopFrameTimer();
+  app.mediaGeneration += 1;
+  app.mediaLinkUp = false;
   app.media?.disconnect?.();
   app.media = null;
   if (stopCamera) {
@@ -677,6 +857,7 @@ function sessionExpired() {
   sessionStorage.removeItem(sessionKey);
   app.token = null;
   app.player = null;
+  app.leadResult = null;
   app.view = 'intro';
   app.error = 'Your session ended. Join a new heat to play again.';
   render(true);
@@ -732,6 +913,7 @@ async function leaveGame(destination = 'left') {
     app.consent = false;
     app.leadPage = 0;
     app.leadDraft = { fieldValues: {}, marketingOptIn: false };
+    app.leadResult = null;
   }
   render(true);
   if (!token) return;
@@ -770,15 +952,16 @@ function updateIdleCheck() {
   }
 }
 
-async function joinBeforeCamera() {
+async function joinAfterCamera() {
   if (app.joinBusy) return;
+  if (!app.camera) throw new Error('Enable your camera before reserving a player spot.');
   app.joinBusy = true;
   app.error = '';
   render(true);
   try {
     const settings = leadSettings();
     const body = { alias: app.alias, displayConsent: app.consent };
-    if (settings.enabled) {
+    if (settings.enabled && settings.timing === 'join') {
       body.lead = {
         fieldValues: Object.fromEntries(settings.fields.map(field => [field.id, app.leadDraft.fieldValues[field.id] || ''])),
         marketingOptIn: app.leadDraft.marketingOptIn,
@@ -796,17 +979,26 @@ async function joinBeforeCamera() {
     if (['invalid_lead', 'lead_form_changed', 'lead_disabled'].includes(error.code)) {
       app.leadPage = 0;
       try { applyState(await request('')); } catch { /* Keep the saved draft for retry. */ }
+      releaseMedia(true);
+      app.view = 'consent';
     }
     throw error;
   } finally {
     app.joinBusy = false;
-    if (app.view === 'consent') render(true);
+    render(true);
   }
 }
 
 async function goLive() {
-  if (!app.token || !app.player) throw new Error('Your spot expired. Join again to play.');
   if (!app.camera) throw new Error('Enable your camera before going live.');
+  if (!app.token) await joinAfterCamera();
+  if (!app.token || !app.player) throw new Error('Your spot expired. Join again to play.');
+  if (!hasSlot()) {
+    app.view = 'live';
+    releaseMedia(true);
+    render(true);
+    return;
+  }
   app.view = 'live';
   app.error = '';
   render(true);
@@ -870,7 +1062,7 @@ async function advanceConsent() {
     render(true);
     return;
   }
-  if (settings.enabled) {
+  if (settings.enabled && settings.timing === 'join') {
     const missing = settings.fields.findIndex(field => field.required && !app.leadDraft.fieldValues[field.id]);
     if (missing >= 0) {
       app.leadPage = pageForLeadField(settings, missing);
@@ -892,16 +1084,90 @@ async function advanceConsent() {
       return;
     }
   }
-  await joinBeforeCamera();
+  app.view = 'preview';
+  app.error = '';
+  render(true);
 }
 
-async function requestFollowup(intent) {
+function syncFollowupDraft() {
+  const form = $('followupForm');
+  if (!form) return;
+  for (const input of form.querySelectorAll('[data-lead-field]')) app.leadDraft.fieldValues[input.dataset.leadField] = input.value.trim();
+  const marketing = form.elements.namedItem('marketingOptIn');
+  if (marketing) app.leadDraft.marketingOptIn = marketing.checked;
+}
+
+function validateCurrentFollowupPage() {
+  const form = $('followupForm');
+  if (!form) return false;
+  for (const input of form.querySelectorAll('[data-lead-field]')) {
+    input.setCustomValidity('');
+    if (input.type === 'tel' && input.value.trim()) {
+      const digits = input.value.replace(/\D/g, '');
+      if (!/^[+0-9().\-\s]+$/.test(input.value) || digits.length < 7 || digits.length > 20)
+        input.setCustomValidity('Enter a phone number with at least seven digits.');
+    }
+  }
+  if (!form.reportValidity()) {
+    const invalid = form.querySelector(':invalid');
+    app.error = invalid?.validationMessage || 'Complete the required fields to continue.';
+    $('followupError').textContent = app.error;
+    invalid?.focus();
+    return false;
+  }
+  syncFollowupDraft();
+  app.error = '';
+  return true;
+}
+
+async function advanceFollowup() {
+  if (!validateCurrentFollowupPage()) return;
+  const settings = leadSettings();
+  const pages = leadFieldPages({ ...settings, timing: 'join' });
+  if (app.followupPage < pages.length - 1) {
+    app.followupPage += 1;
+    render(true);
+    return;
+  }
+  const missing = settings.fields.findIndex(field => field.required && !app.leadDraft.fieldValues[field.id]);
+  if (missing >= 0) {
+    app.followupPage = pages.findIndex(fields => fields.some(field => field.id === settings.fields[missing].id));
+    app.error = 'Complete the required field to continue.';
+    render(true);
+    return;
+  }
+  const email = settings.fields.findIndex(field => field.type === 'email' && app.leadDraft.fieldValues[field.id]);
+  const contact = settings.fields.findIndex(field => ['email', 'tel'].includes(field.type) && app.leadDraft.fieldValues[field.id]);
+  if (contact < 0 || (app.leadIntent === 'guide' && email < 0)) {
+    const index = app.leadIntent === 'guide'
+      ? settings.fields.findIndex(field => field.type === 'email')
+      : settings.fields.findIndex(field => ['email', 'tel'].includes(field.type));
+    app.followupPage = Math.max(0, pages.findIndex(fields => fields.some(field => field.id === settings.fields[index]?.id)));
+    app.error = app.leadIntent === 'guide' ? 'Enter an email address for the guide.' : 'Enter an email or phone number for follow-up.';
+    render(true);
+    return;
+  }
+  if (app.leadDraft.marketingOptIn && email < 0) {
+    app.error = 'Add an email for product updates, or leave that choice unchecked.';
+    render(true);
+    return;
+  }
+  await requestFollowup(app.leadIntent, true);
+}
+
+async function requestFollowup(intent, includeFields = false) {
   if (app.followupBusy) return;
   app.followupBusy = true;
   app.error = '';
   render(true);
   try {
-    app.leadResult = await request('/leads', { method: 'POST', auth: true, body: { intent } });
+    const body = { intent };
+    if (includeFields) {
+      const settings = leadSettings();
+      body.fieldValues = Object.fromEntries(settings.fields.map(field => [field.id, app.leadDraft.fieldValues[field.id] || '']));
+      body.marketingOptIn = app.leadDraft.marketingOptIn;
+    }
+    app.leadResult = await request('/leads', { method: 'POST', auth: true, body });
     app.leadIntent = intent;
     app.view = 'thanks';
     app.error = '';
@@ -911,13 +1177,44 @@ async function requestFollowup(intent) {
   }
 }
 
+function openFollowupForm(intent, { preserveDraft = false, message = '' } = {}) {
+  const settings = leadSettings();
+  app.leadIntent = intent;
+  app.followupPage = 0;
+  if (!preserveDraft) app.leadDraft = { fieldValues: {}, marketingOptIn: false };
+  else {
+    const allowed = new Set(settings.fields.map(field => field.id));
+    app.leadDraft.fieldValues = Object.fromEntries(
+      Object.entries(app.leadDraft.fieldValues).filter(([id]) => allowed.has(id)));
+    if (intent === 'guide' && !settings.fields.some(field =>
+      field.type === 'email' && app.leadDraft.fieldValues[field.id])) {
+      const emailField = settings.fields.find(field => field.type === 'email');
+      if (emailField) {
+        const pages = leadFieldPages({ ...settings, timing: 'join' });
+        app.followupPage = Math.max(0, pages.findIndex(fields =>
+          fields.some(field => field.id === emailField.id)));
+      }
+    }
+  }
+  app.error = message;
+  app.view = 'followup';
+  activity('lead_form_opened');
+  render(true);
+}
+
 screen.addEventListener('input', event => {
   if (event.target.id === 'alias') app.alias = event.target.value;
   if (event.target.id === 'alias' && app.view === 'consent' && app.error) {
     app.error = '';
     $('consentError').textContent = '';
   }
-  if (event.target.dataset.leadField) app.leadDraft.fieldValues[event.target.dataset.leadField] = event.target.value;
+  if (event.target.dataset.leadField) {
+    app.leadDraft.fieldValues[event.target.dataset.leadField] = event.target.value;
+    if (app.view === 'followup' && app.error) {
+      app.error = '';
+      $('followupError').textContent = '';
+    }
+  }
 });
 screen.addEventListener('change', event => {
   if (event.target.id === 'consent') {
@@ -934,8 +1231,16 @@ screen.addEventListener('submit', async event => {
     event.preventDefault();
     try { await advanceConsent(); } catch (error) { showError(error); }
   }
+  if (event.target.id === 'followupForm') {
+    event.preventDefault();
+    try { await advanceFollowup(); } catch (error) { showError(error); }
+  }
 });
 screen.addEventListener('click', async event => {
+  if (event.target.closest('[data-github-source]')) {
+    activity('github_cta_opened', { source: 'phone' });
+    return;
+  }
   const productLink = event.target.closest('[data-twilio-product]');
   if (productLink) {
     activity('twilio_product_link_opened', { product: productLink.dataset.twilioProduct });
@@ -944,10 +1249,16 @@ screen.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   try {
-    if (action === 'intro-next') { app.view = 'consent'; app.leadPage = 0; app.error = ''; if (leadSettings().enabled) activity('lead_form_opened'); render(true); }
+    if (action === 'intro-next') { app.view = 'consent'; app.leadPage = 0; app.error = ''; if (leadSettings().enabled && leadSettings().timing === 'join') activity('lead_form_opened'); render(true); }
     if (action === 'camera') await enableCamera();
+    if (action === 'flip-camera') await switchCamera();
     if (action === 'join') await goLive();
-    if (action === 'retry-media') { if (!app.camera) await enableCamera(); await ensureMediaReady(); }
+    if (action === 'retry-media') {
+      if (app.media && !app.mediaLinkUp) releaseMedia(false);
+      if (!app.camera) await enableCamera();
+      await ensureMediaReady();
+    }
+    if (action === 'edit-details') { releaseMedia(true); app.view = 'consent'; app.error = ''; render(true); }
     if (action === 'build') { const fromResult = ['result', 'complete'].includes(currentView()); releaseMedia(true); app.view = 'build'; app.error = ''; if (fromResult) { app.buildProduct = 'video'; activity('cta_opened'); } render(true); }
     if (action === 'spectate') { await leaveGame('intro'); location.assign(voteUrl); return; }
     if (action === 'join-previous') { syncJoinDraft(); app.leadPage = Math.max(0, app.leadPage - 1); app.error = ''; render(true); }
@@ -958,7 +1269,22 @@ screen.addEventListener('click', async event => {
     if (action === 'guide' || action === 'expert') {
       if (isResultDemo) return;
       activity(`${action}_cta_opened`);
-      await requestFollowup(action);
+      if (leadSettings().timing === 'after-play' && !app.leadResult?.leadId) openFollowupForm(action);
+      else {
+        try { await requestFollowup(action); }
+        catch (error) {
+          if (!['invalid_lead', 'lead_form_changed'].includes(error.code)) throw error;
+          // An admin may switch to at-join capture while this visitor is already playing.
+          openFollowupForm(action, { preserveDraft: true, message: error.message });
+        }
+      }
+    }
+    if (action === 'followup-back') {
+      syncFollowupDraft();
+      if (app.followupPage) app.followupPage -= 1;
+      else app.view = 'build';
+      app.error = '';
+      render(true);
     }
     if (action === 'replay-demo' && isResultDemo) { app.resultRevealSeen.clear(); render(true); }
     if (action === 'demo-result' && isResultDemo) { app.view = 'live'; app.resultRevealSeen.clear(); render(true); }

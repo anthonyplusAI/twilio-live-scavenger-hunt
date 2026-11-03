@@ -5,7 +5,10 @@ export const CATEGORIES = ['Color', 'Object', 'Shape', 'Text', 'Gesture', 'Count
 export const START_MODES = ['flexible', 'capacity', 'deadline', 'manual'];
 export const JUDGE_POLICIES = ['auto-with-override', 'operator-confirm', 'manual'];
 export const JUDGE_MODES = ['rule', 'ai-assisted', 'audience', 'operator'];
+export const PROMPT_PRIORITIES = ['standard', 'low'];
 export const LEAD_TYPES = ['text', 'email', 'tel'];
+export const LEAD_TIMINGS = ['join', 'after-play'];
+export const PRIMARY_CTAS = ['github', 'guide', 'expert'];
 
 export class ValidationError extends Error {
   constructor(message, code = 'invalid_input') { super(message); this.name = 'ValidationError'; this.code = code; }
@@ -31,6 +34,16 @@ export function slugify(value) {
   return String(value ?? '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 }
 
+export function defaultPromptPriority(prompt) {
+  const clue = String(prompt?.text ?? '').trim();
+  return prompt?.category === 'Color' && /^(?:SHOW|FIND) (?:SOMETHING|ANYTHING|THE COLOR) [A-Z]+[.!]?$/i.test(clue)
+    ? 'low' : 'standard';
+}
+
+export function promptPriority(prompt) {
+  return PROMPT_PRIORITIES.includes(prompt?.priority) ? prompt.priority : defaultPromptPriority(prompt);
+}
+
 export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenger-hunt') {
   const now = new Date().toISOString();
   return {
@@ -39,13 +52,14 @@ export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenge
     resultSeconds: 8, tieWindowMs: 300, startMode: 'flexible',
     judgePolicy: 'auto-with-override', autoAdvance: true, retentionDays: 90,
     leadCapture: {
-      enabled: true, guideEnabled: true, expertEnabled: true, marketingOptIn: true,
+      enabled: true, timing: 'after-play', guideEnabled: true, expertEnabled: true, marketingOptIn: true,
       fields: [
         { id: 'name', label: 'Name', type: 'text', required: true },
         { id: 'email', label: 'Work email', type: 'email', required: true },
         { id: 'company', label: 'Company', type: 'text', required: false },
       ],
     },
+    cta: { primary: 'github' },
     vote: {
       enabled: true, windowSeconds: 12, creativeWindowSeconds: 10,
       categories: ['Color', 'Object', 'Text'],
@@ -77,7 +91,19 @@ function normalizeLeadCapture(raw, previous) {
     fail('The build guide needs a required email field.');
   if (enabled && expertEnabled && !normalized.some(field => field.type === 'email' || field.type === 'tel'))
     fail('Add an email or phone field for expert requests.');
-  return { enabled, guideEnabled, expertEnabled, marketingOptIn: Boolean(value.marketingOptIn), fields: normalized };
+  const timing = choice(value.timing ?? 'after-play', LEAD_TIMINGS, 'lead form timing');
+  return { enabled, timing, guideEnabled, expertEnabled, marketingOptIn: Boolean(value.marketingOptIn), fields: normalized };
+}
+
+function normalizeCta(raw, previous, leadCapture) {
+  const source = { primary: 'github', ...(previous && typeof previous === 'object' ? previous : {}),
+    ...(raw && typeof raw === 'object' ? raw : {}) };
+  const primary = choice(source.primary, PRIMARY_CTAS, 'primary call to action');
+  if (primary === 'guide' && (!leadCapture.enabled || !leadCapture.guideEnabled))
+    fail('Enable build guide requests before making them the primary action.');
+  if (primary === 'expert' && (!leadCapture.enabled || !leadCapture.expertEnabled))
+    fail('Enable expert requests before making them the primary action.');
+  return { primary };
 }
 
 function normalizeVote(raw, previous) {
@@ -114,6 +140,9 @@ function normalizePrompts(raw) {
     const promptText = text(item?.text, 55, `Prompt ${index + 1} text`);
     const category = choice(item?.category, CATEGORIES, 'prompt category');
     const judgeMode = choice(item?.judgeMode, JUDGE_MODES, 'prompt judging mode');
+    const priority = item?.priority == null || item.priority === ''
+      ? defaultPromptPriority({ text: promptText, category })
+      : choice(item.priority, PROMPT_PRIORITIES, 'prompt rotation priority');
     const detector = text(item?.detector ?? 'manual', 200, 'Prompt detector');
     if (judgeMode === 'rule') {
       const target = detector.match(/^color:(red|blue|yellow|green|orange|purple)$/i)?.[1]?.toLowerCase();
@@ -122,7 +151,7 @@ function normalizePrompts(raw) {
         fail('Fast detector prompts must ask to show or find something in one supported color.');
     }
     return {
-      id, text: promptText, category, judgeMode, detector,
+      id, text: promptText, category, judgeMode, detector, priority,
       enabled: Boolean(item?.enabled), seconds,
       tier: text(item?.tier ?? '', 40, 'Prompt tier', false),
       accessNote: text(item?.accessNote ?? '', 400, 'Prompt access note', false),
@@ -142,6 +171,7 @@ export function normalizeEvent(raw, previous = null) {
   const timeZone = text(source.timeZone, 80, 'Event time zone');
   try { new Intl.DateTimeFormat('en-US', { timeZone }); }
   catch { fail('Choose a valid IANA event time zone.'); }
+  const leadCapture = normalizeLeadCapture(source.leadCapture, base.leadCapture);
   return {
     id: previous?.id || String(source.id || randomUUID()), slug,
     name: text(source.name, 50, 'Event name'), venue: text(source.venue, 120, 'Venue', false), timeZone,
@@ -154,7 +184,8 @@ export function normalizeEvent(raw, previous = null) {
     judgePolicy: choice(source.judgePolicy, JUDGE_POLICIES, 'judge policy'),
     autoAdvance: Boolean(source.autoAdvance),
     retentionDays: integer(source.retentionDays, 1, 365, 'Lead retention'),
-    leadCapture: normalizeLeadCapture(source.leadCapture, base.leadCapture),
+    leadCapture,
+    cta: normalizeCta(source.cta, base.cta, leadCapture),
     vote: normalizeVote(source.vote, base.vote),
     prompts: normalizePrompts(source.prompts),
     revision: previous?.revision ?? (Number(source.revision) || 1),

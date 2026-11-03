@@ -46,10 +46,10 @@
         <div id="report-notice" class="report-notice" role="alert" hidden></div>
         <section id="panel-overview" class="panel active" aria-label="Overview metrics">
           <div class="kpi-grid">
-            <div class="kpi primary"><span class="kpi-label">LANDING SESSIONS</span><strong id="kpi-visitors">0</strong><small>anonymous page opens</small></div>
-            <div class="kpi"><span class="kpi-label">UNIQUE JOINERS</span><strong id="kpi-players">0</strong><small>joined at least once</small></div>
+            <div class="kpi primary"><span class="kpi-label">LANDING BROWSERS</span><strong id="kpi-visitors">0</strong><small>anonymous visits</small></div>
+            <div class="kpi"><span class="kpi-label">PLAYER JOINS</span><strong id="kpi-players">0</strong><small id="kpi-players-note">game entries</small></div>
             <div class="kpi" title="Joins, result views, CTA opens, Twilio page clicks, GitHub repo clicks, join-form opens, captured leads, guide/expert requests, and accepted votes. Landing page opens are excluded."><span class="kpi-label">ENGAGEMENT ACTIONS</span><strong id="kpi-actions">0</strong><small>post-landing interactions</small></div>
-            <div class="kpi"><span class="kpi-label">LEADS</span><strong id="kpi-leads">0</strong><small>saved at join</small></div>
+            <div class="kpi"><span class="kpi-label">LEADS</span><strong id="kpi-leads">0</strong><small>voluntary details</small></div>
           </div>
           <div class="overview-lower">
             <section class="surface trend-surface" aria-labelledby="trend-heading"><div class="surface-head"><div><span class="eyebrow">THE CROWD OVER TIME</span><h2 id="trend-heading">Daily activity</h2></div><div class="legend"><i></i><span class="legend-prefix">Player joins · </span><span id="chart-scope">7-day view</span></div></div><div id="activity-chart" class="activity-chart"></div><div id="chart-axis" class="chart-axis"></div></section>
@@ -79,19 +79,19 @@
           </div>
           <div class="audience-lower">
             <section class="surface vote-choice-surface" aria-labelledby="vote-choice-heading"><div class="surface-head"><div><span class="eyebrow">WHAT THE CROWD PICKED</span><h2 id="vote-choice-heading">Top ballot choices</h2></div><span id="vote-choice-count" class="small-stat">0 choices</span></div><div class="table-head vote-columns"><span>CHOICE</span><span>TYPE</span><span>VOTES</span></div><div id="vote-choice-rows" class="vote-choice-rows"></div><div class="pager"><span id="vote-choice-page">0 choices</span><div><button id="vote-choice-prev" type="button" aria-label="Previous vote choices">‹</button><button id="vote-choice-next" type="button" aria-label="Next vote choices">›</button></div></div></section>
-            <section class="surface vote-channel-surface" aria-labelledby="vote-channel-heading"><div class="surface-head"><div><span class="eyebrow">CHANNEL REACH</span><h2 id="vote-channel-heading">How they voted</h2></div><span id="vote-conversion" class="small-stat">— web rate</span></div><div id="vote-channel-rows" class="vote-channel-rows"></div><p id="vote-visit-note" class="surface-foot">Voting is anonymous. A ballot never creates a lead.</p></section>
+            <section class="surface vote-channel-surface" aria-labelledby="vote-channel-heading"><div class="surface-head"><div><span class="eyebrow">CHANNEL REACH</span><h2 id="vote-channel-heading">How they voted</h2></div><span id="vote-conversion" class="small-stat">— web rate</span></div><div id="vote-channel-rows" class="vote-channel-rows"></div><p id="vote-visit-note" class="surface-foot">Ballots stay anonymous. Follow-up requests are separate.</p></section>
           </div>
         </section>
 
         <section id="panel-leads" class="panel" aria-label="Lead metrics and records">
           <div class="kpi-grid">
             <div class="kpi primary"><span class="kpi-label">LEADS CAPTURED</span><strong id="lead-count">0</strong><small>in selected range</small></div>
-            <div class="kpi"><span class="kpi-label">FORM CONVERSION</span><strong id="lead-conversion">0%</strong><small>captured / opens</small></div>
+            <div class="kpi"><span class="kpi-label">FORM CONVERSION</span><strong id="lead-conversion">—</strong><small>of browsers opening form</small></div>
             <div class="kpi"><span class="kpi-label">BUILD GUIDES</span><strong id="lead-guides">0</strong><small>requested</small></div>
-            <div class="kpi"><span class="kpi-label">EXPERT TALKS</span><strong id="lead-experts">0</strong><small>requested</small></div>
+            <div class="kpi"><span class="kpi-label">EXPERT TALKS</span><strong id="lead-experts">0</strong><small id="lead-experts-note">requested</small></div>
           </div>
           <div class="leads-lower">
-            <section class="surface lead-list-surface" aria-labelledby="lead-list-heading"><div class="surface-head"><div><span class="eyebrow">CAPTURED AT JOIN</span><h2 id="lead-list-heading">Lead roster</h2></div><button id="export-leads" class="inline-button" type="button" title="Export selected leads with every saved form field">Export leads ↗</button></div><div class="table-head lead-columns"><span>CONTACT</span><span>FOLLOW-UP</span><span>DATE</span><span>DETAILS</span></div><div id="lead-rows" class="lead-rows"></div><div class="pager"><span id="lead-page">0 leads</span><div><button id="lead-prev" type="button" aria-label="Previous leads">‹</button><button id="lead-next" type="button" aria-label="Next leads">›</button></div></div></section>
+            <section class="surface lead-list-surface" aria-labelledby="lead-list-heading"><div class="surface-head"><div><span class="eyebrow" id="lead-list-kicker">VISITOR DETAILS</span><h2 id="lead-list-heading">Lead roster</h2></div><div class="lead-list-actions"><button id="expert-queue-toggle" class="inline-button queue-toggle" type="button" aria-pressed="false">Expert queue <span id="expert-queue-count">0</span></button><button id="export-leads" class="inline-button" type="button" title="Export leads captured within the selected date range, with every saved form field">Export range ↗</button></div></div><div class="table-head lead-columns"><span>CONTACT</span><span>FOLLOW-UP</span><span>DATE</span><span>DETAILS</span></div><div id="lead-rows" class="lead-rows"></div><div class="pager"><span id="lead-page">0 leads</span><div><button id="lead-prev" type="button" aria-label="Previous leads">‹</button><button id="lead-next" type="button" aria-label="Next leads">›</button></div></div></section>
             <section class="surface lead-insights" aria-labelledby="lead-insights-heading"><div class="surface-head"><div><span class="eyebrow">FOLLOW-UP SIGNAL</span><h2 id="lead-insights-heading">What they want</h2></div></div><div class="intent-row"><span>Build guide</span><strong id="intent-guide">0</strong></div><div class="intent-row"><span>Talk to an expert</span><strong id="intent-expert">0</strong></div><div class="intent-row"><span>Email updates opt-in</span><strong id="intent-marketing">0</strong></div><div class="insight-foot"><span id="lead-status">Lead capture is event-specific.</span><span class="privacy-note">Contact details stay out of activity metrics.</span></div></section>
           </div>
         </section>
@@ -101,11 +101,11 @@
   <div id="lead-detail-overlay" class="lead-detail-overlay" hidden>
     <section class="lead-detail-card" role="dialog" aria-modal="true" aria-labelledby="lead-detail-heading" aria-describedby="lead-detail-summary">
       <header class="lead-detail-header">
-        <div class="lead-detail-identity"><span class="lead-detail-kicker">SAVED AT JOIN</span><h2 id="lead-detail-heading">Lead details</h2><p id="lead-detail-summary"></p></div>
+        <div class="lead-detail-identity"><span class="lead-detail-kicker">VISITOR FOLLOW-UP</span><h2 id="lead-detail-heading">Lead details</h2><p id="lead-detail-summary"></p></div>
         <button id="lead-detail-close" class="lead-detail-close" type="button" aria-label="Close lead details">×</button>
       </header>
       <div id="lead-detail-fields" class="lead-detail-fields" role="list"></div>
-      <footer class="lead-detail-footer"><span id="lead-detail-page">0 fields</span><div class="lead-detail-pager"><button id="lead-detail-prev" type="button">Previous</button><button id="lead-detail-next" type="button">Next</button></div></footer>
+      <footer class="lead-detail-footer"><span id="lead-detail-page">0 fields</span><button id="expert-followup-button" class="expert-followup-button" type="button" hidden>Mark contacted</button><div class="lead-detail-pager"><button id="lead-detail-prev" type="button">Previous</button><button id="lead-detail-next" type="button">Next</button></div></footer>
     </section>
   </div>
   <script type="module" src="/metrics.js"></script>

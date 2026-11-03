@@ -21,14 +21,15 @@ export function promptBank() {
       id, text: text.trim(), category, tier: tier.trim(),
       judgeMode: category === 'Creative' ? 'audience' : color ? 'rule' : 'ai-assisted',
       detector: color ? `color:${color}` : rule.trim(),
+      priority: color ? 'low' : 'standard',
       enabled: activePilotIds.has(id), seconds: category === 'Creative' ? 30 : null,
       accessNote: caution.trim(),
     });
   }
   if (prompts.length === 50) return prompts;
   return [
-    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', tier: 'Launch candidate', judgeMode: 'rule', detector: 'color:red', enabled: true, seconds: null, accessNote: 'Provide a red card.' },
-    { id: 'O01', text: 'SHOW A CUP', category: 'Object', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'object:cup', enabled: true, seconds: null, accessNote: 'Supply an empty cup.' },
-    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', tier: 'Pilot', judgeMode: 'ai-assisted', detector: 'text:TWILIO', enabled: true, seconds: null, accessNote: 'Supply a printed card.' },
+    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', tier: 'Launch candidate', judgeMode: 'rule', detector: 'color:red', priority: 'low', enabled: true, seconds: null, accessNote: 'Provide a red card.' },
+    { id: 'O01', text: 'SHOW A CUP', category: 'Object', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'object:cup', priority: 'standard', enabled: true, seconds: null, accessNote: 'Supply an empty cup.' },
+    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', tier: 'Pilot', judgeMode: 'ai-assisted', detector: 'text:TWILIO', priority: 'standard', enabled: true, seconds: null, accessNote: 'Supply a printed card.' },
   ];
 }

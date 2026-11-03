@@ -45,9 +45,37 @@ export function validateLead(event, player, input, state, now = new Date()) {
     participantId: player.id, heatId: state.heatId || null,
     fieldValues, fieldSnapshot: structuredClone(settings.fields),
     name, email, phone, company, marketingOptIn,
-    consentVersion: intent === 'capture' ? 'live-scavenger-hunt-join-v2' : 'signal-stadium-leads-v1',
-    deliveryStatus: intent === 'capture' ? 'not-requested' : intent === 'expert' ? 'operator-follow-up' : 'pending-configuration',
+    consentVersion: intent === 'capture' ? 'live-scavenger-hunt-join-v2' : 'live-scavenger-hunt-followup-v2',
+    deliveryStatus: intent === 'capture' ? 'not-requested' : intent === 'expert' ? 'operator-follow-up' : 'queued',
+    expertStatus: intent === 'expert' ? 'pending' : 'not-requested',
   };
+}
+
+async function deliverGuide({ store, integrations, lead, event }) {
+  const job = store.getDeliveryJobForLead(lead.id) || store.createDeliveryJob(lead.id, event.id);
+  if (typeof integrations.dispatchDeliveryJob === 'function') {
+    return await integrations.dispatchDeliveryJob(job.id);
+  }
+  // Small local integration stubs may implement only sendGuide. Production uses the durable dispatcher.
+  try {
+    const status = await integrations.sendGuide({ ...lead, intent: 'guide' }, event, job.id);
+    store.updateDeliveryJob(job.id, { status: status === 'accepted' ? 'accepted' : 'waiting-config' });
+    store.updateLeadDelivery(lead.id, status);
+    return status;
+  } catch {
+    store.updateDeliveryJob(job.id, { status: 'needs-review', lastError: 'Guide request outcome is unknown.' });
+    store.updateLeadDelivery(lead.id, 'needs-review');
+    return 'needs-review';
+  }
+}
+
+function canReuseLead(lead, intent, supplied) {
+  if (intent === 'guide' ? !lead.email : !lead.email && !lead.phone) return false;
+  if (!supplied) return true;
+  if (lead.email !== supplied.email || lead.phone !== supplied.phone) return false;
+  if (Object.keys(lead.fieldValues || {}).length !== Object.keys(supplied.fieldValues).length) return false;
+  return Object.entries(supplied.fieldValues).every(([id, value]) =>
+    String(lead.fieldValues?.[id] || '') === value);
 }
 
 export async function submitLead({ store, engine, integrations, slug, token, input }) {
@@ -60,50 +88,75 @@ export async function submitLead({ store, engine, integrations, slug, token, inp
       (intent === 'expert' && !event.leadCapture.expertEnabled))
     fail('This follow-up option is unavailable.', 'lead_disabled');
   const runtime = store.getRuntime(event.id) || { heatId: null };
-  const captured = store.findCapturedLead(event.id, player.id);
-  if (captured) {
-    if (intent === 'guide' && !captured.email) fail('The build guide needs an email address.');
-    let activity = null, updated = captured;
-    store.transaction(() => {
-      const current = store.getLead(captured.id);
-      if (intent === 'guide' ? current.guideRequestedAt : current.expertRequestedAt) {
-        updated = current;
-        return;
-      }
-      updated = store.markLeadRequest(current.id, intent, new Date().toISOString(), runtime.heatId);
-      activity = store.recordActivity(event.id, 'lead_submitted', {
-        playerId: player.id, heatId: runtime.heatId, intent,
-        marketingOptIn: updated.marketingOptIn,
-      });
-    });
-    if (activity) integrations.track(activity);
-    if (!activity) return {
-      leadId: updated.id,
-      deliveryStatus: intent === 'expert' ? 'operator-follow-up' : updated.deliveryStatus,
-    };
-    if (intent === 'expert') return { leadId: updated.id, deliveryStatus: 'operator-follow-up' };
-    const status = await integrations.sendGuide({ ...updated, intent: 'guide' }, event);
-    store.updateLeadDelivery(updated.id, status);
-    return { leadId: updated.id, deliveryStatus: status };
-  }
-
-  // Sessions opened before the join form changed can still submit the old request form.
-  const lead = validateLead(event, player, input, runtime);
-  const stored = store.transaction(() => {
-    const previous = store.findRecentLead(event.id, lead.intent, player.id, { email: lead.email, phone: lead.phone });
-    if (previous) return { lead: previous, duplicate: true, activity: null };
-    store.insertLead(lead);
+  const supplied = Object.hasOwn(input || {}, 'fieldValues') ? validateLead(event, player, input, runtime) : null;
+  const result = store.transaction(() => {
+    const previous = store.listParticipantLeads(event.id, player.id);
+    const candidates = previous.filter(lead => canReuseLead(lead, intent, supplied) &&
+      (input?.marketingOptIn == null || lead.marketingOptIn === input.marketingOptIn));
+    const reusable = candidates.find(lead => intent === 'guide' ? lead.guideRequestedAt : lead.expertRequestedAt)
+      || candidates[0];
+    if (!reusable && !supplied && previous.length) {
+      if (intent === 'guide') fail('The build guide needs an email address.');
+      fail('Enter contact details for expert follow-up.');
+    }
+    const lead = reusable || supplied || validateLead(event, player, input, runtime);
+    if (reusable && (intent === 'guide' ? lead.guideRequestedAt : lead.expertRequestedAt))
+      return { lead, activity: null, inserted: false };
+    const recentGuide = intent === 'guide' && store.hasRecentGuideRecipient(event.id, lead.email);
+    const updated = reusable
+      ? store.markLeadRequest(lead.id, intent, new Date().toISOString(), runtime.heatId)
+      : (store.insertLead(lead), lead);
+    if (intent === 'guide') {
+      if (recentGuide) {
+        store.updateLeadDelivery(updated.id, 'recent-request');
+        updated.deliveryStatus = 'recent-request';
+      } else store.createDeliveryJob(updated.id, event.id);
+    }
     const activity = store.recordActivity(event.id, 'lead_submitted', {
-      playerId: player.id, heatId: lead.heatId, intent: lead.intent, marketingOptIn: lead.marketingOptIn,
+      playerId: player.id, heatId: updated.heatId, intent, marketingOptIn: updated.marketingOptIn,
+      ...(player.analyticsSessionId ? { sessionId: player.analyticsSessionId } : {}),
     });
-    return { lead, duplicate: false, activity };
+    return { lead: updated, activity, inserted: !reusable, recentGuide };
   });
-  if (stored.activity) integrations.track(stored.activity);
-  if (!stored.duplicate) {
-    integrations.identifyOptedInLead(lead);
-    const status = await integrations.sendGuide(lead, event);
-    store.updateLeadDelivery(lead.id, status);
-    return { leadId: lead.id, deliveryStatus: status };
-  }
-  return { leadId: stored.lead.id, deliveryStatus: stored.lead.deliveryStatus };
+  if (result.activity) integrations.track(result.activity);
+  if (result.inserted) integrations.identifyOptedInLead(result.lead);
+  if (!result.activity) return { leadId: result.lead.id,
+    deliveryStatus: intent === 'expert' ? 'operator-follow-up' : result.lead.deliveryStatus };
+  if (intent === 'expert') return { leadId: result.lead.id, deliveryStatus: 'operator-follow-up' };
+  if (result.recentGuide) return { leadId: result.lead.id, deliveryStatus: 'recent-request' };
+  const status = await deliverGuide({ store, integrations, lead: result.lead, event });
+  return { leadId: result.lead.id, deliveryStatus: status };
+}
+
+/** Voluntary spectator follow-up, keyed only by a server-derived browser session ID. */
+export async function submitSpectatorLead({ store, engine, integrations, slug, sessionId, input }) {
+  const event = engine.event(slug);
+  if (!/^[a-f0-9]{20,64}$/i.test(String(sessionId || '')))
+    fail('Spectator session required.', 'unauthorized');
+  const intent = String(input?.intent || '');
+  if (!['guide', 'expert'].includes(intent)) fail('Choose a follow-up option.');
+  const runtime = store.getRuntime(event.id) || { heatId: null };
+  const participantId = `spectator:${sessionId}`;
+  const lead = validateLead(event, { id: participantId }, input, runtime);
+  const stored = store.transaction(() => {
+    const previous = store.findRecentLead(event.id, intent, participantId,
+      { email: lead.email, phone: lead.phone }, 24 * 60 * 60);
+    if (previous && previous.marketingOptIn === lead.marketingOptIn &&
+        canReuseLead(previous, intent, lead))
+      return { lead: previous, duplicate: true, activity: null };
+    const recentGuide = intent === 'guide' && store.hasRecentGuideRecipient(event.id, lead.email);
+    if (recentGuide) lead.deliveryStatus = 'recent-request';
+    store.insertLead(lead);
+    if (intent === 'guide' && !recentGuide) store.createDeliveryJob(lead.id, event.id);
+    const activity = store.recordActivity(event.id, 'lead_submitted', {
+      sessionId, heatId: lead.heatId, intent, source: 'spectator', marketingOptIn: lead.marketingOptIn,
+    });
+    return { lead, duplicate: false, activity, recentGuide };
+  });
+  if (stored.duplicate) return { leadId: stored.lead.id, deliveryStatus: stored.lead.deliveryStatus };
+  integrations.track(stored.activity);
+  integrations.identifyOptedInLead(lead);
+  const status = intent === 'expert' ? 'operator-follow-up' : stored.recentGuide ? 'recent-request'
+    : await deliverGuide({ store, integrations, lead, event });
+  return { leadId: lead.id, deliveryStatus: status };
 }

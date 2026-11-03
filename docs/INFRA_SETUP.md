@@ -153,7 +153,7 @@ credentials; only the deploy job reads them.
 | Optional variable | `GOOGLE_AUTH_DISABLE` | Set to `1` for an explicit controlled sign-in disable; `0` re-enables when both secrets exist. |
 | Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
 | Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
-| Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY` | AI-assisted judging, Segment mirroring, and requested guide email respectively. |
+| Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`, `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | AI-assisted judging, Segment mirroring, requested guide email, and verification of SendGrid delivery callbacks respectively. |
 | Optional variables | `OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, explicit consent-based lead identification, verified guide sender, and SendGrid API region. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
@@ -285,15 +285,33 @@ settings preserve the existing ACA values.
    Both settings must be present when enabling or refreshing guide email; a
    partial pair fails before downtime. Set `SENDGRID_REGION=eu` only for an EU
    regional account. The default uses the global API; `global` or `us` can
-   explicitly switch a previously configured EU deployment back. A successful
-   build-guide request after a player joins with saved contact details sends
-   one guide email; expert requests are saved for staff follow-up and do not
-   send a Voice call.
+   explicitly switch a previously configured EU deployment back. The default
+   post-heat action is a GitHub star link. An admin can instead make the guide
+   or expert action primary in event settings. A first follow-up action opens a
+   voluntary contact form after play; a compatible second request reuses those
+   details. A guide request needs an email. The same actions
+   are available to spectators who do not play. Expert requests enter the
+   operator follow-up queue and do not place a Voice call.
+4. **Confirm guide delivery:** in SendGrid, open **Settings → Mail Settings →
+   Event Webhooks**, create an Event Webhook with POST URL
+   `https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/webhooks/sendgrid/events`
+   (replace the host if this event runs at another origin), and select
+   **processed**, **deferred**, **delivered**, **bounce**, and **dropped** events.
+   Enable **Signed Event Webhook** and save the webhook. Open its edit screen
+   to copy the public verification key; add it as the Actions secret
+   `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY`, then deploy. The app rejects unsigned
+   or invalid callbacks. See [SendGrid's signed webhook setup](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)
+   for the signing control and key location. Mail Send's HTTP `202` means
+   SendGrid accepted the message; only a signed callback can confirm delivery
+   or report a bounce/drop. The webhook key is independent of the Mail Send API
+   key and can be added after guide sending is configured.
 
 After cutover, test one AI-assisted prompt, check that a safe game event appears
 in the intended Segment Source, and request a guide with a staff email address.
-The operator Preflight view checks configuration presence; those real actions
-confirm account access and delivery. Removing a GitHub secret does not clear an
+Check **accepted** first, then **delivered** after the signed SendGrid callback;
+an accepted message alone does not establish delivery. The operator Preflight
+view checks configuration presence; those real actions confirm account access
+and the complete send path. Removing a GitHub secret does not clear an
 existing ACA secret reference. Older secret versions are kept for rollback;
 clean them up only after their referencing revisions are no longer needed.
 Keep all API keys out of the repository and browser code.

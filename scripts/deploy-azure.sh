@@ -487,6 +487,10 @@ if [ "$SENDGRID_UPDATE" -eq 1 ]; then
   store_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"
   ENV_UPDATES+=("SENDGRID_API_KEY=secretref:sendgrid-api-key-$DEPLOY_SUFFIX" "SENDGRID_FROM_EMAIL=$SENDGRID_FROM_EMAIL")
 fi
+if [ -n "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:-}" ]; then
+  store_container_secret "sendgrid-webhook-key-$DEPLOY_SUFFIX" "$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
+  ENV_UPDATES+=("SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY=secretref:sendgrid-webhook-key-$DEPLOY_SUFFIX")
+fi
 if [ -n "${SENDGRID_REGION:-}" ]; then
   ENV_UPDATES+=("SENDGRID_REGION=$SENDGRID_REGION")
 fi

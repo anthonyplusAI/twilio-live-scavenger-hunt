@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, resolveDatabasePath } from '../db.mjs';
+import { defaultEvent, normalizeEvent } from '../config.mjs';
 
 function withMessaging(event, { channel = 'sms', sender, code = '' }) {
   return {
@@ -123,4 +124,53 @@ test('a fast color detector must match the edited clue and category', () => {
     const saved = store.saveEvent(event.slug, { ...event, prompts: matching }, event.revision);
     assert.equal(saved.prompts.find(prompt => prompt.id === 'C01').detector, 'color:blue');
   } finally { store.close(); }
+});
+
+test('color-only clues default to low rotation priority and admins can save an override', () => {
+  const store = openDatabase();
+  try {
+    const event = store.seedDefault();
+    assert.equal(event.prompts.find(prompt => prompt.id === 'C01').priority, 'low');
+    assert.equal(event.prompts.find(prompt => prompt.id === 'O01').priority, 'standard');
+
+    const legacyPrompts = event.prompts.map(({ priority, ...prompt }) => prompt);
+    const legacy = normalizeEvent({ ...event, prompts: legacyPrompts }, event);
+    assert.equal(legacy.prompts.find(prompt => prompt.id === 'C01').priority, 'low');
+    assert.equal(legacy.prompts.find(prompt => prompt.id === 'O01').priority, 'standard');
+
+    const customized = legacy.prompts.map(prompt => prompt.id === 'C01'
+      ? { ...prompt, priority: 'standard' } : prompt);
+    const saved = store.saveEvent(event.slug, { ...event, prompts: customized }, event.revision);
+    assert.equal(store.getEvent(event.slug).prompts.find(prompt => prompt.id === 'C01').priority, 'standard');
+    assert.equal(saved.prompts.find(prompt => prompt.id === 'C01').priority, 'standard');
+    assert.throws(() => store.saveEvent(event.slug, {
+      ...saved, prompts: saved.prompts.map(prompt => prompt.id === 'C01'
+        ? { ...prompt, priority: 'urgent' } : prompt),
+    }, saved.revision), error => error.code === 'invalid_input');
+  } finally { store.close(); }
+});
+
+test('new and existing events default to post-play leads and GitHub CTA', () => {
+  const fresh = normalizeEvent(defaultEvent('New Expo', 'new-expo'));
+  assert.equal(fresh.leadCapture.timing, 'after-play');
+  assert.equal(fresh.cta.primary, 'github');
+  const legacy = structuredClone(fresh);
+  delete legacy.leadCapture.timing;
+  delete legacy.cta;
+  const updated = normalizeEvent({ ...legacy, name: 'Updated Expo' }, legacy);
+  assert.equal(updated.leadCapture.timing, 'after-play');
+  assert.equal(updated.cta.primary, 'github');
+  const join = normalizeEvent({ ...legacy, leadCapture: { ...legacy.leadCapture, timing: 'join' } }, legacy);
+  assert.equal(join.leadCapture.timing, 'join');
+});
+
+test('primary CTA only accepts an enabled follow-up action', () => {
+  const event = normalizeEvent(defaultEvent());
+  assert.equal(normalizeEvent({ ...event, cta: { primary: 'guide' } }, event).cta.primary, 'guide');
+  assert.throws(() => normalizeEvent({ ...event, cta: { primary: 'guide' },
+    leadCapture: { ...event.leadCapture, guideEnabled: false } }, event),
+  error => error.code === 'invalid_input');
+  assert.throws(() => normalizeEvent({ ...event, cta: { primary: 'expert' },
+    leadCapture: { ...event.leadCapture, enabled: false } }, event),
+  error => error.code === 'invalid_input');
 });

@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS players (
   id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   token_hash TEXT NOT NULL UNIQUE, alias TEXT NOT NULL, heat INTEGER NOT NULL,
   slot INTEGER, status TEXT NOT NULL, media_connected INTEGER NOT NULL DEFAULT 0,
-  transport TEXT, joined_at TEXT NOT NULL, ready_at TEXT, last_seen_at TEXT NOT NULL, left_at TEXT
+  transport TEXT, joined_at TEXT NOT NULL, ready_at TEXT, last_seen_at TEXT NOT NULL, left_at TEXT,
+  analytics_session_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_players_event_heat ON players(event_id, heat);
 CREATE TABLE IF NOT EXISTS heats (
@@ -38,6 +39,12 @@ CREATE INDEX IF NOT EXISTS idx_votes_window ON votes(event_id, window_id);
 CREATE TABLE IF NOT EXISTS webhook_receipts (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, received_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS video_participant_status (
+  room_sid TEXT NOT NULL, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  participant_sid TEXT NOT NULL, event_at TEXT NOT NULL,
+  connected INTEGER NOT NULL, PRIMARY KEY(room_sid,player_id)
+);
+CREATE INDEX IF NOT EXISTS idx_video_participant_player ON video_participant_status(player_id);
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   type TEXT NOT NULL, at TEXT NOT NULL, properties_json TEXT NOT NULL
@@ -49,7 +56,8 @@ CREATE TABLE IF NOT EXISTS leads (
   heat_id TEXT, field_values_json TEXT NOT NULL, field_snapshot_json TEXT NOT NULL,
   name TEXT, email TEXT, phone TEXT, company TEXT, marketing_opt_in INTEGER NOT NULL,
   consent_version TEXT NOT NULL, delivery_status TEXT NOT NULL DEFAULT 'pending',
-  guide_requested_at TEXT, expert_requested_at TEXT
+  guide_requested_at TEXT, expert_requested_at TEXT,
+  expert_status TEXT NOT NULL DEFAULT 'not-requested'
 );
 CREATE INDEX IF NOT EXISTS idx_leads_event_at ON leads(event_id, created_at);
 CREATE TABLE IF NOT EXISTS users (
@@ -75,7 +83,8 @@ CREATE TABLE IF NOT EXISTS delivery_jobs (
   id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
   channel TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-  last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  next_attempt_at TEXT, provider_message_id TEXT
 );
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL
@@ -112,9 +121,19 @@ export class Store {
     if (!userColumns.has('google_sub')) this.sql.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
     if (!userColumns.has('email')) this.sql.exec('ALTER TABLE users ADD COLUMN email TEXT');
     this.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+    const playerColumns = new Set(this.sql.prepare('PRAGMA table_info(players)').all().map(column => column.name));
+    if (!playerColumns.has('analytics_session_id')) this.sql.exec('ALTER TABLE players ADD COLUMN analytics_session_id TEXT');
     const leadColumns = new Set(this.sql.prepare('PRAGMA table_info(leads)').all().map(column => column.name));
     if (!leadColumns.has('guide_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN guide_requested_at TEXT');
     if (!leadColumns.has('expert_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN expert_requested_at TEXT');
+    if (!leadColumns.has('expert_status')) this.sql.exec("ALTER TABLE leads ADD COLUMN expert_status TEXT NOT NULL DEFAULT 'not-requested'");
+    this.sql.exec('CREATE INDEX IF NOT EXISTS idx_leads_guide_recipient ON leads(event_id,email,guide_requested_at)');
+    this.sql.exec("UPDATE leads SET expert_status='pending' WHERE (expert_requested_at IS NOT NULL OR intent='expert') AND expert_status='not-requested'");
+    const jobColumns = new Set(this.sql.prepare('PRAGMA table_info(delivery_jobs)').all().map(column => column.name));
+    if (!jobColumns.has('next_attempt_at')) this.sql.exec('ALTER TABLE delivery_jobs ADD COLUMN next_attempt_at TEXT');
+    if (!jobColumns.has('provider_message_id')) this.sql.exec('ALTER TABLE delivery_jobs ADD COLUMN provider_message_id TEXT');
+    this.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_jobs_lead_channel ON delivery_jobs(lead_id,channel)');
+    this.sql.exec('CREATE INDEX IF NOT EXISTS idx_delivery_jobs_due ON delivery_jobs(status,next_attempt_at)');
   }
 
   transaction(callback) {
@@ -236,11 +255,11 @@ export class Store {
   }
 
   insertPlayer(player, tokenHash) {
-    this.sql.prepare(`INSERT INTO players(id,event_id,token_hash,alias,heat,slot,status,media_connected,transport,joined_at,ready_at,last_seen_at,left_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    this.sql.prepare(`INSERT INTO players(id,event_id,token_hash,alias,heat,slot,status,media_connected,transport,joined_at,ready_at,last_seen_at,left_at,analytics_session_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(player.id, player.eventId, tokenHash, player.alias, player.heat, player.slot ?? null, player.status,
         player.mediaConnected ? 1 : 0, player.transport || null, player.joinedAt, player.readyAt || null,
-        player.lastSeenAt || player.joinedAt, player.leftAt || null);
+        player.lastSeenAt || player.joinedAt, player.leftAt || null, player.analyticsSessionId || null);
     return player;
   }
 
@@ -259,7 +278,7 @@ export class Store {
       id: row.id, eventId: row.event_id, alias: row.alias, heat: row.heat,
       slot: row.slot, status: row.status, mediaConnected: Boolean(row.media_connected),
       transport: row.transport, joinedAt: row.joined_at, readyAt: row.ready_at,
-      lastSeenAt: row.last_seen_at, leftAt: row.left_at,
+      lastSeenAt: row.last_seen_at, leftAt: row.left_at, analyticsSessionId: row.analytics_session_id || null,
     };
   }
 
@@ -267,6 +286,7 @@ export class Store {
     const fields = {
       alias: 'alias', heat: 'heat', slot: 'slot', status: 'status', mediaConnected: 'media_connected',
       transport: 'transport', readyAt: 'ready_at', lastSeenAt: 'last_seen_at', leftAt: 'left_at',
+      analyticsSessionId: 'analytics_session_id',
     };
     const pairs = Object.entries(patch).filter(([key]) => fields[key]);
     if (!pairs.length) return this.getPlayer(id);
@@ -336,6 +356,31 @@ export class Store {
 
   hasWebhook(id) { return Boolean(this.sql.prepare('SELECT 1 FROM webhook_receipts WHERE id=?').get(id)); }
 
+  acceptVideoParticipantStatus({ roomSid, playerId, participantSid, eventAt, connected }) {
+    const time = Date.parse(eventAt);
+    if (!roomSid || !playerId || !participantSid || !Number.isFinite(time)) return false;
+    const at = new Date(time).toISOString();
+    const previous = this.sql.prepare('SELECT * FROM video_participant_status WHERE room_sid=? AND player_id=?')
+      .get(roomSid, playerId);
+    if (previous) {
+      const previousTime = Date.parse(previous.event_at);
+      if (time < previousTime) return false;
+      if (!connected && previous.participant_sid !== participantSid) return false;
+      if (connected && previous.participant_sid === participantSid && !previous.connected) return false;
+      if (time === previousTime) {
+        if (previous.participant_sid === participantSid && (connected || !previous.connected)) return false;
+        // Different sessions at the same instant are ambiguous. Accept a new connection only
+        // after the old session is known disconnected; otherwise keep the current session.
+        if (connected && previous.connected) return false;
+      }
+    }
+    this.sql.prepare(`INSERT INTO video_participant_status(room_sid,player_id,participant_sid,event_at,connected)
+      VALUES(?,?,?,?,?) ON CONFLICT(room_sid,player_id) DO UPDATE SET
+      participant_sid=excluded.participant_sid,event_at=excluded.event_at,connected=excluded.connected`)
+      .run(roomSid, playerId, participantSid, at, connected ? 1 : 0);
+    return true;
+  }
+
   getSetting(key) {
     return this.sql.prepare('SELECT value FROM app_settings WHERE key=?').get(key)?.value ?? null;
   }
@@ -364,10 +409,11 @@ export class Store {
 
   insertLead(lead) {
     this.sql.prepare(`INSERT INTO leads(id,event_id,created_at,intent,participant_id,heat_id,field_values_json,field_snapshot_json,
-      name,email,phone,company,marketing_opt_in,consent_version,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      name,email,phone,company,marketing_opt_in,consent_version,delivery_status,expert_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(lead.id, lead.eventId, lead.createdAt, lead.intent, lead.participantId, lead.heatId || null,
         json(lead.fieldValues), json(lead.fieldSnapshot), lead.name || '', lead.email || '', lead.phone || '',
-        lead.company || '', lead.marketingOptIn ? 1 : 0, lead.consentVersion, lead.deliveryStatus || 'pending');
+        lead.company || '', lead.marketingOptIn ? 1 : 0, lead.consentVersion, lead.deliveryStatus || 'pending',
+        lead.expertStatus || (lead.intent === 'expert' ? 'pending' : 'not-requested'));
     return lead;
   }
 
@@ -383,6 +429,7 @@ export class Store {
       name: row.name || '', email: row.email || '', phone: row.phone || '', company: row.company || '',
       marketingOptIn: Boolean(row.marketing_opt_in), consentVersion: row.consent_version,
       deliveryStatus: row.delivery_status,
+      expertStatus: row.expert_status || (row.intent === 'expert' || row.expert_requested_at ? 'pending' : 'not-requested'),
       guideRequestedAt: row.guide_requested_at || (row.intent === 'guide' ? row.created_at : null),
       expertRequestedAt: row.expert_requested_at || (row.intent === 'expert' ? row.created_at : null),
     };
@@ -406,12 +453,17 @@ export class Store {
     return row ? this.leadFromRow(row) : null;
   }
 
+  listParticipantLeads(eventId, participantId) {
+    return this.sql.prepare('SELECT * FROM leads WHERE event_id=? AND participant_id=? ORDER BY created_at DESC,rowid DESC')
+      .all(eventId, participantId).map(row => this.leadFromRow(row));
+  }
+
   markLeadRequest(id, intent, at, heatId = null) {
     if (intent === 'guide') {
-      this.sql.prepare("UPDATE leads SET guide_requested_at=?, heat_id=COALESCE(heat_id,?), delivery_status='sending' WHERE id=? AND guide_requested_at IS NULL")
+      this.sql.prepare("UPDATE leads SET guide_requested_at=?, heat_id=COALESCE(heat_id,?), delivery_status='queued' WHERE id=? AND guide_requested_at IS NULL")
         .run(at, heatId, id);
     } else if (intent === 'expert') {
-      this.sql.prepare("UPDATE leads SET expert_requested_at=?, heat_id=COALESCE(heat_id,?), delivery_status=CASE WHEN guide_requested_at IS NULL THEN 'operator-follow-up' ELSE delivery_status END WHERE id=? AND expert_requested_at IS NULL")
+      this.sql.prepare("UPDATE leads SET expert_requested_at=?, heat_id=COALESCE(heat_id,?), expert_status='pending', delivery_status=CASE WHEN guide_requested_at IS NULL THEN 'operator-follow-up' ELSE delivery_status END WHERE id=? AND expert_requested_at IS NULL")
         .run(at, heatId, id);
     } else throw new Error('Unknown lead request.');
     return this.getLead(id);
@@ -425,8 +477,95 @@ export class Store {
       (contact.email && row.email === contact.email) || (contact.phone && row.phone.replace(/\D/g, '') === contact.phone.replace(/\D/g, ''))) || null;
   }
 
+  hasRecentGuideRecipient(eventId, email, seconds = 24 * 60 * 60) {
+    if (!email) return false;
+    const cutoff = new Date(Date.now() - seconds * 1000).toISOString();
+    return Boolean(this.sql.prepare(`SELECT 1 FROM leads WHERE event_id=? AND email=?
+      AND delivery_status!='recent-request'
+      AND (guide_requested_at>=? OR (intent='guide' AND created_at>=?)) LIMIT 1`)
+      .get(eventId, email, cutoff, cutoff));
+  }
+
   deleteLead(id) {
     return this.sql.prepare('DELETE FROM leads WHERE id=?').run(id).changes > 0;
+  }
+
+  setExpertFollowupStatus(id, status) {
+    if (!['pending', 'contacted'].includes(status)) throw new ValidationError('Choose a valid expert follow-up status.');
+    const lead = this.getLead(id);
+    if (!lead) throw new ValidationError('Lead not found.', 'not_found');
+    if (!lead.expertRequestedAt) throw new ValidationError('This lead has no expert request.');
+    this.sql.prepare('UPDATE leads SET expert_status=? WHERE id=?').run(status, id);
+    return this.getLead(id);
+  }
+
+  deliveryJobFromRow(row) {
+    return row ? { id: row.id, eventId: row.event_id, leadId: row.lead_id,
+      channel: row.channel, status: row.status, attempts: row.attempts,
+      lastError: row.last_error, createdAt: row.created_at, updatedAt: row.updated_at,
+      nextAttemptAt: row.next_attempt_at, providerMessageId: row.provider_message_id } : null;
+  }
+
+  createDeliveryJob(leadId, eventId, channel = 'sendgrid-guide') {
+    const existing = this.getDeliveryJobForLead(leadId, channel);
+    if (existing) return existing;
+    const id = randomUUID(), at = nowIso();
+    this.sql.prepare(`INSERT INTO delivery_jobs(id,event_id,lead_id,channel,status,attempts,created_at,updated_at,next_attempt_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`).run(id, eventId, leadId, channel, 'queued', 0, at, at, at);
+    return this.getDeliveryJob(id);
+  }
+
+  enqueuePreviouslyUnsentGuides() {
+    const rows = this.sql.prepare(`SELECT id,event_id FROM leads WHERE delivery_status='pending-configuration'
+      AND (guide_requested_at IS NOT NULL OR intent='guide')`).all();
+    let created = 0;
+    for (const row of rows) {
+      if (this.getDeliveryJobForLead(row.id)) continue;
+      this.createDeliveryJob(row.id, row.event_id);
+      created++;
+    }
+    return created;
+  }
+
+  getDeliveryJob(id) {
+    return this.deliveryJobFromRow(this.sql.prepare('SELECT * FROM delivery_jobs WHERE id=?').get(id));
+  }
+
+  getDeliveryJobForLead(leadId, channel = 'sendgrid-guide') {
+    return this.deliveryJobFromRow(this.sql.prepare('SELECT * FROM delivery_jobs WHERE lead_id=? AND channel=?').get(leadId, channel));
+  }
+
+  listDueDeliveryJobs(at = nowIso(), limit = 20) {
+    return this.sql.prepare(`SELECT * FROM delivery_jobs WHERE status IN ('queued','retry','waiting-config')
+      AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT ?`)
+      .all(at, limit).map(row => this.deliveryJobFromRow(row));
+  }
+
+  claimDeliveryJob(id, at = nowIso()) {
+    const changed = this.sql.prepare(`UPDATE delivery_jobs SET status='sending',attempts=attempts+1,updated_at=?,next_attempt_at=NULL
+      WHERE id=? AND status IN ('queued','retry','waiting-config') AND (next_attempt_at IS NULL OR next_attempt_at<=?)`)
+      .run(at, id, at).changes;
+    return changed ? this.getDeliveryJob(id) : null;
+  }
+
+  updateDeliveryJob(id, patch) {
+    const fields = { status: 'status', lastError: 'last_error', nextAttemptAt: 'next_attempt_at',
+      providerMessageId: 'provider_message_id' };
+    const pairs = Object.entries(patch).filter(([key]) => fields[key]);
+    if (!pairs.length) return this.getDeliveryJob(id);
+    const columns = pairs.map(([key]) => `${fields[key]}=?`).join(',');
+    this.sql.prepare(`UPDATE delivery_jobs SET ${columns},updated_at=? WHERE id=?`)
+      .run(...pairs.map(([, value]) => value), nowIso(), id);
+    return this.getDeliveryJob(id);
+  }
+
+  recoverUncertainDeliveryJobs(cutoff = new Date(Date.now() - 120_000).toISOString()) {
+    const stale = this.sql.prepare("SELECT * FROM delivery_jobs WHERE status='sending' AND updated_at<?").all(cutoff);
+    for (const row of stale) {
+      this.updateDeliveryJob(row.id, { status: 'needs-review', lastError: 'Delivery outcome unknown after process interruption.' });
+      this.updateLeadDelivery(row.lead_id, 'needs-review');
+    }
+    return stale.length;
   }
 
   audit(eventId, userId, action, details = {}) {

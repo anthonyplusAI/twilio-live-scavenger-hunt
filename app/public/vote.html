@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
-  <div class="voter-app">
+  <div id="voter-app" class="voter-app">
     <div class="atmosphere" aria-hidden="true"><div class="beam beam-a"></div><div class="beam beam-b"></div><div class="halo halo-a"></div><div class="halo halo-b"></div><div class="floor-grid"></div></div>
     <header class="masthead">
       <div class="brand"><img src="/assets/twilio-bug-official.png" alt="Twilio"><div><span class="brand-kicker">TWILIO PRESENTS</span><strong>LIVE <em>SCAVENGER HUNT</em></strong></div></div>
@@ -39,7 +39,24 @@
       <div id="channel-strip" class="channel-strip" hidden><span class="channel-label">OTHER WAYS TO VOTE</span><div id="channel-instructions"></div></div>
     </main>
 
-    <footer class="foot"><span id="event-name">LIVE SCAVENGER HUNT</span><span class="foot-rule"></span><span class="foot-no-signup">NO SIGN-UP REQUIRED</span><div class="foot-actions"><a id="github-link" class="github-foot-link" href="https://github.com/anthonyplusAI/twilio-live-scavenger-hunt" target="_blank" rel="noopener noreferrer" aria-label="Star Live Scavenger Hunt on GitHub (opens in a new tab)"><span aria-hidden="true">★</span> Star on GitHub <span aria-hidden="true">↗</span></a><a id="play-link" href="#" aria-label="Play Live Scavenger Hunt"><span class="play-preface">Want to play? </span><b>Play the game ↗</b></a></div></footer>
+    <footer class="foot"><span id="event-name">LIVE SCAVENGER HUNT</span><span class="foot-rule"></span><span class="foot-no-signup">NO SIGN-UP TO VOTE</span><div class="foot-actions"><a id="github-link" class="github-foot-link is-primary" href="https://github.com/anthonyplusAI/twilio-live-scavenger-hunt" target="_blank" rel="noopener noreferrer" aria-label="Star Live Scavenger Hunt on GitHub (opens in a new tab)"><span aria-hidden="true">★</span><span class="github-foot-copy">Star on GitHub</span><span aria-hidden="true">↗</span></a><button id="followup-cta" class="followup-foot-link" type="button" hidden><span id="followup-cta-copy">Get the build guide</span><span aria-hidden="true">↗</span></button><a id="play-link" href="#" aria-label="Play Live Scavenger Hunt"><span class="play-preface">Want to play? </span><b>Play ↗</b></a></div></footer>
+  </div>
+  <div id="lead-overlay" class="lead-overlay" hidden>
+    <section id="lead-dialog" class="lead-dialog" role="dialog" aria-modal="true" aria-labelledby="lead-title" aria-describedby="lead-description" tabindex="-1">
+      <div class="lead-dialog-art" aria-hidden="true"><span></span><span></span></div>
+      <button id="lead-close" class="lead-close" type="button" aria-label="Close follow-up form">×</button>
+      <div class="lead-dialog-head"><span class="lead-dialog-bug"><img src="/assets/twilio-bug-official.png" alt=""></span><span class="lead-dialog-kicker">KEEP THE MOMENT GOING</span></div>
+      <h2 id="lead-title">Build a moment<br><em>of your own.</em></h2>
+      <p id="lead-description">Voting needs no sign-up. Contact details are sent only if you submit this form.</p>
+      <div id="lead-intents" class="lead-intents" role="group" aria-label="Follow-up choice"></div>
+      <form id="lead-form" class="lead-form" novalidate>
+        <div id="lead-fields" class="lead-fields"></div>
+        <label id="lead-marketing-row" class="lead-marketing" hidden><input id="lead-marketing" type="checkbox"><span>Yes, email me Twilio product updates.</span></label>
+        <p id="lead-error" class="lead-error" role="alert" hidden></p>
+        <div class="lead-form-actions"><button id="lead-prev" class="lead-back" type="button" hidden>← Back</button><span id="lead-progress" class="lead-progress" aria-live="polite">1 / 1</span><button id="lead-next" class="lead-next" type="submit">Send request <span aria-hidden="true">↗</span></button></div>
+      </form>
+      <div id="lead-success" class="lead-success" role="status" hidden><span class="lead-success-mark" aria-hidden="true">✓</span><strong id="lead-success-title">Request saved.</strong><p id="lead-success-detail">Visit the Twilio booth to keep the conversation going.</p><button id="lead-done" type="button">Back to the vote</button></div>
+    </section>
   </div>
   <script type="module" src="/vote.js"></script>
 </body>
