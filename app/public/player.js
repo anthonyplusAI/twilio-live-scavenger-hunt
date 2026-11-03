@@ -187,7 +187,7 @@ function resultMarkup(winners, heat) {
   const emblem = won
     ? `<svg viewBox="0 0 160 160" aria-hidden="true"><path d="M38 34h84v40c0 37-20 59-42 59S38 111 38 74V34Z" fill="currentColor"/><path d="M38 49H19v19c0 22 14 35 34 35M122 49h19v19c0 22-14 35-34 35" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="M80 132v15M55 148h50" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="m80 50 6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2 6-13Z" fill="#fff"/></svg>`
     : `<svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r="58" fill="none" stroke="currentColor" stroke-width="5"/><circle cx="80" cy="80" r="38" fill="none" stroke="currentColor" stroke-width="5" opacity=".65"/><circle cx="80" cy="80" r="16" fill="none" stroke="currentColor" stroke-width="5" opacity=".4"/><path d="m97 63 35-35m-12 0h12v12" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  return `<div class="result-scene result-${variant} ${entering ? 'result-entering' : ''}">${won ? resultConfetti() : ''}<div class="result-halo" aria-hidden="true"></div><p class="result-kicker">HEAT ${pad(heat)} <span aria-hidden="true">/</span> ${label}</p><div class="result-emblem">${emblem}</div><h1 class="result-title">${heading}</h1><p class="result-note">${note}</p><div class="result-actions">${button('SEE HOW TWILIO BUILT THIS', 'build')}</div>${isResultDemo ? '<span class="result-demo-note">Visual preview · no live game data</span>' : ''}</div>`;
+  return `<div class="result-scene result-${variant} ${entering ? 'result-entering' : ''}">${won ? resultConfetti() : ''}<div class="result-halo" aria-hidden="true"></div><p class="result-kicker">HEAT ${pad(heat)} <span aria-hidden="true">/</span> ${label}</p><div class="result-emblem">${emblem}</div><h1 class="result-title">${heading}</h1><p class="result-note">${note}</p><div class="result-actions">${button('SEE HOW TWILIO BUILT THIS', 'build')}</div>${isResultDemo ? '<button type="button" class="result-demo-replay" data-action="replay-demo">↻ Replay reveal</button>' : ''}</div>`;
 }
 
 function preview() {
@@ -639,6 +639,7 @@ screen.addEventListener('click', async event => {
     }
     if (action === 'lead-previous') { syncLeadDraft(); app.leadPage -= 1; app.error = ''; render(true); }
     if (action === 'lead-submit') await submitLead();
+    if (action === 'replay-demo' && isResultDemo) { app.resultRevealSeen.clear(); render(true); }
     if (action === 'replay') await leaveGame('intro');
     if (action === 'rejoin') { app.view = 'intro'; app.error = ''; render(true); }
   } catch (error) { showError(error); }

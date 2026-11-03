@@ -60,7 +60,7 @@ A player can tap **Leave** while queued or playing and confirm the choice. Their
 
 For a disruptive player, open **Manage players** on the operator live desk. Choose a player in the current heat or next-heat queue and confirm **Remove player**. The server clears their slot, invalidates their current player token, removes them from judging and creative ballots, records `player_kicked`, and attempts to disconnect them from the Twilio Video Room. The command response reports `mediaDisconnect.status` as `ok` or `failed`; a failure needs a booth-staff check of the room. Removing a winner during the result corrects the stored award. This is session-level removal: a person can join again with a new browser session, so continue to monitor the wall.
 
-The result designs can be reviewed without changing live event data at `/e/:slug/arena?demo=win` or `?demo=lose` and `/e/:slug/play?demo=win` or `?demo=lose`. The preview fixtures do not join a room, open a heat, judge a player, or write metrics. Do a separate real heat rehearsal before the event.
+The result designs can be reviewed without changing live event data at `/e/:slug/arena?demo=win` or `?demo=lose` and `/e/:slug/play?demo=win` or `?demo=lose`. Each preview has a **Replay reveal** control. The fixtures do not join a room, open a heat, judge a player, or write metrics. Do a separate real heat rehearsal before the event.
 
 ## 4. Connect Twilio Video
 

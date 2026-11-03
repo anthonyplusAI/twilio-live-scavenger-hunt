@@ -64,7 +64,7 @@ The wall also rearranges for traffic at the booth:
 
 ![Six-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-6-players.png)
 
-After starting the app, open the read-only [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), or [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose) preview. Preview URLs do not start a heat, connect a camera, judge a player, or write metrics.
+After starting the app, open the read-only [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), or [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose) preview. Use **Replay reveal** on either screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, or write metrics.
 
 ## Twilio product story
 

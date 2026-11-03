@@ -508,6 +508,7 @@ async function initialize() {
       roster: demoRoster, winners: demoWinners[previewMode], vote: null, paused: false };
     app.mediaStatus = 'Visual preview';
     screen.classList.add('is-preview');
+    $('previewReplay').hidden = false;
     render();
     return;
   }
@@ -536,4 +537,14 @@ async function initialize() {
 if ('ResizeObserver' in window) new ResizeObserver(layoutTiles).observe(field);
 else addEventListener('resize', layoutTiles);
 addEventListener('pagehide', () => app.mediaSession?.disconnect?.());
+$('previewReplay').addEventListener('click', () => {
+  if (!previewMode) return;
+  app.resultEffectKey = null;
+  app.renderSignature = '';
+  render();
+  const headline = $('headline');
+  headline.classList.remove('flash');
+  void headline.offsetWidth;
+  headline.classList.add('flash');
+});
 initialize();
