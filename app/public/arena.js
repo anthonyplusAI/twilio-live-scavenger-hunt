@@ -149,17 +149,19 @@ function render() {
   $('liveMark').textContent = app.mediaStatus;
   renderTiles();
   syncResultEffects();
-  setQrTarget(vote ? 'vote' : 'play');
+  setQrTarget(vote && !app.state.paused ? 'vote' : 'play');
   $('footerStatus').hidden = !!vote || !!app.state.paused || currentPhase !== 'result';
 
-  if (vote) {
+  if (app.state.paused) {
+    $('eyebrow').textContent = 'Booth paused';
+    setHeadline(currentPhase === 'lobby' ? 'BOOTH PAUSED.' : 'HEAT PAUSED.');
+    $('subline').textContent = currentPhase === 'lobby'
+      ? 'Scan to join now. The heat begins after staff resume.'
+      : 'Scan to join the next heat. Play resumes after staff return.';
+  } else if (vote) {
     $('eyebrow').textContent = vote.type === 'creative' ? 'Audience vote' : 'Choose the next category';
     setHeadline(vote.type === 'creative' ? 'CROWD, MAKE THE CALL.' : 'YOU PICK WHAT’S NEXT.');
     $('subline').textContent = vote.type === 'creative' ? 'Scan to choose your favorite find.' : 'The clue stays secret until GO.';
-  } else if (app.state.paused) {
-    $('eyebrow').textContent = 'Stand by';
-    setHeadline('HEAT PAUSED.');
-    $('subline').textContent = 'The booth team will resume the game shortly.';
   } else if (currentPhase === 'countdown' || currentPhase === 'locked') {
     $('eyebrow').textContent = 'The challenge is sealed';
     setHeadline('GET READY.');
@@ -302,13 +304,13 @@ function updateClock() {
   const vote = activeVote();
   const currentPhase = phase();
   let value = '', label = '', progress = 0;
-  if (vote) {
+  if (app.state.paused) {
+    value = 'II'; label = 'Paused'; progress = 50;
+  } else if (vote) {
     const seconds = timeLeft(vote.closesAt);
     value = String(seconds); label = 'Vote';
     const duration = vote.type === 'creative' ? app.event.vote?.creativeWindowSeconds : app.event.vote?.windowSeconds;
     progress = clamp(seconds / Math.max(1, duration || 30) * 100, 0, 100);
-  } else if (app.state.paused) {
-    value = 'II'; label = 'Paused'; progress = 50;
   } else if (currentPhase === 'lobby') {
     value = String(app.state.readyCount || 0); label = 'Ready';
     $('subline').textContent = lobbyMessage();

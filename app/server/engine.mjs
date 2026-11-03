@@ -293,28 +293,46 @@ export class GameEngine extends EventEmitter {
 
   setTransport(slug, token, transport) {
     if (!['twilio', 'rehearsal'].includes(transport)) fail('Unknown media transport.');
-    const player = this._mutate(slug, ({ event, touch }) => {
+    const player = this._mutate(slug, context => {
+      const { event, state, touch } = context;
       const current = this._authenticatePlayer(event.id, token);
       const mediaConnected = transport === 'rehearsal' ? true : current.transport === 'twilio' && current.mediaConnected;
       const next = this.store.updatePlayer(current.id, { transport, mediaConnected, lastSeenAt: toIso(this.now()) });
       if (next.transport !== current.transport || next.mediaConnected !== current.mediaConnected) touch();
+      if (state.phase === 'lobby' && current.status === 'ready' && next.mediaConnected !== current.mediaConnected) {
+        this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
+        if (next.mediaConnected) this._maybeAutoStart(context);
+      }
       return next;
     });
     return player;
   }
 
+  _updateLobbyReadyDeadline(context, readyCount, reset = false) {
+    const { event, state, now } = context;
+    const windowOpen = readyCount >= event.minPlayers && ['flexible', 'deadline'].includes(event.startMode);
+    if (state.paused) {
+      state.pauseRemaining ||= {};
+      const previous = state.pauseRemaining.readyDeadline;
+      if (!windowOpen) delete state.pauseRemaining.readyDeadline;
+      else if (reset || previous == null) state.pauseRemaining.readyDeadline = event.joinSeconds * 1000;
+      return state.pauseRemaining.readyDeadline !== previous;
+    }
+    const previous = state.readyDeadline;
+    if (!windowOpen) state.readyDeadline = null;
+    else if (reset || !previous) state.readyDeadline = toIso(now + event.joinSeconds * 1000);
+    return state.readyDeadline !== previous;
+  }
+
   setMediaConnected(slug, playerId, connected) {
     return this._mutate(slug, context => {
-      const { event, state, now, touch, activity } = context;
+      const { event, state, touch, activity } = context;
       const player = this.store.getPlayer(playerId);
       if (!player || player.eventId !== event.id || ['left', 'kicked'].includes(player.status)) return null;
       if (player.mediaConnected === Boolean(connected)) return player;
       const updated = this.store.updatePlayer(player.id, { mediaConnected: Boolean(connected), lastSeenAt: toIso(this.now()) });
       if (state.phase === 'lobby' && player.status === 'ready') {
-        const ready = this._readyPlayers(event, state);
-        if (ready.length < event.minPlayers) state.readyDeadline = null;
-        else if (!state.readyDeadline && ['flexible', 'deadline'].includes(event.startMode))
-          state.readyDeadline = toIso(now + event.joinSeconds * 1000);
+        this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
         if (connected) this._maybeAutoStart(context);
       }
       activity(connected ? 'media_connected' : 'media_disconnected', { playerId });
@@ -355,16 +373,11 @@ export class GameEngine extends EventEmitter {
       const current = this._authenticatePlayer(event.id, token);
       if (current.status === 'ready') return current;
       if (state.phase !== 'lobby' || current.heat !== state.heat || current.slot == null) fail('This heat has locked. You are queued for the next heat.');
-      if (state.paused) fail('The booth is paused.');
       if (!current.mediaConnected && current.transport !== 'rehearsal') fail('Connect your camera before marking ready.', 'media_required');
       const readyBefore = this._readyPlayers(event, state).length;
       const updated = this.store.updatePlayer(current.id, { status: 'ready', readyAt: toIso(now), lastSeenAt: toIso(now) });
       const readyAfter = this._readyPlayers(event, state).length;
-      if (['flexible', 'deadline'].includes(event.startMode)) {
-        if (readyAfter >= event.minPlayers && (readyBefore < event.minPlayers || !state.readyDeadline))
-          state.readyDeadline = toIso(now + event.joinSeconds * 1000);
-        else if (readyAfter < event.minPlayers) state.readyDeadline = null;
-      }
+      this._updateLobbyReadyDeadline(context, readyAfter, readyBefore < event.minPlayers);
       activity('player_ready', { playerId: current.id, heat: state.heat });
       touch();
       this._maybeAutoStart(context);
@@ -375,7 +388,7 @@ export class GameEngine extends EventEmitter {
 
   configChanged(slug, previous, current) {
     this._mutate(slug, context => {
-      const { state, now, touch } = context;
+      const { state, touch } = context;
       if (state.vote?.status === 'open' && JSON.stringify(previous.vote) !== JSON.stringify(current.vote)) {
         this._closeVote(context);
       }
@@ -384,12 +397,7 @@ export class GameEngine extends EventEmitter {
       if (previous.startMode !== current.startMode || previous.joinSeconds !== current.joinSeconds ||
           previous.minPlayers !== current.minPlayers || previous.maxPlayers !== current.maxPlayers) {
         const readyCount = this._readyPlayers(context.event, state).length;
-        const deadline = readyCount >= current.minPlayers && ['flexible', 'deadline'].includes(current.startMode)
-          ? toIso(now + current.joinSeconds * 1000) : null;
-        if (state.readyDeadline !== deadline) {
-          state.readyDeadline = deadline;
-          touch();
-        }
+        if (this._updateLobbyReadyDeadline(context, readyCount, true)) touch();
       }
       this._maybeAutoStart(context);
     });
@@ -437,8 +445,8 @@ export class GameEngine extends EventEmitter {
   _removePlayer(context, player, status, activityType) {
     const { state, now, touch, activity, removeMedia } = context;
     this.store.updatePlayer(player.id, { status, mediaConnected: false, leftAt: toIso(now), slot: null });
-    if (state.phase === 'lobby' && this._readyPlayers(context.event, state).length < context.event.minPlayers)
-      state.readyDeadline = null;
+    if (state.phase === 'lobby')
+      this._updateLobbyReadyDeadline(context, this._readyPlayers(context.event, state).length);
     this._fillOpenLobbySlots(context);
     state.candidates = state.candidates.filter(item => item.playerId !== player.id);
     if (state.phase !== 'result' && state.candidate?.winners?.includes(player.id)) {
@@ -709,11 +717,16 @@ export class GameEngine extends EventEmitter {
         return ['left', 'kicked'].includes(player?.status) ? null : { id, label: player?.alias || `Player ${index + 1}`, code: String(index + 1) };
       }).filter(Boolean);
     if (options.length < 2) fail('A ballot needs at least two options.');
+    const windowMilliseconds = (type === 'creative' ? event.vote.creativeWindowSeconds : event.vote.windowSeconds) * 1000;
     state.vote = {
       id: randomUUID(), type, status: 'open', openedAt: toIso(now),
-      closesAt: toIso(now + (type === 'creative' ? event.vote.creativeWindowSeconds : event.vote.windowSeconds) * 1000),
+      closesAt: state.paused ? null : toIso(now + windowMilliseconds),
       options, result: null, automatic: type === 'category' && automatic,
     };
+    if (state.paused) {
+      state.pauseRemaining ||= {};
+      state.pauseRemaining.vote = windowMilliseconds;
+    }
     if (type === 'creative') state.reviewEndsAt = null;
     activity('vote_opened', { windowId: state.vote.id, windowType: type, heat: state.heat });
     touch();
@@ -729,6 +742,7 @@ export class GameEngine extends EventEmitter {
     const top = max ? vote.options.filter(option => publicBallot.tallies[option.id] === max).map(option => option.id) : [];
     vote.status = 'closed';
     vote.closesAt = toIso(context.now);
+    if (state.pauseRemaining) delete state.pauseRemaining.vote;
     vote.result = vote.type === 'category' ? top[0] || null : top;
     if (vote.type === 'category') {
       state.preferredCategory = vote.result;
@@ -883,6 +897,10 @@ export class GameEngine extends EventEmitter {
           state.pauseRemaining = null;
           activity('event_resumed', { heat: state.heat });
           touch();
+          if (state.phase === 'lobby') {
+            this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
+            this._maybeAutoStart(context);
+          }
           break;
         }
         case 'queuePrompt': {
@@ -988,6 +1006,7 @@ export class GameEngine extends EventEmitter {
             state.vote.status = 'closed';
             state.vote.result = category;
             state.vote.closesAt = toIso(now);
+            if (state.pauseRemaining) delete state.pauseRemaining.vote;
           }
           state.preferredCategory = category;
           state.preferredCategoryAutomatic = false;

@@ -142,24 +142,34 @@ function renderOpen(vote) {
 }
 function renderClosed(vote) {
   const creative = isCreative(vote), options = normalizeOptions(vote), result = resultLabel(vote, options);
+  const pausedOpen = Boolean(state.game?.paused && vote?.status === "open");
   $("vote-options").hidden = true; $("closed-state").hidden = false; $("channel-strip").hidden = true;
   state.renderedWindow = "";
-  if (vote) {
+  if (pausedOpen) {
+    setHeadline("Voting ", "paused.");
+    $("vote-subtitle").textContent = "The booth team will resume this ballot with the game.";
+    $("window-kind").textContent = creative ? "CREATIVE BALLOT" : "CATEGORY BALLOT";
+    $("closed-title").textContent = "Ballot on hold";
+    $("closed-detail").textContent = "Voting resumes when staff resume the booth.";
+    $("vote-count").textContent = votesLabel(totalVotes(vote));
+    $("vote-feedback").textContent = savedChoice(vote.id) ? "Your vote was counted." : "This ballot will reopen when the booth resumes.";
+    $("vote-clock").textContent = "PAUSED";
+  } else if (vote) {
     setHeadline("The crowd ", creative ? "has spoken." : "sets the stage.");
     $("vote-subtitle").textContent = creative ? "The operator is confirming the result." : "The next challenge stays secret until GO.";
     $("window-kind").textContent = creative ? "CREATIVE RESULT" : "CATEGORY RESULT";
-    $("closed-title").textContent = state.game?.paused ? "Arena paused" : result ? `${creative ? "Audience pick" : "Next category"}: ${result}` : "Voting is closed";
-    $("closed-detail").textContent = state.game?.paused ? "Voting resumes when the operator restarts the arena." : result ? "Watch the arena for what happens next." : "The crowd’s choice is being counted.";
+    $("closed-title").textContent = result ? `${creative ? "Audience pick" : "Next category"}: ${result}` : "Voting is closed";
+    $("closed-detail").textContent = result ? "Watch the arena for what happens next." : "The crowd’s choice is being counted.";
     $("vote-count").textContent = votesLabel(totalVotes(vote));
     $("vote-feedback").textContent = savedChoice(vote.id) ? "Your vote was counted." : "This ballot has ended.";
-    $("vote-clock").textContent = state.game?.paused ? "PAUSED" : vote.status === "open" ? "0:00" : "CLOSED";
+    $("vote-clock").textContent = vote.status === "open" ? "0:00" : "CLOSED";
   } else {
     setHeadline("Your call. ", "Their moment.");
     const racing = ["countdown", "hunt", "judging"].includes(String(state.game?.phase || "").toLowerCase());
     $("vote-subtitle").textContent = racing ? "Watch the arena. A new ballot may open between heats." : "The next ballot opens between heats. Keep this page ready.";
     $("window-kind").textContent = racing ? "HUNT LIVE" : "STANDBY";
     $("closed-title").textContent = racing ? "The hunt is live" : "Waiting for the next vote";
-    $("closed-detail").textContent = racing ? "The crowd votes again after this heat." : "When the arena pauses, you can help choose what happens next.";
+    $("closed-detail").textContent = racing ? "The crowd votes again after this heat." : "A new ballot opens between heats. Keep this page ready.";
     $("vote-count").textContent = "0 VOTES";
     $("vote-feedback").textContent = "One vote per browser, per ballot.";
     $("vote-clock").textContent = "—";

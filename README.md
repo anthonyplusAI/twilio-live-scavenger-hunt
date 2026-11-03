@@ -39,9 +39,13 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR, enters a screen name, agrees to appear on the public display and have camera images checked for matches, and checks their camera. The consent screen explains that OpenAI may review brief images when AI judging is enabled. **Go live** reserves a spot only after the camera works. If access was denied, the phone shows where to allow it in the browser and a **Try camera again** button. A camera switch changes between front and rear cameras. Lead capture is configurable: the default asks for contact details only after someone voluntarily requests a guide or a Twilio expert; an admin can instead collect the configured fields at join or turn capture off. A visitor can choose **Watch and vote instead** without joining. The arena adjusts its portrait-card layout to the number of players, and the phone requests portrait capture; when a browser returns a landscape track, it makes a portrait stream for the preview and Twilio publishing if canvas capture is supported. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
+A visitor scans the arena's prominent **Scan to play** QR, enters a screen name, agrees to appear on the public display and have camera images checked for matches, and checks their camera. The consent screen explains that OpenAI may review brief images when AI judging is enabled. **Go live** reserves a spot only after the camera works. If access was denied, the phone shows where to allow it in the browser and a **Try camera again** button. A camera switch changes between front and rear cameras. Lead capture is configurable: the default asks for contact details only after someone voluntarily requests a guide or a Twilio expert; an admin can instead collect the configured fields at join or turn capture off. A visitor can choose **Watch and vote instead** without joining.
+
+The arena adjusts its portrait-card layout to the number of players. The phone requests portrait capture without forcing a crop; if a browser supplies a landscape track and supports canvas capture, the app letterboxes its full frame in a portrait stream for the phone and Twilio Video wall. Otherwise, the preview and arena tiles fit the browser's original frame within the portrait spot. Judging snapshots use the browser's original frame. The phone preview and wall use the same unmirrored left-to-right orientation, so printed words read correctly in both places. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
 
 When all configured player spots are occupied, or a heat has locked, a new visitor enters the next-heat waitlist with their camera off. Their phone shows a private, exact place in line and a capacity-based estimate in heats; the app does not promise a minute countdown because booth pauses and judging can vary. The oldest waiting visitor takes the next open lobby spot when someone leaves, is removed, times out, or an admin increases capacity. New arrivals and returning players cannot jump ahead. At the next heat, the oldest queued visitors get the available spots and reconnect their cameras. After a result, a player can choose **Play next heat** without repeating the join form; **Leave game** ends their session.
+
+If staff pause an open lobby, visitors can still join, connect their camera, and become ready. The arena keeps **Scan to play** visible even if a ballot was open; the phone says **Booth paused**. The join window begins or resumes only when staff resume the booth. A visitor who joins during a paused countdown or hunt waits in the next-heat queue. Paused phone screens show the hold without a misleading GO or expired round clock. The normal inactivity check still asks players to confirm their place during a long pause. Staff still choose when to start a heat in Operator start mode.
 
 The next clue is chosen randomly among the least-played enabled prompts in its priority tier, avoiding a repeat within that tier until its clues have caught up. It also avoids immediately repeating the last clue when another equally played choice exists. An operator can choose the next clue, and an audience category vote can narrow the draw. The standard hunt now lasts **45 seconds**, with **60 seconds** for seeded creative clues; admins can change the event timer or a prompt's timer. The one-time upgrade applies these defaults only to untouched legacy events; customized timers stay saved. Everyone races to show the requested color, object, shape, printed tech word, or creative find. Seeded and newly added prompts default to AI-assisted judging. The upgrade switches prompts in untouched legacy events to AI-assisted judging; events already edited by an admin keep their saved judging choices. An admin can instead choose the built-in color detector, an audience vote, or booth-operator judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
@@ -56,7 +60,7 @@ Spectators can take part through a web ballot without providing player details. 
 | Booth moment | What the app does |
 | --- | --- |
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
-| **Keep the race fair** | The server seals the prompt until GO. In the Flexible and After wait modes, the join timer starts when the configured minimum is ready; more players can join until it expires. The waitlist fills vacated lobby spots in join order. A disconnected live Video player cannot submit a winning find. An operator can start a ready heat manually. |
+| **Keep the race fair** | The server seals the prompt until GO. In the Flexible and After wait modes, the join timer starts when the configured minimum is ready and freezes during a booth pause; more players can join until it expires. The waitlist fills vacated lobby spots in join order. A disconnected live Video player cannot submit a winning find. An operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. If AI review fails, the automatic award holds for a manual winner, tie, or no-match decision. |
 | **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts admin access. |
 | **Measure engagement** | Private reports filter by event and date and cover join sessions, repeat entries, distinct browser sessions where available, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
@@ -64,7 +68,7 @@ Spectators can take part through a web ballot without providing player details. 
 
 ## See the moment
 
-These are **visual previews with illustrated stand-ins**, captured from the running app. The live arena uses camera feeds after Twilio Video setup; local rehearsal uses brief JPEG snapshots.
+These are **visual previews** captured from the running app. Player illustrations and the labeled synthetic camera test pattern are stand-ins, not attendee feeds. The live arena uses camera feeds after Twilio Video setup; local rehearsal uses brief JPEG snapshots.
 
 <table>
   <tr><th>Arena · first find</th><th>Arena · another player wins</th></tr>
@@ -86,6 +90,21 @@ The lobby shows how many players are ready and whether it is waiting for the min
 ![Local rehearsal arena lobby showing one ready player, the need for one more, and the scan-to-play QR](docs/visuals/live-scavenger-hunt-arena-lobby.png)
 
 <p align="center"><em>Local visual preview with illustrated player spots; no live camera feed is shown.</em></p>
+
+Visitors can also join while the booth is paused. The arena keeps the play QR visible, and a joined phone explains that its heat is on hold:
+
+<table>
+  <tr><th>Phone · joined during a pause</th><th>Arena · paused lobby</th></tr>
+  <tr>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-camera-paused-fixture-phone.png" alt="Local paused-lobby phone preview with a synthetic camera pattern, one ready player, and a Keep my spot check-in reminder" width="280"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-camera-paused-fixture-arena.png" alt="Local paused-lobby arena preview with a synthetic camera test pattern, Booth paused headline, and large Scan to play QR" width="760"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Local visual previews with a synthetic camera test pattern. No attendee feed or Twilio Video room is shown.</em></p>
+
+<p align="center"><img src="docs/visuals/live-scavenger-hunt-vote-paused-fixture.png" alt="Local spectator visual preview of an open category ballot on hold, with voting paused until booth staff resume" width="280"></p>
+<p align="center"><em>Local spectator visual preview. The ballot is still open and its remaining time resumes with the booth.</em></p>
 
 The wall also rearranges for traffic at the booth:
 

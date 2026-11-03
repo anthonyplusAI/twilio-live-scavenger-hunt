@@ -356,7 +356,10 @@ function queueMarkup() {
   const estimate = heatsAway === 1 ? 'EXPECTED NEXT HEAT'
     : heatsAway ? 'ABOUT ' + heatsAway + ' HEATS AWAY' : 'UPDATING YOUR PLACE';
   const total = waiting + ' ' + (waiting === 1 ? 'PLAYER' : 'PLAYERS') + ' WAITING';
-  return `<p class="eyebrow">Your place in line</p><h1 class="hero">YOU'RE<br><em>ON DECK.</em></h1><div class="queue-ticket" aria-live="polite"><div class="queue-ticket-top"><span>LIVE WAITLIST</span><span class="queue-ticket-dot" aria-hidden="true"></span></div><strong class="queue-ticket-rank">${position ? '#' + pad(position) : '—'}</strong><div class="queue-ticket-bottom"><span>${estimate}</span><small>${total}</small></div></div><p class="sub queue-copy">Camera off while you wait. Keep this page open; reconnect when your spot opens.</p><p class="error" role="alert">${escapeHtml(app.error)}</p>`;
+  const waitingCopy = app.state?.paused
+    ? 'Booth paused. Keep this page open and tap Keep my spot if we check in.'
+    : 'Camera off while you wait. Keep this page open; reconnect when your spot opens.';
+  return `<p class="eyebrow">Your place in line</p><h1 class="hero">YOU'RE<br><em>ON DECK.</em></h1><div class="queue-ticket" aria-live="polite"><div class="queue-ticket-top"><span>LIVE WAITLIST</span><span class="queue-ticket-dot" aria-hidden="true"></span></div><strong class="queue-ticket-rank">${position ? '#' + pad(position) : '—'}</strong><div class="queue-ticket-bottom"><span>${estimate}</span><small>${total}</small></div></div><p class="sub queue-copy">${waitingCopy}</p><p class="error" role="alert">${escapeHtml(app.error)}</p>`;
 }
 
 // Keep pagination stable when the Android virtual keyboard changes viewport height.
@@ -426,6 +429,7 @@ function render(force = false) {
   if (!app.event || !app.state) return;
   const lead = leadSettings();
   const view = currentView();
+  const paused = Boolean(app.state.paused);
   // Preserve typed fields while live arena updates arrive. Rebuild only when
   // staff edit the configured form or the visitor changes form pages.
   if (view === 'consent' && screen.dataset.view === 'consent') {
@@ -447,7 +451,7 @@ function render(force = false) {
     }
     syncFollowupDraft();
   }
-  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, cameraBusy: app.cameraBusy, cameraHelp: app.cameraHelp, media: !!app.media, mediaBusy: !!app.mediaBusy, mediaLinkUp: app.mediaLinkUp, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, leadPage: app.leadPage, leadIntent: app.leadIntent, followupPage: app.followupPage, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
+  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), paused, heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, cameraBusy: app.cameraBusy, cameraHelp: app.cameraHelp, media: !!app.media, mediaBusy: !!app.mediaBusy, mediaLinkUp: app.mediaLinkUp, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, leadPage: app.leadPage, leadIntent: app.leadIntent, followupPage: app.followupPage, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
   screen.dataset.view = view;
@@ -466,23 +470,25 @@ function render(force = false) {
     screen.innerHTML = joinMarkup(lead);
     app.renderedLeadKey = joinRenderKey(lead);
   } else if (view === 'preview') {
-    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${app.token ? 'Your spot is set. Go live when ready.' : app.camera ? 'Camera ready. Your spot is reserved when you go live.' : 'Allow camera access before reserving your spot.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.joinBusy ? 'RESERVING SPOT…' : app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : 'GO LIVE', 'join', false, app.joinBusy || app.event.mediaMode === 'unconfigured') : button(app.cameraBusy ? 'OPENING CAMERA…' : app.cameraHelp ? 'TRY CAMERA AGAIN' : 'ENABLE CAMERA', 'camera', false, app.cameraBusy)}${button(app.token ? 'LEAVE SPOT & VOTE' : 'WATCH & VOTE', 'spectate', true)}</div>${app.token ? '' : '<button type="button" class="preview-edit" data-action="edit-details">Edit your details</button>'}`;
+    screen.innerHTML = `<p class="eyebrow">02 / Camera check</p><h1 class="section-title">Take your place.</h1>${preview()}<p class="caption">${paused ? 'Booth paused. You can join now and wait for staff to resume.' : app.token ? 'Your spot is set. Go live when ready.' : app.camera ? 'Camera ready. Your spot is reserved when you go live.' : 'Allow camera access before reserving your spot.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p><div class="actions">${app.camera ? button(app.joinBusy ? 'RESERVING SPOT…' : app.event.mediaMode === 'unconfigured' ? 'WAITING FOR BOOTH SETUP' : paused ? 'JOIN GAME' : 'GO LIVE', 'join', false, app.joinBusy || app.event.mediaMode === 'unconfigured') : button(app.cameraBusy ? 'OPENING CAMERA…' : app.cameraHelp ? 'TRY CAMERA AGAIN' : 'ENABLE CAMERA', 'camera', false, app.cameraBusy)}${button(app.token ? 'LEAVE SPOT & VOTE' : 'WATCH & VOTE', 'spectate', true)}</div>${app.token ? '' : '<button type="button" class="preview-edit" data-action="edit-details">Edit your details</button>'}`;
   } else if (view === 'queued') {
     screen.innerHTML = queueMarkup();
   } else if (view === 'waiting') {
     const slot = rosterPlayer()?.slot ?? app.player?.slot;
     const needsReady = app.player?.status === 'joined';
-    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">READY<br><em>TO GO.</em></h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} READY</div><p class="caption" data-join-status>${joinStatusText()}</p><p class="caption">${cameraOnline() ? needsReady ? 'Your camera is connected. Waiting for booth confirmation…' : 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>${cameraOnline() && !needsReady ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true, !!app.mediaBusy)}</div>`}`;
+    screen.innerHTML = `<p class="eyebrow">03 / Your spot is set</p><h1 class="hero">${paused ? 'BOOTH<br><em>PAUSED.</em>' : 'READY<br><em>TO GO.</em>'}</h1>${preview()}<div class="status">SLOT ${pad(slot)} · ${app.state.readyCount || 0} READY</div><p class="caption" data-join-status>${joinStatusText()}</p><p class="caption">${cameraOnline() ? paused ? 'Your camera is connected. Keep this page open until staff resume.' : needsReady ? 'Your camera is connected. Waiting for booth confirmation…' : 'You are live on the arena wall. The clue appears at GO.' : app.camera ? 'Connecting your camera to the arena…' : 'Your spot is open. Turn your camera back on to play.'}</p>${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>${cameraOnline() && !needsReady ? '' : `<div class="actions">${button(app.camera ? 'RETRY CONNECTION' : 'RECONNECT CAMERA', 'retry-media', true, !!app.mediaBusy)}</div>`}`;
   } else if (view === 'countdown') {
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Stand by</p><div class="result-mark countdown-figure" data-clock>3</div><h1 class="hero sealed-title">CLUE<br><em>SEALED.</em></h1><p class="sub">Everyone sees the challenge at GO. Hold your camera steady.</p>${cameraOnline() ? '' : `<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>${cameraHelpMarkup()}`}`;
+    screen.innerHTML = paused
+      ? `<p class="eyebrow">Heat ${pad(app.state.heat)} · Booth paused</p><div class="result-mark countdown-figure" aria-hidden="true">Ⅱ</div><h1 class="hero sealed-title">HEAT<br><em>PAUSED.</em></h1><p class="sub">The sealed countdown resumes when staff are ready. Tap Keep my spot if we check in.</p>${cameraOnline() ? '' : `<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>${cameraHelpMarkup()}`}`
+      : `<p class="eyebrow">Heat ${pad(app.state.heat)} · Stand by</p><div class="result-mark countdown-figure" data-clock>3</div><h1 class="hero sealed-title">CLUE<br><em>SEALED.</em></h1><p class="sub">Everyone sees the challenge at GO. Hold your camera steady.</p>${cameraOnline() ? '' : `<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>${cameraHelpMarkup()}`}`;
   } else if (view === 'hunt') {
     // The server omits prompt before GO. Never infer it from an event deck or a URL.
     const clue = app.state.prompt?.text || 'LOOK AT THE ARENA';
     const clueSize = clue.length > 80 ? 'is-extra-long' : clue.length > 50 ? 'is-long' : '';
     const reconnect = !cameraOnline();
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Find it first</p><h1 class="section-title hunt-prompt ${clueSize}">${escapeHtml(clue)}</h1><div class="status"><span data-clock>00</span> SEC LEFT</div><div class="hunt-preview">${preview()}</div>${reconnect ? '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>' : '<p class="caption">Bring your find into the camera guide and hold it steady.</p>'}${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>`;
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · ${paused ? 'Booth paused' : 'Find it first'}</p><h1 class="section-title hunt-prompt ${clueSize}">${escapeHtml(clue)}</h1><div class="status">${paused ? 'HEAT PAUSED' : '<span data-clock>00</span> SEC LEFT'}</div><div class="hunt-preview">${preview()}</div>${reconnect ? '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>' : `<p class="caption">${paused ? 'Timer paused. Tap Keep my spot if we check in.' : 'Bring your find into the camera guide and hold it steady.'}</p>`}${cameraHelpMarkup()}<p class="error" role="alert">${escapeHtml(app.error)}</p>`;
   } else if (view === 'review') {
-    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · Checking</p><h1 class="hero">DID YOU<br><em>FIND IT?</em></h1>${playerVisual('REVIEWING FINDS')}<p class="sub">The judge is checking each find. Close calls can be ties.</p>${cameraOnline() ? '' : '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>'}`;
+    screen.innerHTML = `<p class="eyebrow">Heat ${pad(app.state.heat)} · ${paused ? 'Booth paused' : 'Checking'}</p><h1 class="hero">${paused ? 'REVIEW<br><em>PAUSED.</em>' : 'DID YOU<br><em>FIND IT?</em>'}</h1>${playerVisual('REVIEWING FINDS')}<p class="sub">${paused ? 'Judging resumes when staff are ready. Tap Keep my spot if we check in.' : 'The judge is checking each find. Close calls can be ties.'}</p>${cameraOnline() ? '' : '<button type="button" class="hunt-reconnect" data-action="retry-media">Reconnect camera ↗</button>'}`;
   } else if (view === 'result') {
     const winners = app.outcome?.winners || app.state.winners || [];
     screen.innerHTML = resultMarkup(winners, app.outcome?.heat || app.state.heat);
@@ -527,6 +533,7 @@ function joinStatusText() {
   const ready = Number(app.state?.readyCount || 0);
   const minimum = Number(app.event?.minPlayers || 2);
   const maximum = Number(app.event?.maxPlayers || 6);
+  if (app.state?.paused) return 'Your spot is held. Tap Keep my spot if we check in during the pause.';
   if (app.state?.readyDeadline && ['flexible', 'deadline'].includes(app.event?.startMode))
     return `${timeLeft(app.state.readyDeadline)}s left for more players to join.`;
   if (ready < minimum) return `Waiting for ${minimum - ready} more player${minimum - ready === 1 ? '' : 's'} · up to ${maximum} can join.`;
@@ -540,6 +547,7 @@ function updateClock() {
   const view = currentView();
   const joinStatus = screen.querySelector('[data-join-status]');
   if (view === 'waiting' && joinStatus) joinStatus.textContent = joinStatusText();
+  if (app.state.paused) return;
   const clock = screen.querySelector('[data-clock]');
   if (!clock) return;
   if (view === 'countdown') clock.textContent = timeLeft(app.state.countdownEndsAt) || 'GO';
@@ -564,11 +572,18 @@ function portraitStream(raw, video) {
   canvas.height = 960;
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('Camera preview could not start. Try again.');
+  context.fillStyle = '#06132c';
   const draw = () => {
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-    const sourceWidth = video.videoHeight * 9 / 16;
-    const left = (video.videoWidth - sourceWidth) / 2;
-    context.drawImage(video, left, 0, sourceWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight) return;
+    const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
+    const width = sourceWidth * scale;
+    const height = sourceHeight * scale;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(video, 0, 0, sourceWidth, sourceHeight,
+      (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
   };
   draw();
   const timer = setInterval(draw, 1000 / 24);
@@ -594,14 +609,15 @@ async function enableCamera() {
     render(true);
     let raw;
     try {
+      const videoConstraints = {
+        facingMode: { ideal: app.cameraFacing },
+        width: { ideal: 540 },
+        height: { ideal: 960 },
+      };
+      if (navigator.mediaDevices.getSupportedConstraints?.().resizeMode)
+        videoConstraints.resizeMode = { ideal: 'none' };
       raw = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: app.cameraFacing },
-          width: { ideal: 540 },
-          height: { ideal: 960 },
-          aspectRatio: { ideal: 9 / 16 },
-          resizeMode: 'crop-and-scale',
-        },
+        video: videoConstraints,
         audio: false,
       });
     } catch (error) {
@@ -673,9 +689,10 @@ async function switchCamera() {
 
 function frameBlob(quality = 0.52, maxWidth = 360) {
   return new Promise(resolve => {
-    const source = app.cameraCanvas || app.cameraVideo;
-    const sourceWidth = source?.width || source?.videoWidth;
-    const sourceHeight = source?.height || source?.videoHeight;
+    const source = app.cameraVideo?.videoWidth && app.cameraVideo?.videoHeight
+      ? app.cameraVideo : app.cameraCanvas;
+    const sourceWidth = source?.videoWidth || source?.width;
+    const sourceHeight = source?.videoHeight || source?.height;
     if (!sourceWidth || !sourceHeight) return resolve(null);
     const canvas = document.createElement('canvas');
     canvas.width = Math.min(maxWidth, sourceWidth);
