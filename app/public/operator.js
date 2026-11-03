@@ -159,7 +159,7 @@ function setCommitted(event) {
   eventDirty = false;
   promptDirty = false;
   conflict = false;
-  selectedPromptId = draft.prompts.some((item) => item.id === selectedPromptId) ? selectedPromptId : draft.prompts[0]?.id || null;
+  selectedPromptId = draft.prompts.some((item) => item.id === selectedPromptId) ? selectedPromptId : promptDisplayOrder(draft.prompts)[0]?.id || null;
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
   promptPriorityAuto = promptBuffer?.priority == null;
   $("reload-event-button").hidden = true;
@@ -747,7 +747,7 @@ function validateEvent() {
 async function saveEvent(includePrompt = true) {
   if (!isAdmin()) return flash("Admin access is required to change event settings.", true), false;
   if (conflict || saving) return flash("Reload the latest revision before saving.", true), false;
-  if (includePrompt && promptDirty && !commitPromptBuffer()) return false;
+  if (includePrompt && promptDirty && !commitPromptBuffer(true)) return false;
   syncEventForm();
   const error = validateEvent();
   if (error) {
@@ -781,9 +781,22 @@ function promptPageSize() {
   if (innerHeight <= 700) return 4;
   return 5;
 }
+function promptDisplayOrder(prompts) {
+  const standard = [];
+  const low = [];
+  for (const prompt of prompts) {
+    ((prompt.priority || defaultPromptPriority(prompt)) === "low" ? low : standard).push(prompt);
+  }
+  return [...standard, ...low];
+}
 function filteredPrompts() {
   const filter = $("prompt-filter").value;
-  return filter === "all" ? draft.prompts : draft.prompts.filter((item) => item.category === filter);
+  const matching = filter === "all" ? draft.prompts : draft.prompts.filter((item) => item.category === filter);
+  return promptDisplayOrder(matching);
+}
+function revealPromptPage(id) {
+  const index = filteredPrompts().findIndex((prompt) => prompt.id === id);
+  if (index >= 0) promptPage = Math.floor(index / promptPageSize());
 }
 function renderPromptList() {
   if (!draft) return;
@@ -857,7 +870,7 @@ function renderPromptEditor() {
   }
   $("queue-editor-button").disabled = !prompt || !prompt.enabled;
 }
-function commitPromptBuffer() {
+function commitPromptBuffer(revealSelection = false) {
   if (!promptBuffer) return true;
   const text = String(promptBuffer.text || "").trim();
   if (!text || text.length > 55) return flash("A prompt needs 1–55 characters.", true), false;
@@ -883,12 +896,14 @@ function commitPromptBuffer() {
   promptDirty = false;
   promptPriorityAuto = false;
   markDirty();
+  if (revealSelection) revealPromptPage(selectedPromptId);
   renderPromptList();
   return true;
 }
 function selectPrompt(id) {
   if (promptDirty && !commitPromptBuffer()) return;
   selectedPromptId = id;
+  revealPromptPage(id);
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
   promptPriorityAuto = promptBuffer?.priority == null;
   promptDirty = false;
@@ -926,7 +941,8 @@ function onPromptInput(event) {
   $("prompt-hint").textContent = promptHint(promptBuffer);
 }
 function discardPromptBuffer() {
-  if (!activePrompt()) selectedPromptId = draft.prompts[0]?.id || null;
+  if (!activePrompt()) selectedPromptId = promptDisplayOrder(draft.prompts)[0]?.id || null;
+  revealPromptPage(selectedPromptId);
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
   promptPriorityAuto = promptBuffer?.priority == null;
   promptDirty = false;
@@ -938,7 +954,7 @@ function renderQueue() {
   const select = $("queue-select");
   const prior = select.value;
   select.replaceChildren();
-  for (const prompt of committed.prompts.filter((item) => item.enabled)) {
+  for (const prompt of promptDisplayOrder(committed.prompts.filter((item) => item.enabled))) {
     const option = document.createElement("option");
     option.value = prompt.id;
     option.textContent = prompt.text;
