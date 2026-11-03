@@ -80,7 +80,7 @@ Leave the username as `admin` and enter a new password to reset it, or change
 the username as well. The account's active sessions end after either change.
 If the database already has users, bootstrap leaves them unchanged. Treat the
 Container App secret and Blob replica as sensitive because the database holds
-accounts, event settings, metrics, and opt-in leads.
+accounts, event settings, metrics, and captured leads.
 
 After signing in, use **Team → Add operator** in the control room to create
 separate local operator accounts. An admin can reset and rename those accounts
@@ -154,11 +154,12 @@ credentials; only the deploy job reads them.
 | Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
 | Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
 | Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`, `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | AI-assisted judging, Segment mirroring, requested guide email, and verification of SendGrid delivery callbacks respectively. |
-| Optional variables | `OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, explicit consent-based lead identification, verified guide sender, and SendGrid API region. |
+| Optional variables | `OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, verified guide sender, and SendGrid API region. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.
 GitHub's deploy workflow never forwards these identifiers to its test job.
+Segment only receives the limited, contact-free activity stream.
 
 ## First rollout and backup verification
 
@@ -275,10 +276,7 @@ settings preserve the existing ACA values.
    verdict. Check the event's camera consent and privacy copy before use.
 2. **Segment:** create a Source and add its `SEGMENT_WRITE_KEY` as an Actions
    secret to mirror the app's limited activity stream. Local metrics continue
-   to work without Segment. Leave `SEGMENT_IDENTIFY_LEADS` unset or set it to
-   `0` by default. Set the Actions variable to `1` only when you intentionally
-   want name/email/company sent for leads who separately checked marketing
-   opt-in. Set it back to `0` and deploy to turn that identification off.
+   to work without Segment. The app sends no lead identity to Segment.
 3. **Guide email:** verify the sending identity in SendGrid, create an API key
    with Mail Send access, add `SENDGRID_API_KEY` as an Actions secret, and set
    `SENDGRID_FROM_EMAIL` to the exact verified address as an Actions variable.
@@ -291,7 +289,7 @@ settings preserve the existing ACA values.
    voluntary contact form after play; a compatible second request reuses those
    details. A guide request needs an email. The same actions
    are available to spectators who do not play. Expert requests enter the
-   operator follow-up queue and do not place a Voice call.
+   admin-only follow-up queue in Metrics and do not place a Voice call.
 4. **Confirm guide delivery:** in SendGrid, open **Settings → Mail Settings →
    Event Webhooks**, create an Event Webhook with POST URL
    `https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/webhooks/sendgrid/events`
@@ -304,7 +302,10 @@ settings preserve the existing ACA values.
    for the signing control and key location. Mail Send's HTTP `202` means
    SendGrid accepted the message; only a signed callback can confirm delivery
    or report a bounce/drop. The webhook key is independent of the Mail Send API
-   key and can be added after guide sending is configured.
+   key and can be added after guide sending is configured. A guide requested
+   again for the same event and email within 24 hours is recorded without
+   another send. Definite HTTP 429 responses retry with backoff; HTTP 503 and
+   uncertain network outcomes require staff review without automatic retry.
 
 After cutover, test one AI-assisted prompt, check that a safe game event appears
 in the intended Segment Source, and request a guide with a staff email address.

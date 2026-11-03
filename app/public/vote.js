@@ -4,7 +4,7 @@ const slug = slugMatch ? decodeURIComponent(slugMatch[1]) : "";
 const state = {
   event: null, game: null, serverOffset: 0, source: null,
   pending: false, blockedWindowId: null, error: "", renderedWindow: "", expiredWindowId: null,
-  lead: { open: false, intent: "guide", page: 0, values: {}, marketingOptIn: false,
+  lead: { open: false, intent: "guide", page: 0, values: {},
     pending: false, error: "", success: false, response: null, previousFocus: null },
 };
 const make = (tag, className = "", value = null) => {
@@ -188,7 +188,6 @@ function leadSettings() {
     enabled: raw.enabled === true,
     guideEnabled: raw.guideEnabled === true,
     expertEnabled: raw.expertEnabled === true,
-    marketingOptIn: raw.marketingOptIn === true,
     fields,
   };
 }
@@ -252,7 +251,7 @@ function fieldAutocomplete(field) {
   return "off";
 }
 function renderLeadForm() {
-  const lead = state.lead, settings = leadSettings();
+  const lead = state.lead;
   renderLeadIntents();
   $("lead-title").innerHTML = lead.intent === "expert" ? "Make the next<br><em>connection.</em>" : "Build a moment<br><em>of your own.</em>";
   $("lead-description").textContent = lead.intent === "expert"
@@ -297,8 +296,6 @@ function renderLeadForm() {
     host.append(label);
   }
   const last = lead.page >= leadPages() - 1;
-  $("lead-marketing-row").hidden = !(last && settings.marketingOptIn);
-  $("lead-marketing").checked = lead.marketingOptIn;
   $("lead-prev").hidden = lead.page === 0;
   $("lead-progress").textContent = `${lead.page + 1} / ${leadPages()}`;
   $("lead-next").disabled = lead.pending;
@@ -310,7 +307,7 @@ function renderLeadForm() {
 }
 function openLead(intent) {
   if (!availableLeadIntents().includes(intent)) return;
-  state.lead = { open: true, intent, page: 0, values: {}, marketingOptIn: false,
+  state.lead = { open: true, intent, page: 0, values: {},
     pending: false, error: "", success: false, response: null, previousFocus: document.activeElement };
   $("lead-overlay").hidden = false;
   $("voter-app").inert = true;
@@ -368,7 +365,6 @@ async function submitLeadForm(event) {
     return;
   }
   state.lead.pending = true;
-  state.lead.marketingOptIn = leadSettings().marketingOptIn && $("lead-marketing").checked;
   const lead = state.lead;
   lead.requestController = new AbortController();
   renderLeadForm();
@@ -377,7 +373,7 @@ async function submitLeadForm(event) {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ intent: state.lead.intent,
-        fieldValues: state.lead.values, marketingOptIn: state.lead.marketingOptIn }),
+        fieldValues: state.lead.values }),
       signal: lead.requestController.signal,
     });
     if (state.lead !== lead || !lead.open) return;
@@ -492,7 +488,6 @@ $("lead-prev").addEventListener("click", () => {
   renderLeadForm();
   $("lead-fields").querySelector("input")?.focus();
 });
-$("lead-marketing").addEventListener("change", () => { state.lead.marketingOptIn = $("lead-marketing").checked; });
 $("lead-form").addEventListener("submit", submitLeadForm);
 document.addEventListener("keydown", event => {
   if (!state.lead.open) return;

@@ -19,6 +19,7 @@ function initialRuntime(eventId, now) {
     countdownEndsAt: null, roundEndsAt: null, reviewEndsAt: null,
     resultEndsAt: null, heatId: null, promptSnapshot: null, rulesSnapshot: null,
     lockedPlayerIds: [], queuedPromptId: null, preferredCategory: null,
+    preferredCategoryAutomatic: false,
     candidates: [], candidate: null, candidateDeadline: null, winners: [], resultRoster: [],
     judgeNotice: null,
     vote: null, usedPromptIds: [], promptPlayCounts: {}, automaticPromptSelections: 0,
@@ -140,8 +141,8 @@ export class GameEngine extends EventEmitter {
       ? state.resultRoster.map(spot => {
         const current = byId.get(spot.id);
         if (!current || current.status === 'kicked') return null;
-        return { ...spot, status: current.status,
-          mediaConnected: current.status === 'left' ? false : current.mediaConnected };
+        return { ...spot, status: current.status === 'queued' ? 'finished' : current.status,
+          mediaConnected: ['left', 'queued'].includes(current.status) ? false : current.mediaConnected };
       }).filter(Boolean)
       : liveRoster;
     const readyCount = roster.filter(player => player.mediaConnected &&
@@ -253,12 +254,35 @@ export class GameEngine extends EventEmitter {
       touch();
       return player;
     });
-    if (capturedLead) {
-      try { this.telemetry?.identifyOptedInLead?.(capturedLead); }
-      catch { /* Lead analytics never blocks a player join. */ }
-    }
     const state = this.snapshot(slug).state;
     return { player: this._withQueuePosition(this.store.getPlayer(value.id)), token, state };
+  }
+
+  replay(slug, token) {
+    const player = this._mutate(slug, context => {
+      const { event, state, now, touch, activity } = context;
+      const current = this._authenticatePlayer(event.id, token);
+      if (['queued', 'joined', 'ready'].includes(current.status)) return current;
+      if (current.status !== 'finished') fail('Finish this heat before playing again.', 'replay_unavailable');
+      if (state.phase === 'lobby') this._fillOpenLobbySlots(context);
+      const occupied = this.store.listPlayers(event.id, state.heat)
+        .filter(entry => entry.slot != null && !['left', 'kicked'].includes(entry.status));
+      const available = Array.from({ length: event.maxPlayers }, (_, index) => index + 1)
+        .find(slot => !occupied.some(entry => entry.slot === slot));
+      const slot = state.phase === 'lobby' ? available ?? null : null;
+      const next = this.store.updatePlayer(current.id, {
+        heat: slot ? state.heat : state.heat + 1, slot,
+        status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
+        joinedAt: toIso(now), readyAt: null, lastSeenAt: toIso(now), leftAt: null,
+      });
+      const session = next.analyticsSessionId ? { sessionId: next.analyticsSessionId } : {};
+      activity('player_joined', { playerId: next.id, heat: next.heat, queued: !slot, ...session });
+      if (!slot) activity('player_queued', { playerId: next.id, heat: next.heat, ...session });
+      touch();
+      return next;
+    });
+    const state = this.snapshot(slug).state;
+    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
   }
 
   me(slug, token) {
@@ -448,15 +472,27 @@ export class GameEngine extends EventEmitter {
       .sort((a, b) => a.slot - b.slot);
   }
 
-  _choosePrompt(event, state) {
+  _promptRotation(event, state) {
     const enabled = event.prompts.filter(prompt => prompt.enabled);
-    if (!enabled.length) fail('Enable at least one prompt before starting.');
     if (!state.promptPlayCounts || typeof state.promptPlayCounts !== 'object' || Array.isArray(state.promptPlayCounts)) {
       state.promptPlayCounts = {};
       for (const heat of this.store.listHeats(event.id)) {
         if (heat.prompt?.id) state.promptPlayCounts[heat.prompt.id] = (Number(state.promptPlayCounts[heat.prompt.id]) || 0) + 1;
       }
     }
+    const standard = enabled.filter(prompt => promptPriority(prompt) === 'standard');
+    const low = enabled.filter(prompt => promptPriority(prompt) === 'low');
+    const priorAutomatic = Number.isSafeInteger(state.automaticPromptSelections) && state.automaticPromptSelections >= 0
+      ? state.automaticPromptSelections : 0;
+    const nextAutomatic = priorAutomatic + 1;
+    const lowDue = standard.length > 0 && low.length > 0 && nextAutomatic % 5 === 0 &&
+      standard.every(prompt => (Number(state.promptPlayCounts[prompt.id]) || 0) > 0);
+    return { enabled, standard, low, lowDue, nextAutomatic };
+  }
+
+  _choosePrompt(event, state) {
+    const { enabled, standard, low, lowDue, nextAutomatic } = this._promptRotation(event, state);
+    if (!enabled.length) fail('Enable at least one prompt before starting.');
     const plays = prompt => Number(state.promptPlayCounts[prompt.id]) || 0;
     const leastPlayed = pool => {
       const fewest = Math.min(...pool.map(plays));
@@ -468,15 +504,16 @@ export class GameEngine extends EventEmitter {
     let selected = enabled.find(prompt => prompt.id === state.queuedPromptId);
     if (!selected) {
       const category = enabled.filter(prompt => prompt.category === state.preferredCategory);
-      if (category.length) selected = leastPlayed(category);
-      else {
-        const standard = enabled.filter(prompt => promptPriority(prompt) === 'standard');
-        const low = enabled.filter(prompt => promptPriority(prompt) === 'low');
-        const priorAutomatic = Number.isSafeInteger(state.automaticPromptSelections) && state.automaticPromptSelections >= 0
-          ? state.automaticPromptSelections : 0;
-        const nextAutomatic = priorAutomatic + 1;
-        const lowDue = standard.length > 0 && low.length > 0 && nextAutomatic % 5 === 0 &&
-          standard.every(prompt => plays(prompt) > 0);
+      if (category.length && state.preferredCategoryAutomatic) {
+        const categoryLow = category.filter(prompt => promptPriority(prompt) === 'low');
+        const eligible = !standard.length || (lowDue && categoryLow.length)
+          ? categoryLow : category.filter(prompt => promptPriority(prompt) === 'standard');
+        if (eligible.length) {
+          selected = leastPlayed(eligible);
+          state.automaticPromptSelections = nextAutomatic;
+        }
+      } else if (category.length) selected = leastPlayed(category);
+      if (!selected) {
         selected = leastPlayed(lowDue ? low : standard.length ? standard : low);
         state.automaticPromptSelections = nextAutomatic;
       }
@@ -485,6 +522,7 @@ export class GameEngine extends EventEmitter {
     state.usedPromptIds = [...(state.usedPromptIds || []).filter(id => id !== selected.id), selected.id].slice(-100);
     state.queuedPromptId = null;
     state.preferredCategory = null;
+    state.preferredCategoryAutomatic = false;
     return {
       id: selected.id, text: selected.text, category: selected.category,
       seconds: selected.seconds || event.roundSeconds,
@@ -652,14 +690,19 @@ export class GameEngine extends EventEmitter {
     touch();
   }
 
-  _openVote(context, type) {
+  _openVote(context, type, { automatic = false } = {}) {
     const { event, state, now, touch, activity } = context;
     if (!event.vote.enabled) fail('Voting is disabled for this event.');
     if (state.vote?.status === 'open') fail('A ballot is already open.');
     if (type === 'category' && state.phase !== 'lobby') fail('Category voting opens between heats.');
     if (type === 'creative' && state.phase !== 'review') fail('Creative voting opens after a hunt.');
+    const rotation = type === 'category' && automatic ? this._promptRotation(event, state) : null;
+    const availableCategories = type === 'category'
+      ? event.vote.categories.filter(category => event.prompts.some(prompt => prompt.enabled && prompt.category === category &&
+        (!rotation?.standard.length || rotation.lowDue || promptPriority(prompt) === 'standard')))
+      : [];
     const options = type === 'category'
-      ? event.vote.categories.filter(category => event.prompts.some(prompt => prompt.enabled && prompt.category === category))
+      ? availableCategories
         .map((category, index) => ({ id: category, label: category, code: String(index + 1) }))
       : state.lockedPlayerIds.map((id, index) => {
         const player = this.store.getPlayer(id);
@@ -669,7 +712,7 @@ export class GameEngine extends EventEmitter {
     state.vote = {
       id: randomUUID(), type, status: 'open', openedAt: toIso(now),
       closesAt: toIso(now + (type === 'creative' ? event.vote.creativeWindowSeconds : event.vote.windowSeconds) * 1000),
-      options, result: null,
+      options, result: null, automatic: type === 'category' && automatic,
     };
     if (type === 'creative') state.reviewEndsAt = null;
     activity('vote_opened', { windowId: state.vote.id, windowType: type, heat: state.heat });
@@ -687,7 +730,10 @@ export class GameEngine extends EventEmitter {
     vote.status = 'closed';
     vote.closesAt = toIso(context.now);
     vote.result = vote.type === 'category' ? top[0] || null : top;
-    if (vote.type === 'category') state.preferredCategory = vote.result;
+    if (vote.type === 'category') {
+      state.preferredCategory = vote.result;
+      state.preferredCategoryAutomatic = Boolean(vote.automatic && vote.result);
+    }
     activity('vote_closed', { windowId: vote.id, windowType: vote.type, heat: state.heat,
       votes: Object.values(publicBallot.tallies).reduce((sum, value) => sum + value, 0) });
     touch();
@@ -701,6 +747,7 @@ export class GameEngine extends EventEmitter {
     if (state.phase !== 'result') fail('Finalize this heat before opening the next one.');
     const oldHeat = state.heat;
     const preserved = { usedPromptIds: state.usedPromptIds, promptPlayCounts: state.promptPlayCounts,
+      queuedPromptId: state.queuedPromptId,
       automaticPromptSelections: state.automaticPromptSelections,
       heatsStarted: state.heatsStarted, overrideCount: state.overrideCount };
     Object.assign(state, initialRuntime(event.id, now), preserved, { heat: oldHeat + 1, version: state.version });
@@ -711,8 +758,9 @@ export class GameEngine extends EventEmitter {
         status: index < event.maxPlayers ? 'joined' : 'queued' });
     });
     activity('next_heat_opened', { heat: state.heat, promoted: Math.min(waiting.length, event.maxPlayers) });
-    if (event.vote.enabled && event.vote.categories.length >= 2) {
-      try { this._openVote(context, 'category'); } catch { /* Single enabled category leaves a plain lobby. */ }
+    if (event.vote.enabled && event.vote.categories.length >= 2 && state.heatsStarted % 2 === 1) {
+      try { this._openVote(context, 'category', { automatic: true }); }
+      catch { /* Single eligible category leaves a plain lobby. */ }
     }
     touch();
   }
@@ -942,6 +990,7 @@ export class GameEngine extends EventEmitter {
             state.vote.closesAt = toIso(now);
           }
           state.preferredCategory = category;
+          state.preferredCategoryAutomatic = false;
           activity('category_selected', { category, heat: state.heat });
           touch();
           this._maybeAutoStart(context);

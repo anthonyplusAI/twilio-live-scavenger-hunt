@@ -21,7 +21,7 @@ const statusFor = error => error.status || ({
   not_found: 404, unauthorized: 401, forbidden: 403, revision_conflict: 409,
   player_kicked: 403,
   duplicate_vote: 409, vote_closed: 409, media_required: 409, player_queued: 409,
-  invalid_state: 409, rate_limited: 429, media_unavailable: 503,
+  invalid_state: 409, replay_unavailable: 409, rate_limited: 429, media_unavailable: 503,
   webhook_unconfigured: 503,
 }[error.code] || 400);
 
@@ -395,6 +395,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       }));
     }
     if (tail === 'me' && method === 'GET') return json(res, 200, engine.me(slug, bearer(req)));
+    if (tail === 'replay' && method === 'POST') return json(res, 200, engine.replay(slug, bearer(req)));
     if (tail === 'ready' && method === 'POST') return json(res, 200, engine.ready(slug, bearer(req)));
     if (tail === 'heartbeat' && method === 'POST') return json(res, 200, engine.heartbeat(slug, bearer(req)));
     if (tail === 'leave' && method === 'POST') return json(res, 200, engine.leave(slug, bearer(req)));

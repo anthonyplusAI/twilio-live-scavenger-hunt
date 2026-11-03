@@ -1,6 +1,6 @@
 # Signal Stadium — Find It First
 
-**Revised design draft, 2026-11-02.** A configurable Twilio expo activation for multiple events. The browser mockup uses illustrative camera tiles and browser-local storage; it does not connect to live Twilio services, a vision model, or a production database.
+**Historical design draft, 2026-11-02.** This describes an early browser mockup with illustrative camera tiles and browser-local storage. See the [README](../../../README.md) and [runbook](../../runbook.md) for shipped behavior and service setup.
 
 ## The show
 
@@ -19,19 +19,19 @@ A passerby should understand **scan, play, find it first** in a glance. Product 
 
 On the arena, a 9:16 card matches the common portrait phone framing. Render the video with containment so the complete incoming picture remains visible when a device publishes a different aspect ratio; a branded backing fills any narrow bars. The active player count, not the event's maximum capacity, determines the card layout. Attract mode can show an invitation instead of empty camera cards. Use an official Twilio bug asset unchanged, with its source recorded; do not draw a substitute logo.
 
-Playing never requires a name, email, phone number, or marketing opt-in. The visitor agrees to their live feed appearing on a public display before granting camera access. The Video client uses no microphone track. Camera denial offers a spectator vote or explainer instead.
+By default, playing asks for a screen name and public-display and image-review consent; contact details are requested only when someone later asks for a guide or expert. An admin may select optional at-join contact capture for an event. The visitor checks camera permission before a player spot is reserved. The Video client uses no microphone track. Camera denial offers permission guidance, an easy retry, or a spectator vote.
 
 ## Configurable heats
 
 | Setting | Default | Rule |
 | --- | --- | --- |
 | Players | Minimum 2, maximum 6 | Set both within 2–6. The wall lays out only active players. |
-| Hunt timer | 20 seconds | Admin chooses 5–180 seconds in the prototype; a prompt may override it. |
-| Join deadline | 30 seconds | Begins with the first ready player. At expiry, start only when the minimum is ready; otherwise wait for enough players. |
+| Hunt timer | 45 seconds; seeded creative prompts use 60 | Admin chooses 5–180 seconds; a prompt may override it. |
+| Join deadline | 30 seconds | Begins when the configured minimum is ready. If ready players fall below the minimum, the timer clears and restarts when enough are ready. |
 | Start mode | Flexible | **Full:** maximum ready. **Timed:** deadline and minimum. **Manual:** operator only. **Flexible:** whichever happens first. The operator may start any mode once the minimum is ready. |
 | Judge policy | Auto with override | Automatic result, operator confirmation of an AI/CV proposal, or fully manual result. Staff can always correct and award one or multiple winners. |
 | Prompt pack | Approved per event | Add, edit, enable/disable, and queue prompts on the fly. |
-| Lead capture | On for the visual demo | Per-event on/off switch; separately enable build-guide and expert CTAs; an ordered postgame form whose fields can be added, renamed, reordered, marked required, or removed. The default form asks for name, work email, and company, with no use-case question. A requested follow-up needs an email or phone contact path; optional email product updates are separate and unchecked. |
+| Lead capture | On, after play | Per-event on/off switch and configurable timing: after play by default, or optional at-join capture. Separately enable build-guide and expert CTAs; add, rename, reorder, require, or remove contact fields. The default form asks for name, work email, and company, with no use-case question. A requested follow-up needs an email or phone contact path; the form does not offer product-update subscriptions. |
 
 The server owns the roster, official clock, and a snapshot of the prompt and effective duration for each heat. Lock freezes the roster; a three-beat countdown reveals no clue. At GO, the exact prompt is sent to the wall and locked phones. Late arrivals queue for the next heat. Saved timer and prompt edits apply to the **next** heat, never midway through the current one.
 
@@ -52,7 +52,7 @@ Only new post-GO evidence counts. A match must be stable across a short frame se
 | Programmable Video | Carries the live camera arena. The application, not Video, judges frames and declares winners. |
 | Messaging (SMS/WhatsApp) | Optional audience vote for the **next** category between heats, or a requested post-play follow-up. A web vote works when no sender is ready. Delivery timing never affects the camera race. |
 | Segment | Measures play, votes, guide requests, leads, and consent by event. The application log remains the live source of truth. |
-| SendGrid | Optional requested result card or build guide by email; later marketing consent is separate. |
+| SendGrid | Optional requested build guide by email. The current form does not offer marketing subscriptions. |
 | Voice / Agent Connect | Possible later follow-up after a visitor chooses the build CTA. No hotline or voice interaction is part of the arena or first pilot. |
 
 The [channel plan](../../concepts/twilio-channel-options.md) covers event-specific sender setup and fallbacks. Product credits belong in the result interlude or on the visitor's phone, away from the active clue and portraits.
@@ -61,9 +61,9 @@ The optional [spectator vote and operator flow](../../concepts/spectator-and-ope
 
 ## Leads and measurement
 
-After a result, a player can choose **See the build**, **Get the build guide**, or **Talk to a Twilio expert**. The event can turn lead capture off entirely or show either follow-up action. The admin controls which fields appear in the postgame request form; joining and playing never display lead questions. The default fields are name, work email, and company. An admin may remove email if a phone field provides the contact path. The form validates configured required fields and requires at least one email or phone value for a requested follow-up. Optional **email** product updates are a separate, unchecked choice when an email field is present; entering a phone number is not SMS/WhatsApp marketing consent. Turning capture off stops new forms and requests without deleting previous records. A default result card contains an alias and graphics, not a saved camera frame.
+After a result, a player can choose **Play next heat**, **Leave game**, or **See the build**. The build story features GitHub starring by default and offers **Get the build guide** or **Talk to a Twilio expert** when configured. Replay keeps the same player session and screen name, while the camera turns off between heats. The event can turn lead capture off entirely or show either follow-up action. With the default after-play setting, the configured contact fields appear only after a voluntary guide or expert request; an admin can instead ask for them at join. The default fields are name, work email, and company. An admin may remove email if a phone field provides the contact path, though a guide request requires an email. Required fields and an email or phone value are validated when the form is submitted. The form does not offer marketing subscriptions; entering a phone number is not SMS/WhatsApp marketing consent. Turning capture off stops new forms and requests without deleting previous records. A default result card contains an alias and graphics, not a saved camera frame.
 
-The backend counts unique landing visitors, active players (Video joined plus round attempted), player entries, heats, completed rounds, verified wins, no-match results, accepted audience votes and unique channel identities, repeat play, result views, CTA opens, guide requests, valid leads, expert requests, and explicit marketing opt-ins. Break down by event, date range, prompt, channel, and heat, with denominator definitions and CSV export. An SMS/WhatsApp number from a vote is not automatically a lead. QR landing sessions are interest, not booth footfall; counting everyone who approached needs a separate counter or observation method. Store timestamps in UTC and report each event in its configured time zone. Segment receives normalized `Track` events with `event_id`, `heat_id`, anonymous participant/session ID where available, and stable retry IDs. `Identify` follows voluntary lead submission. Raw frames, message bodies, and contact fields stay out of routine analytics.
+The backend counts unique landing visitors, player entries and unique players, heats, completed rounds, verified wins, no-match results, accepted audience votes and unique channel identities, repeat entries, result views, CTA opens, guide requests, valid leads, and expert requests. Filter by event and date range, with CSV export. An SMS/WhatsApp number from a vote is not automatically a lead. QR landing sessions are interest, not booth footfall; counting everyone who approached needs a separate counter or observation method. Store timestamps in UTC and report each event in its configured time zone. Segment receives a limited, contact-free activity stream; it does not receive lead `Identify` calls. Raw frames, message bodies, and contact fields stay out of routine analytics.
 
 In the browser demo, an anonymous event log and a separate lead register are scoped by event ID and timestamp. The report filters both by event and date and offers exports; lead records contain the requested action and any configured fields, while analytics events carry IDs and counts without contact details. This proves the operator workflow locally, but browser storage is neither shared across phones nor suitable for live lead collection. Production needs a server API and database, authenticated operator access, retention/deletion rules, and delivery integration for requested follow-up.
 

@@ -16,7 +16,7 @@ function setup() {
   const joined = engine.join(event.slug, { alias: 'Visitor', displayConsent: true });
   const tracked = [];
   const integrations = {
-    track(item) { tracked.push(item); }, identifyOptedInLead() {},
+    track(item) { tracked.push(item); },
     async sendGuide(lead) { return lead.intent === 'expert' ? 'operator-follow-up' : 'pending-configuration'; },
   };
   return { store, event, engine, joined, tracked, integrations };
@@ -55,7 +55,7 @@ test('legacy player sessions can still request a guide with a saved field snapsh
   } }, app.event.revision);
   const result = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,
     slug: app.event.slug, token: app.joined.token, input: {
-      intent: 'guide', fieldValues: { name: 'A Visitor', email: 'a@example.com', 'favorite-tool': 'Studio' }, marketingOptIn: false,
+      intent: 'guide', fieldValues: { name: 'A Visitor', email: 'a@example.com', 'favorite-tool': 'Studio' },
     } });
   assert.equal(result.deliveryStatus, 'pending-configuration');
   const lead = app.store.getLead(result.leadId);
@@ -74,7 +74,7 @@ test('legacy player sessions can still request a guide with a saved field snapsh
   app.store.close();
 });
 
-test('lead validation rejects unknown fields, missing contact, invalid email, and marketing without email', () => {
+test('lead validation rejects unknown fields, missing contact, invalid email, and legacy marketing opt-in', () => {
   const app = setup();
   const state = app.store.getRuntime(app.event.id);
   const player = app.engine.player(app.event.slug, app.joined.token);
@@ -89,6 +89,11 @@ test('lead validation rejects unknown fields, missing contact, invalid email, an
     fields: [{ id: 'phone', label: 'Phone', type: 'tel', required: true }] } };
   assert.throws(() => validateLead(phoneEvent, player, { intent: 'expert', fieldValues: { phone: '+1 555 222 3333' }, marketingOptIn: true }, state),
     error => error.code === 'invalid_lead');
+  assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: true }, state),
+    error => error.code === 'invalid_lead');
+  assert.throws(() => validateLead(app.event, player, { ...base, intent: 'capture', marketingOptIn: true }, state),
+    error => error.code === 'invalid_lead');
+  assert.equal(validateLead(app.event, player, { ...base, intent: 'capture' }, state).marketingOptIn, false);
   assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: 'false' }, state),
     error => error.code === 'invalid_lead');
   assert.throws(() => validateLead(phoneEvent, player, { intent: 'guide', fieldValues: { phone: '+1 555 222 3333' }, marketingOptIn: false }, state),
@@ -112,7 +117,7 @@ test('a configured build guide always has a required email field', () => {
 
 test('lead capture can be turned off and repeated submission does not duplicate a lead', async () => {
   const app = setup();
-  const input = { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'a@example.com', company: 'Acme' }, marketingOptIn: false };
+  const input = { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'a@example.com', company: 'Acme' } };
   const first = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,
     slug: app.event.slug, token: app.joined.token, input });
   const second = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,
@@ -186,21 +191,22 @@ test('post-play expert and guide requests reuse one player lead in either order'
   }
 });
 
-test('a changed marketing choice is not silently applied to an earlier player lead', async () => {
+test('changed player contact details create a separate follow-up lead', async () => {
   const app = setup();
   const first = await submitLead({ store: app.store, engine: app.engine,
     integrations: app.integrations, slug: app.event.slug, token: app.joined.token,
     input: { intent: 'expert', fieldValues: { name: 'Visitor', email: 'visitor@example.com' }, marketingOptIn: false } });
   const second = await submitLead({ store: app.store, engine: app.engine,
     integrations: app.integrations, slug: app.event.slug, token: app.joined.token,
-    input: { intent: 'guide', fieldValues: { name: 'Visitor', email: 'visitor@example.com' }, marketingOptIn: true } });
+    input: { intent: 'guide', fieldValues: { name: 'Visitor', email: 'corrected@example.com' } } });
   assert.notEqual(second.leadId, first.leadId);
-  assert.equal(app.store.getLead(first.leadId).marketingOptIn, false);
-  assert.equal(app.store.getLead(second.leadId).marketingOptIn, true);
+  assert.equal(app.store.getLead(first.leadId).email, 'visitor@example.com');
+  assert.equal(app.store.getLead(second.leadId).email, 'corrected@example.com');
+  assert.equal(app.store.getLead(second.leadId).marketingOptIn, false);
   app.store.close();
 });
 
-test('spectator dedupe preserves corrected contact details and a changed marketing choice', async () => {
+test('spectator dedupe preserves corrected contact details and changed form answers', async () => {
   const app = setup();
   const sessionId = 'b0a024f596bf04fd393d';
   const original = await submitSpectatorLead({ store: app.store, engine: app.engine,
@@ -209,13 +215,14 @@ test('spectator dedupe preserves corrected contact details and a changed marketi
   const corrected = await submitSpectatorLead({ store: app.store, engine: app.engine,
     integrations: app.integrations, slug: app.event.slug, sessionId,
     input: { intent: 'expert', fieldValues: { name: 'Spectator', email: 'correct@example.com' }, marketingOptIn: false } });
-  const optedIn = await submitSpectatorLead({ store: app.store, engine: app.engine,
+  const revised = await submitSpectatorLead({ store: app.store, engine: app.engine,
     integrations: app.integrations, slug: app.event.slug, sessionId,
-    input: { intent: 'expert', fieldValues: { name: 'Spectator', email: 'correct@example.com' }, marketingOptIn: true } });
+    input: { intent: 'expert', fieldValues: { name: 'Spectator', email: 'correct@example.com', company: 'Second Company' } } });
   assert.notEqual(original.leadId, corrected.leadId);
-  assert.notEqual(corrected.leadId, optedIn.leadId);
+  assert.notEqual(corrected.leadId, revised.leadId);
   assert.equal(app.store.getLead(corrected.leadId).email, 'correct@example.com');
-  assert.equal(app.store.getLead(optedIn.leadId).marketingOptIn, true);
+  assert.equal(app.store.getLead(revised.leadId).fieldValues.company, 'Second Company');
+  assert.equal(app.store.getLead(revised.leadId).marketingOptIn, false);
   app.store.close();
 });
 

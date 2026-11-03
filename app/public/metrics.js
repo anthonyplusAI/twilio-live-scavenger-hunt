@@ -112,7 +112,6 @@ function normalizeLeads(input) {
       eventId: String(row.eventId ?? row.event_id ?? ""),
       createdAt: row.createdAt ?? row.created_at ?? row.at,
       fieldValues: values, fieldSnapshot: snapshot,
-      marketingOptIn: row.marketingOptIn === true || row.marketing_opt_in === true,
     };
   }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
@@ -443,7 +442,7 @@ function renderLeadDetail() {
   setText("lead-detail-heading", leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor"));
   const when = new Date(lead.createdAt);
   const date = Number.isFinite(when.getTime()) ? when.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date unavailable";
-  setText("lead-detail-summary", `Shared ${date} · ${requestedFollowup(lead)} · Email updates: ${lead.marketingOptIn ? "yes" : "no"}`);
+  setText("lead-detail-summary", `Captured ${date} · ${requestedFollowup(lead)}`);
   const action = $("expert-followup-button");
   action.hidden = !lead.expertRequestedAt;
   action.dataset.leadId = lead.id;
@@ -510,7 +509,6 @@ function renderLeads(summary) {
   setText("lead-list-heading", state.showExpertQueue ? "Expert follow-up" : "Lead roster");
   setText("lead-list-kicker", state.showExpertQueue ? "PENDING ACROSS ALL DATES" : "VISITOR DETAILS");
   setText("intent-guide", number(guides)); setText("intent-expert", number(experts));
-  setText("intent-marketing", number(state.leads.filter(lead => lead.marketingOptIn).length));
   const selected = state.events.find(event => event.slug === state.event);
   const leadStatus = state.event === "all" ? "Lead forms are configured per event."
     : selected?.leadCaptureEnabled === false ? "Lead capture is off for this event."

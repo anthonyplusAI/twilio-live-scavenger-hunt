@@ -318,7 +318,7 @@ function updateClock() {
   } else if (currentPhase === 'hunt' || currentPhase === 'active') {
     const seconds = timeLeft(app.state.roundEndsAt);
     value = String(seconds); label = 'Seconds';
-    progress = clamp(seconds / Math.max(1, app.state.prompt?.seconds || app.event.roundSeconds || 20) * 100, 0, 100);
+    progress = clamp(seconds / Math.max(1, app.state.prompt?.seconds || app.event.roundSeconds || 45) * 100, 0, 100);
   } else if (currentPhase === 'review' || currentPhase === 'judging') {
     value = '···'; label = 'Checking'; progress = 42;
   } else {
@@ -536,7 +536,7 @@ async function initialize() {
       win: [demoRoster[0].id], lose: [demoRoster[1].id],
       tie: [demoRoster[0].id, demoRoster[Math.min(2, previewCount - 1)].id], 'no-match': [],
     };
-    app.event = { name: 'Live Scavenger Hunt', minPlayers: 2, maxPlayers: previewCount, roundSeconds: 20, mediaMode: 'rehearsal' };
+    app.event = { name: 'Live Scavenger Hunt', minPlayers: 2, maxPlayers: previewCount, roundSeconds: 45, mediaMode: 'rehearsal' };
     app.state = { phase: previewMode === 'hunt' ? 'hunt' : 'result', heat: 1, readyCount: previewCount, lockedCount: previewCount,
       roster: demoRoster, winners: demoWinners[previewMode] || [], vote: null, paused: false,
       prompt: previewMode === 'hunt' ? { text: 'SHOW SOMETHING RED.', seconds: 20 } : null,

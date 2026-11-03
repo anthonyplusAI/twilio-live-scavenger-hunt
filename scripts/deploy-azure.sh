@@ -75,8 +75,7 @@ if [ -n "${TWILIO_AUTH_TOKEN:-}" ] && [[ "$TWILIO_AUTH_TOKEN" =~ [[:space:]] ]];
   exit 1
 fi
 # Optional server integrations follow the same stopped-writer rollout. Blank
-# GitHub settings preserve the current Container App values. Only an explicit
-# Segment Identify value changes whether opted-in leads are identified.
+# GitHub settings preserve the current Container App values.
 if [ -n "${OPENAI_API_KEY:-}" ] && [[ "$OPENAI_API_KEY" =~ [[:space:]] ]]; then
   echo 'OPENAI_API_KEY cannot contain whitespace.' >&2
   exit 1
@@ -87,12 +86,6 @@ if [ -n "${OPENAI_VISION_MODEL:-}" ] && [[ "$OPENAI_VISION_MODEL" =~ [[:space:]]
 fi
 if [ -n "${SEGMENT_WRITE_KEY:-}" ] && [[ "$SEGMENT_WRITE_KEY" =~ [[:space:]] ]]; then
   echo 'SEGMENT_WRITE_KEY cannot contain whitespace.' >&2
-  exit 1
-fi
-if [ -n "${SEGMENT_IDENTIFY_LEADS:-}" ] &&
-   [ "$SEGMENT_IDENTIFY_LEADS" != '0' ] &&
-   [ "$SEGMENT_IDENTIFY_LEADS" != '1' ]; then
-  echo 'SEGMENT_IDENTIFY_LEADS must be 0 or 1 when set.' >&2
   exit 1
 fi
 SENDGRID_UPDATE=0
@@ -479,9 +472,6 @@ fi
 if [ -n "${SEGMENT_WRITE_KEY:-}" ]; then
   store_container_secret "segment-write-key-$DEPLOY_SUFFIX" "$SEGMENT_WRITE_KEY"
   ENV_UPDATES+=("SEGMENT_WRITE_KEY=secretref:segment-write-key-$DEPLOY_SUFFIX")
-fi
-if [ -n "${SEGMENT_IDENTIFY_LEADS:-}" ]; then
-  ENV_UPDATES+=("SEGMENT_IDENTIFY_LEADS=$SEGMENT_IDENTIFY_LEADS")
 fi
 if [ "$SENDGRID_UPDATE" -eq 1 ]; then
   store_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"

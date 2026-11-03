@@ -21,6 +21,9 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || `http://127.0.0.1:${
 const databasePath = resolveDatabasePath(root);
 
 const store = openDatabase(databasePath);
+store.migratePromptJudgingToAi();
+store.migrateEmailUpdatesOff();
+store.migrateRoundDurationDefaults();
 const firstEvent = store.seedDefault();
 const auth = new AuthService({ store, publicBaseUrl });
 auth.bootstrap();

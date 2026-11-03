@@ -56,6 +56,90 @@ test('database path uses the new name for fresh installs and reuses an existing 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('untouched legacy prompts adopt AI defaults while saved judging choices remain intact', () => {
+  const store = openDatabase();
+  try {
+    const original = store.seedDefault();
+    assert.ok(original.prompts.every(prompt => prompt.judgeMode === 'ai-assisted'));
+    const oldPrompts = original.prompts.map(prompt => prompt.id === 'C01'
+      ? { ...prompt, judgeMode: 'rule', detector: 'color:red' }
+      : prompt.id === 'V01'
+        ? { ...prompt, judgeMode: 'audience', detector: 'manual' } : prompt);
+    store.sql.prepare('UPDATE events SET config_json=? WHERE id=?')
+      .run(JSON.stringify({ ...original, prompts: oldPrompts }), original.id);
+    const customized = store.createEvent('Customized event', 'customized-event');
+    const customPrompts = customized.prompts.map(prompt => prompt.id === 'C01'
+      ? { ...prompt, judgeMode: 'rule', detector: 'color:red' } : prompt);
+    const savedCustom = store.saveEvent(customized.slug,
+      { ...customized, prompts: customPrompts }, customized.revision);
+
+    assert.equal(store.migratePromptJudgingToAi(), 1);
+    const migrated = store.getEvent(original.slug);
+    assert.equal(migrated.revision, original.revision + 1);
+    assert.ok(migrated.prompts.every(prompt => prompt.judgeMode === 'ai-assisted'));
+    assert.equal(migrated.prompts.find(prompt => prompt.id === 'C01').detector, 'visual:SHOW SOMETHING RED');
+    assert.equal(migrated.prompts.find(prompt => prompt.id === 'V01').detector,
+      `visual:${migrated.prompts.find(prompt => prompt.id === 'V01').text}`);
+    assert.equal(store.getEvent(savedCustom.slug).revision, savedCustom.revision);
+    assert.equal(store.getEvent(savedCustom.slug).prompts.find(prompt => prompt.id === 'C01').judgeMode, 'rule');
+    assert.equal(store.migratePromptJudgingToAi(), 0);
+
+    const manualPrompts = migrated.prompts.map(prompt => prompt.id === 'C01'
+      ? { ...prompt, judgeMode: 'rule', detector: 'color:red' } : prompt);
+    const later = store.saveEvent(migrated.slug, { ...migrated, prompts: manualPrompts }, migrated.revision);
+    assert.equal(store.migratePromptJudgingToAi(), 0);
+    assert.equal(store.getEvent(later.slug).prompts.find(prompt => prompt.id === 'C01').judgeMode, 'rule');
+  } finally { store.close(); }
+});
+
+test('old untouched timers migrate after AI while admin-saved 20-second rounds remain intact', () => {
+  const store = openDatabase();
+  try {
+    const original = store.seedDefault();
+    assert.equal(original.roundSeconds, 45);
+    assert.ok(original.prompts.filter(prompt => prompt.category === 'Creative').every(prompt => prompt.seconds === 60));
+    const oldPrompts = original.prompts.map(prompt => prompt.id === 'V01'
+      ? { ...prompt, seconds: 30 } : prompt.id === 'C01'
+        ? { ...prompt, judgeMode: 'rule', detector: 'color:red' } : prompt);
+    store.sql.prepare('UPDATE events SET config_json=? WHERE id=?')
+      .run(JSON.stringify({ ...original, roundSeconds: 20, prompts: oldPrompts }), original.id);
+    const custom = store.createEvent('Custom event', 'custom-event');
+    const customPrompts = custom.prompts.map(prompt => prompt.id === 'V01'
+      ? { ...prompt, seconds: 30 } : prompt);
+    const customSaved = store.saveEvent(custom.slug,
+      { ...custom, roundSeconds: 20, prompts: customPrompts }, custom.revision);
+
+    assert.equal(store.migratePromptJudgingToAi(), 1);
+    assert.equal(store.migrateRoundDurationDefaults(), 1);
+    const updated = store.getEvent(original.slug);
+    assert.equal(updated.roundSeconds, 45);
+    assert.equal(updated.prompts.find(prompt => prompt.id === 'V01').seconds, 60);
+    assert.equal(updated.revision, original.revision + 2);
+    assert.equal(store.getEvent(customSaved.slug).revision, customSaved.revision);
+    assert.equal(store.getEvent(customSaved.slug).roundSeconds, 20);
+    assert.equal(store.getEvent(customSaved.slug).prompts.find(prompt => prompt.id === 'V01').seconds, 30);
+    assert.equal(store.migrateRoundDurationDefaults(), 0);
+    const later = store.saveEvent(updated.slug, { ...updated, roundSeconds: 25 }, updated.revision);
+    assert.equal(store.migrateRoundDurationDefaults(), 0);
+    assert.equal(store.getEvent(later.slug).roundSeconds, 25);
+  } finally { store.close(); }
+});
+
+test('legacy event email-update setting is removed once', () => {
+  const store = openDatabase();
+  try {
+    const original = store.seedDefault();
+    assert.equal(Object.hasOwn(original.leadCapture, 'marketingOptIn'), false);
+    const legacy = { ...original, leadCapture: { ...original.leadCapture, marketingOptIn: true } };
+    store.sql.prepare('UPDATE events SET config_json=? WHERE id=?').run(JSON.stringify(legacy), original.id);
+    assert.equal(store.migrateEmailUpdatesOff(), 1);
+    const updated = store.getEvent(original.slug);
+    assert.equal(Object.hasOwn(updated.leadCapture, 'marketingOptIn'), false);
+    assert.equal(updated.revision, original.revision + 1);
+    assert.equal(store.migrateEmailUpdatesOff(), 0);
+  } finally { store.close(); }
+});
+
 test('events sharing an SMS sender need distinct explicit codes, and failed saves keep their revisions', () => {
   const store = openDatabase();
   try {
@@ -110,7 +194,9 @@ test('a fast color detector must match the edited clue and category', () => {
   const store = openDatabase();
   try {
     const event = store.seedDefault();
-    const prompts = event.prompts.map(prompt => prompt.id === 'C01'
+    const fastPrompts = event.prompts.map(prompt => prompt.id === 'C01'
+      ? { ...prompt, judgeMode: 'rule', detector: 'color:red' } : prompt);
+    const prompts = fastPrompts.map(prompt => prompt.id === 'C01'
       ? { ...prompt, text: 'SHOW SOMETHING BLUE' } : prompt);
     assert.throws(() => store.saveEvent(event.slug, { ...event, prompts }, event.revision),
       error => error.code === 'invalid_input');

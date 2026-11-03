@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | **Twilio Video** | Core transport for the players' live phone cameras and the wall/referee subscriber. The application runs the game clock and vision judge. | Throughout the race. |
 | **Twilio Messaging** | Optional SMS or WhatsApp vote on the *next category*, or a requested result/guide follow-up. A web vote always works as the fallback. Messaging never scores the race. | Lobby/result interlude, with a quiet vote cue; requested follow-up after play. |
-| **Twilio Segment** | Core engagement measurement across QR, join, heat, vote, CTA, and lead funnel. | Aggregate event stats in the operator view; optional public aggregate counters. |
+| **Twilio Segment** | Optional copy of contact-free activity events. The app's own report measures engagement without Segment. | Private event reports remain available with or without a Write Key. |
 | **Twilio SendGrid** | Optional email delivery of a requested game card or build guide. | After a visitor requests it. |
 | **Twilio Voice + Agent Connect** | Possible later opt-in follow-up after the CTA, if an event wants a separate product conversation. It is outside the arena and the first pilot. | After play only, if deliberately added. |
 
@@ -26,7 +26,7 @@ Enable SMS or WhatsApp **per event**, after sender setup is ready. A US local 10
 
 ### The CTA explains the build
 
-A short result interlude can map the three products to what visitors just experienced: **Video carried the live cameras. Messaging let the crowd steer the next category. Segment measured engagement.** One QR/card offers “Get the build guide” or “Talk with a Twilio expert at this booth.” The event's lead form is optional and configurable: an admin chooses which contact fields appear and which are required. A requested follow-up and consent for later marketing remain separate choices. SendGrid can deliver the requested guide using a production authenticated sending domain. [SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send) · [sender identity](https://www.twilio.com/docs/sendgrid/for-developers/sending-email/sender-identity)
+A short result interlude can map the three products to what visitors just experienced: **Video carried the live cameras. Messaging let the crowd steer the next category. Segment can mirror engagement events.** The build story features GitHub starring by default and offers “Get the build guide” or “Talk with a Twilio expert at this booth” when configured. Lead capture is optional per event. By default, the admin-configured contact fields appear only after a voluntary follow-up request; an admin may instead select at-join capture and reuse those saved details later. The form does not offer a product-updates subscription. SendGrid can deliver the requested guide using a verified sender. [SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send) · [sender identity](https://www.twilio.com/docs/sendgrid/for-developers/sending-email/sender-identity)
 
 If the team later wants an AI voice or chat follow-up, Voice and Agent Connect can connect a developer-owned agent to Twilio channels through a separate postgame CTA. Agent Connect is middleware for conversation channels, not a Video vision judge. This is a future extension, not part of the game or first pilot. [Agent Connect overview](https://www.twilio.com/docs/conversations/agent-connect/overview)
 
@@ -40,15 +40,15 @@ One deployment supports many events by saving a versioned configuration under an
 | Presentation | Branding, language, CTA destination, wall layout, approved public copy. |
 | Video | Room naming/rotation, token issuer, audio off, camera fallback, bitrate profile, recording off/on, public-camera notice. |
 | Messaging | SMS/WhatsApp enabled switches, sender IDs, vote keywords and windows, inbound route, acknowledgement and requested-follow-up copy, sender approval, consent records, web fallback. |
-| Lead form | Postgame capture on/off, guide/expert offers, ordered fields and required flags, separate marketing choice. |
-| Segment/SendGrid | Source and destination IDs, event schema version, email template, authenticated sender, delivery webhook, marketing consent choice. |
+| Lead form | Capture on/off, after-play timing by default or optional at-join timing, guide/expert offers, ordered fields and required flags. |
+| Segment/SendGrid | Optional Segment Write Key, guide email template, authenticated sender, and delivery webhook. |
 | Operations | Event schedule/time zone, operator roles, launch rehearsal, secret references, retention policy, pause/disable controls. |
 
 Secrets belong in server-side secret storage, never the wall or browser configuration. Preflight each event's QR, camera permissions, room, webhook signature, sender status, web ballot, and result CTA before opening the booth.
 
 ## Metrics that answer the booth question
 
-The application event log is authoritative for live counters and winner decisions. Send normalized `Track` events to Segment for analysis; use `Identify` only when someone voluntarily submits a lead. Carry `event_id`, `heat_id`, `participant_id` or anonymous session ID, prompt version, and channel where relevant. Avoid raw video, message text, phone numbers, and email in routine `Track` properties. [Segment Track spec](https://www.twilio.com/docs/segment/connections/spec/track) · [Segment Identify spec](https://www.twilio.com/docs/segment/connections/spec/identify)
+The application event log is authoritative for live counters and winner decisions. With a Write Key, a limited `Track` stream goes to Segment; the app does not send lead `Identify` calls. Carry `event_id`, `heat_id`, `participant_id` or anonymous session ID, prompt version, and channel where relevant. Keep raw video, message text, phone numbers, and email out of routine `Track` properties. [Segment Track spec](https://www.twilio.com/docs/segment/connections/spec/track)
 
 | Question | Definition |
 | --- | --- |
@@ -57,7 +57,7 @@ The application event log is authoritative for live counters and winner decision
 | Play engagement | Heats started/completed, attempts per player, repeat players, prompts tried, and average time to verified match. |
 | Spectator engagement | Unique accepted ballots and total accepted ballots, split by web/SMS/WhatsApp. Cross-channel people count can overlap unless identities are voluntarily linked. |
 | Product interest | CTA opens, build-guide requests, expert conversations requested, and conversion from player/voter to CTA. |
-| Leads | Accepted lead forms, with requested follow-up and marketing opt-in counted separately. |
+| Leads | Contact details captured after a voluntary guide or expert request by default, or at join if an admin selects that timing; the form does not offer marketing subscriptions. |
 | Delivery | Requested messages/emails accepted, delivered, bounced, and clicked when tracking is enabled. |
 | Operations | Camera join failures, detector uncertainty, operator overrides/ties, message rejection, and median/p95 verification latency. |
 

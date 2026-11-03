@@ -162,13 +162,14 @@ test('configured SendGrid guide delivery uses the Mail Send API with a verified 
   store.close();
 });
 
-test('Segment uses browser identity across anonymous activity and opted-in Identify', () => {
+test('Segment uses browser identity across anonymous activity without contact data', () => {
   const store = openDatabase();
   const event = store.seedDefault();
   const calls = [];
-  const client = { on() {}, track(value) { calls.push(['track', value]); }, identify(value) { calls.push(['identify', value]); } };
+  const client = { on() {}, track(value) { calls.push(['track', value]); },
+    identify() { assert.fail('new activity must remain anonymous'); } };
   const integrations = new Integrations({ store, engine: null, media: null, segmentClient: client,
-    env: { SEGMENT_IDENTIFY_LEADS: '1' }, publicBaseUrl: base });
+    env: {}, publicBaseUrl: base });
   store.insertPlayer({ id: 'visitor-player', eventId: event.id, alias: 'Visitor', heat: 1, slot: 1,
     status: 'joined', mediaConnected: false, joinedAt: new Date().toISOString(),
     analyticsSessionId: 'anonymous-browser-1' }, 'token-hash-visitor');
@@ -176,11 +177,9 @@ test('Segment uses browser identity across anonymous activity and opted-in Ident
     properties: { sessionId: 'anonymous-browser-1' } });
   integrations.track({ id: 'a2', eventId: event.id, type: 'player_joined', at: new Date().toISOString(),
     properties: { playerId: 'visitor-player' } });
-  integrations.identifyOptedInLead({ id: 'lead-1', eventId: event.id, participantId: 'visitor-player',
-    email: 'visitor@example.com', name: 'Visitor', marketingOptIn: true });
   assert.equal(calls[0][1].anonymousId, 'anonymous-browser-1');
   assert.equal(calls[1][1].anonymousId, 'anonymous-browser-1');
-  assert.equal(calls[2][1].anonymousId, 'anonymous-browser-1');
+  assert.equal(calls.length, 2);
   assert.equal(JSON.stringify(calls.slice(0, 2)).includes('visitor@example.com'), false);
   store.close();
 });
@@ -198,7 +197,7 @@ test('signed SendGrid events confirm delivery once and reject invalid signatures
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
     env: { SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: publicKey } });
   const timestamp = String(Math.floor(Date.now() / 1000));
-  const rawBody = Buffer.from(JSON.stringify([{ sg_event_id: 'signed-delivered-1', event: 'delivered',
+  const rawBody = Buffer.from(JSON.stringify([{ sg_event_id: `signed-delivered-${'x'.repeat(150)}`, event: 'delivered',
     timestamp: Number(timestamp), custom_args: { lsh_job_id: job.id } }]));
   const signature = sign('sha256', Buffer.concat([Buffer.from(timestamp), rawBody]), pair.privateKey).toString('base64');
   assert.throws(() => integrations.handleSendGridEvents({ rawBody, timestamp, signature: 'bad' }),

@@ -10,14 +10,38 @@ function setup(changes = {}, { randomIndex = () => 0 } = {}) {
   let now = Date.UTC(2026, 0, 1, 12);
   const engine = new GameEngine({ store, now: () => now, randomIndex });
   const advance = milliseconds => { now += milliseconds; engine.tickAll(); };
-  const join = alias => {
-    const response = engine.join(event.slug, { alias, displayConsent: true });
+  const join = (alias, options = {}) => {
+    const response = engine.join(event.slug, { alias, displayConsent: true }, options);
     if (response.player.slot) engine.setTransport(event.slug, response.token, 'rehearsal');
     return response;
   };
   const ready = response => engine.ready(event.slug, response.token);
   return { store, event, engine, advance, join, ready, get now() { return now; }, set now(value) { now = value; } };
 }
+
+test('automatic prompt draws are random without repeats within a tier, with category and manual overrides', () => {
+  const app = setup();
+  try {
+    const event = { ...app.event, prompts: app.event.prompts.filter(prompt => ['C01', 'O01', 'T01'].includes(prompt.id)) };
+    const state = { usedPromptIds: [], queuedPromptId: null, preferredCategory: null };
+    app.engine.randomIndex = max => max - 1;
+    const draw = () => app.engine._choosePrompt(event, state).id;
+
+    assert.deepEqual([draw(), draw(), draw(), draw(), draw()], ['T01', 'O01', 'T01', 'O01', 'C01']);
+    assert.deepEqual(state.usedPromptIds, ['T01', 'O01', 'C01']);
+    assert.equal(state.automaticPromptSelections, 5);
+
+    state.preferredCategory = 'Text'; // A category vote can override the automatic tier schedule.
+    assert.equal(draw(), 'T01');
+    state.queuedPromptId = 'O01'; // Staff can intentionally repeat a prompt.
+    assert.equal(draw(), 'O01');
+    assert.equal(state.queuedPromptId, null);
+    assert.equal(state.automaticPromptSelections, 5);
+
+    const categoryState = { usedPromptIds: [], queuedPromptId: null, preferredCategory: 'Object' };
+    assert.equal(app.engine._choosePrompt(event, categoryState).id, 'O01');
+  } finally { app.store.close(); }
+});
 
 test('atomic slot assignment caps an event at its configured capacity and queues late arrivals', () => {
   const app = setup({ minPlayers: 2, maxPlayers: 2 });
@@ -205,6 +229,126 @@ test('category choice and a queued prompt override low-priority rotation', () =>
   } finally { app.store.close(); }
 });
 
+test('automatic category ballots defer pure-low choices and keep mixed categories on cadence', () => {
+  const prompts = [
+    { id: 'O01', text: 'SHOW A CUP', category: 'Object', priority: 'standard' },
+    { id: 'O02', text: 'SHOW A LAPTOP', category: 'Object', priority: 'low' },
+    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', priority: 'standard' },
+    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', priority: 'low' },
+  ].map(prompt => ({ ...prompt, judgeMode: 'ai-assisted', detector: `visual:${prompt.text}`, enabled: true, seconds: null }));
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts });
+  try {
+    const rounds = [
+      { options: null, vote: null, prompt: 'O01' },
+      { options: ['Object', 'Text'], vote: 'Text', prompt: 'T01' },
+      { options: null, vote: null, prompt: 'O01' },
+      { options: ['Object', 'Text'], vote: 'Object', prompt: 'O01' },
+      { options: null, vote: null, prompt: 'O02' },
+      { options: ['Object', 'Text'], vote: 'Object', prompt: 'O01' },
+      { options: null, vote: null, prompt: 'T01' },
+      { options: ['Object', 'Text'], vote: 'Object', prompt: 'O01' },
+      { options: null, vote: null, prompt: 'T01' },
+      { options: ['Color', 'Object', 'Text'], vote: 'Color', prompt: 'C01' },
+    ];
+    for (const [index, round] of rounds.entries()) {
+      const ballot = app.engine.snapshot(app.event.slug).state.vote;
+      assert.deepEqual(ballot?.options.map(option => option.id) ?? null, round.options);
+      if (round.vote) app.engine.castVote(app.event.slug, {
+        windowId: ballot.id, choice: round.vote, voterHash: 'a'.repeat(64),
+      });
+      const a = app.join(`Ada${index}`), b = app.join(`Bea${index}`);
+      app.ready(a); app.ready(b);
+      app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+      assert.equal(app.store.getRuntime(app.event.id).promptSnapshot.id, round.prompt);
+      assert.equal(app.store.getRuntime(app.event.id).automaticPromptSelections, index + 1);
+      app.advance(3000);
+      app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' });
+      app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    }
+    assert.equal(app.store.getRuntime(app.event.id).promptPlayCounts.O02, 1);
+  } finally { app.store.close(); }
+});
+
+test('operator category selection overrides a closed automatic ballot', () => {
+  const prompts = [
+    { id: 'O01', text: 'SHOW A CUP', category: 'Object', priority: 'standard' },
+    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', priority: 'standard' },
+    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', priority: 'low' },
+  ].map(prompt => ({ ...prompt, judgeMode: 'ai-assisted', detector: `visual:${prompt.text}`, enabled: true, seconds: null }));
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    const ballot = app.engine.snapshot(app.event.slug).state.vote;
+    assert.deepEqual(ballot.options.map(option => option.id), ['Object', 'Text']);
+    app.engine.castVote(app.event.slug, { windowId: ballot.id, choice: 'Text', voterHash: 'b'.repeat(64) });
+    app.engine.command(app.event.slug, 'closeVote', {}, { id: 'operator' });
+    app.engine.command(app.event.slug, 'selectCategory', { category: 'Color' }, { id: 'operator' });
+    const third = app.join('Cy'), fourth = app.join('Dee');
+    app.ready(third); app.ready(fourth);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.equal(app.store.getRuntime(app.event.id).promptSnapshot.id, 'C01');
+    assert.equal(app.store.getRuntime(app.event.id).automaticPromptSelections, 1);
+  } finally { app.store.close(); }
+});
+
+test('a prompt queued during a hunt or result survives into the next heat', () => {
+  for (const phase of ['hunt', 'result']) {
+    const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+    try {
+      const first = app.join('Ada'), second = app.join('Bea');
+      app.ready(first); app.ready(second);
+      app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+      app.advance(3000);
+      if (phase === 'hunt') app.engine.command(app.event.slug, 'queuePrompt', { promptId: 'C01' }, { id: 'operator' });
+      app.engine.command(app.event.slug, 'noMatch', {}, { id: 'operator' });
+      if (phase === 'result') app.engine.command(app.event.slug, 'queuePrompt', { promptId: 'C01' }, { id: 'operator' });
+      app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+      assert.equal(app.store.getRuntime(app.event.id).queuedPromptId, 'C01', `${phase} queue survives`);
+      const third = app.join('Cy'), fourth = app.join('Dee');
+      app.ready(third); app.ready(fourth);
+      app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+      assert.equal(app.store.getRuntime(app.event.id).promptSnapshot.id, 'C01');
+      assert.equal(app.store.getRuntime(app.event.id).queuedPromptId, null);
+      assert.equal(app.store.getRuntime(app.event.id).automaticPromptSelections, 1);
+    } finally { app.store.close(); }
+  }
+});
+
+test('automatic ballots leave unvoted heats for standard categories outside the ballot and then Low prompts', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const seen = [];
+    const ballotHeats = [];
+    for (let heat = 1; heat <= 15; heat++) {
+      const ballot = app.engine.snapshot(app.event.slug).state.vote;
+      if (ballot?.status === 'open') {
+        ballotHeats.push(heat);
+        app.engine.castVote(app.event.slug, {
+          windowId: ballot.id, choice: 'Object', voterHash: 'c'.repeat(64),
+        });
+      }
+      const first = app.join(`Ada${heat}`), second = app.join(`Bea${heat}`);
+      app.ready(first); app.ready(second);
+      app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+      seen.push(app.store.getRuntime(app.event.id).promptSnapshot.id);
+      app.advance(3000);
+      app.engine.command(app.event.slug, 'noMatch', {}, { id: 'operator' });
+      app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    }
+    for (const id of ['O01', 'T01', 'G02', 'M01']) assert.ok(seen.includes(id), `${id} was played`);
+    const firstColor = seen.findIndex(id => id.startsWith('C'));
+    assert.ok(firstColor > Math.max(...['O01', 'T01', 'G02', 'M01'].map(id => seen.indexOf(id))),
+      'a Low color prompt follows each enabled Standard prompt');
+    assert.ok(ballotHeats.length > 0 && ballotHeats.length < 10, 'category ballots recur without occupying every heat');
+    assert.equal(app.store.getRuntime(app.event.id).automaticPromptSelections, 15);
+  } finally { app.store.close(); }
+});
+
 test('capacity and deadline starts follow the saved event mode; manual requires the operator', () => {
   const capacity = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'capacity' });
   const a = capacity.join('Ada'), b = capacity.join('Bea');
@@ -304,9 +448,9 @@ test('late players move into the next heat, while a completed heat keeps its ori
   assert.equal(c.player.status, 'queued');
   app.advance(3000);
   app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' });
-  const changed = app.store.saveEvent(app.event.slug, { ...app.event, roundSeconds: 45 }, app.event.revision);
-  assert.equal(app.store.listHeats(app.event.id)[0].rules.roundSeconds, 20);
-  assert.equal(changed.roundSeconds, 45);
+  const changed = app.store.saveEvent(app.event.slug, { ...app.event, roundSeconds: 55 }, app.event.revision);
+  assert.equal(app.store.listHeats(app.event.id)[0].rules.roundSeconds, 45);
+  assert.equal(changed.roundSeconds, 55);
   app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
   const next = app.engine.snapshot(app.event.slug).state;
   assert.equal(next.heat, 2);
@@ -315,14 +459,74 @@ test('late players move into the next heat, while a completed heat keeps its ori
   app.store.close();
 });
 
+test('a finished player can replay with the same token, queue once, and leave when done', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const first = app.join('Ada', { analyticsSessionId: 'a'.repeat(20) }), second = app.join('Bea');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.throws(() => app.engine.replay(app.event.slug, first.token),
+      error => error.code === 'replay_unavailable');
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    const replayed = app.engine.replay(app.event.slug, first.token);
+    assert.equal(replayed.player.id, first.player.id);
+    assert.equal(replayed.player.alias, 'Ada');
+    assert.equal(replayed.player.status, 'queued');
+    assert.equal(replayed.player.heat, 2);
+    assert.equal(replayed.player.slot, null);
+    assert.equal(replayed.state.queuedCount, 1);
+    assert.equal(replayed.state.roster.find(player => player.id === first.player.id)?.status, 'finished');
+    assert.equal(app.engine.replay(app.event.slug, first.token).player.id, first.player.id);
+    assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'player_joined').length, 3);
+    const replayJoin = app.store.listActivity(app.event.id).filter(row => row.type === 'player_joined').at(-1);
+    assert.equal(replayJoin.properties.sessionId, 'a'.repeat(20));
+
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    const promoted = app.engine.me(app.event.slug, first.token);
+    assert.equal(promoted.player.status, 'joined');
+    assert.equal(promoted.player.slot, 1);
+    app.engine.leave(app.event.slug, first.token);
+    assert.throws(() => app.engine.me(app.event.slug, first.token), error => error.code === 'unauthorized');
+  } finally { app.store.close(); }
+});
+
+test('a replaying player waits behind visitors already queued for a vacant lobby spot', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    const third = app.join('Cy'), fourth = app.join('Dee'), fifth = app.join('Eve');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    assert.equal(app.engine.me(app.event.slug, third.token).player.slot, 1);
+    assert.equal(app.engine.me(app.event.slug, fourth.token).player.slot, 2);
+    assert.equal(app.engine.me(app.event.slug, fifth.token).player.queuePosition, 1);
+
+    // Simulate a lobby vacancy left by an interrupted cleanup before replay arrives.
+    app.store.updatePlayer(third.player.id, { slot: null, status: 'left' });
+    const replay = app.engine.replay(app.event.slug, first.token);
+    assert.equal(app.engine.me(app.event.slug, fifth.token).player.slot, 1);
+    assert.equal(replay.player.status, 'queued');
+    assert.equal(replay.player.queuePosition, 1);
+    assert.equal(replay.state.queuedCount, 1);
+  } finally { app.store.close(); }
+});
+
 test('restart advances absolute deadlines once and never duplicates heat completion', () => {
-  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, roundSeconds: 5 });
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, roundSeconds: 5,
+    prompts: [{ id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', judgeMode: 'rule',
+      detector: 'color:red', enabled: true, seconds: null }] });
   const a = app.join('Ada'), b = app.join('Bea');
   app.ready(a); app.ready(b);
   app.engine.command(app.event.slug, 'queuePrompt', { promptId: 'C01' }, { id: 'operator' });
   app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
   app.now += 50_000;
   const restarted = new GameEngine({ store: app.store, now: () => app.now });
+  assert.equal(restarted.snapshot(app.event.slug).state.phase, 'result');
+  app.now += 6000;
   assert.equal(restarted.snapshot(app.event.slug).state.phase, 'result');
   restarted.snapshot(app.event.slug);
   assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'heat_completed').length, 1);
@@ -418,7 +622,7 @@ test('pause freezes the round clock and resume restores its remaining time', () 
   app.advance(100_000);
   assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'hunt');
   app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
-  assert.equal(Date.parse(app.engine.snapshot(app.event.slug).state.roundEndsAt) - app.now, 20_000);
+  assert.equal(Date.parse(app.engine.snapshot(app.event.slug).state.roundEndsAt) - app.now, 45_000);
   app.store.close();
 });
 

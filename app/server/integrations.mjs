@@ -1,4 +1,4 @@
-import { createHmac, createPublicKey, randomBytes, verify } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, verify } from 'node:crypto';
 import twilio from 'twilio';
 import { Analytics } from '@segment/analytics-node';
 import { ValidationError } from './config.mjs';
@@ -90,17 +90,6 @@ export class Integrations {
         event: item.type, properties, timestamp: item.at,
       });
     } catch (error) { console.error(`Segment track: ${error.message}`); }
-  }
-
-  identifyOptedInLead(lead) {
-    if (!this.segment || this.env.SEGMENT_IDENTIFY_LEADS !== '1' || !lead.marketingOptIn) return;
-    const traits = { email: lead.email || undefined, name: lead.name || undefined,
-      company: lead.company || undefined, eventId: lead.eventId };
-    const anonymousId = lead.analyticsSessionId || (String(lead.participantId || '').startsWith('spectator:')
-      ? String(lead.participantId).slice('spectator:'.length)
-      : this.store.getPlayer(lead.participantId)?.analyticsSessionId);
-    try { this.segment.identify({ userId: lead.id, ...(anonymousId ? { anonymousId } : {}), traits }); }
-    catch (error) { console.error(`Segment identify: ${error.message}`); }
   }
 
   async sendGuide(lead, event, jobId = null) {
@@ -197,11 +186,12 @@ export class Integrations {
     let accepted = 0, ignored = 0;
     this.store.transaction(() => {
       for (const item of events) {
-        const eventId = String(item?.sg_event_id || '');
+        const eventId = typeof item?.sg_event_id === 'string' ? item.sg_event_id : '';
         const deliveryStatus = SENDGRID_EVENT_STATUSES[item?.event];
         const jobId = String(item?.custom_args?.lsh_job_id || item?.lsh_job_id || '');
-        if (!eventId || eventId.length > 100 || !deliveryStatus || !jobId || jobId.length > 128) { ignored++; continue; }
-        if (!this.store.rememberWebhook(`sendgrid:${eventId}`, 'sendgrid')) { ignored++; continue; }
+        if (!eventId || !deliveryStatus || !jobId || jobId.length > 128) { ignored++; continue; }
+        const receipt = `sendgrid:${createHash('sha256').update(eventId).digest('hex')}`;
+        if (!this.store.rememberWebhook(receipt, 'sendgrid')) { ignored++; continue; }
         const job = this.store.getDeliveryJob(jobId);
         const lead = job && this.store.getLead(job.leadId);
         if (!job || job.channel !== 'sendgrid-guide' || !lead ||
