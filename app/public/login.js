@@ -49,6 +49,15 @@ async function showConfiguredProviders() {
 }
 function showReturnMessage() {
   const params = new URLSearchParams(location.search);
+  if (params.get("notice") === "username-changed") {
+    const username = String(params.get("username") || "").trim().toLowerCase();
+    if (/^[a-z][a-z0-9._-]{2,79}$/.test(username)) {
+      document.getElementById("username").value = username;
+      message.textContent = "Username changed. Sign in as " + username + " with your current password.";
+    } else message.textContent = "Username changed. Sign in with your new username and current password.";
+    message.classList.add("success");
+    return;
+  }
   if (params.get("notice") === "password-changed") {
     message.textContent = "Password changed. Sign in with your new password.";
     message.classList.add("success");

@@ -292,6 +292,7 @@ function renderRole() {
   const metrics = document.querySelector(".metrics-link");
   metrics.hidden = !isAdmin();
   document.querySelector(".team-nav").hidden = !isAdmin();
+  $("team-my-username-button").hidden = session?.user?.authProvider === "google";
   $("team-my-password-button").hidden = session?.user?.authProvider === "google";
 }
 function operatorLabel(operator) { return String(operator?.email || operator?.username || "Operator"); }
@@ -320,7 +321,7 @@ function renderTeam() {
     row.type = "button";
     row.className = "team-row";
     row.dataset.operatorId = String(operator.id);
-    const selected = teamMode === "manage" && String(selectedOperatorId) === String(operator.id);
+    const selected = ["manage", "rename-operator"].includes(teamMode) && String(selectedOperatorId) === String(operator.id);
     row.setAttribute("aria-pressed", String(selected));
     const avatar = document.createElement("span");
     avatar.className = "team-avatar";
@@ -346,22 +347,35 @@ function renderTeam() {
   $("team-next").disabled = teamPage >= pages - 1;
 
   const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
-  if (teamMode === "manage" && !selected) teamMode = "create";
-  const google = teamMode === "manage" && isGoogleOperator(selected);
+  if (["manage", "rename-operator"].includes(teamMode) && !selected) teamMode = "create";
+  if (teamMode === "rename-operator" && isGoogleOperator(selected)) teamMode = "manage";
+  const managing = ["manage", "rename-operator"].includes(teamMode);
+  const google = managing && isGoogleOperator(selected);
   $("team-create-form").hidden = teamMode !== "create";
   $("team-reset-form").hidden = teamMode !== "manage" || google;
+  $("team-operator-username-form").hidden = teamMode !== "rename-operator" || google;
   $("team-google-detail").hidden = teamMode !== "manage" || !google;
+  $("team-self-username-form").hidden = teamMode !== "self-username";
   $("team-self-form").hidden = teamMode !== "self";
-  if (teamMode === "manage") {
+  if (managing) {
     const label = operatorLabel(selected);
     $("team-detail-kicker").textContent = google ? "Google account" : "Local account";
-    $("team-detail-title").textContent = google ? "Twilio teammate" : "Manage operator";
-    $("team-detail-copy").textContent = google ? "Signed in with a verified @twilio.com identity." : "Reset their password or remove booth access.";
+    $("team-detail-title").textContent = google ? "Twilio teammate" : teamMode === "rename-operator" ? "Change username" : "Manage operator";
+    $("team-detail-copy").textContent = google ? "Signed in with a verified @twilio.com identity." : teamMode === "rename-operator" ? "Update their login name. Their password stays the same." : "Change their username, reset their password, or remove access.";
     if (google) $("team-google-name").textContent = label;
     else {
       $("team-selected-name").textContent = label;
       $("team-selected-initial").textContent = label.trim().slice(0, 1).toUpperCase() || "O";
+      $("team-rename-current").textContent = label;
+      $("team-rename-initial").textContent = label.trim().slice(0, 1).toUpperCase() || "O";
     }
+  } else if (teamMode === "self-username") {
+    const username = String(session?.user?.username || "admin");
+    $("team-self-current").textContent = username;
+    $("team-self-initial").textContent = username.slice(0, 1).toUpperCase() || "A";
+    $("team-detail-kicker").textContent = "Your account";
+    $("team-detail-title").textContent = "Change my username";
+    $("team-detail-copy").textContent = "Choose the name you will use to sign in next time.";
   } else if (teamMode === "self") {
     $("team-detail-kicker").textContent = "Your account";
     $("team-detail-title").textContent = "Change my password";
@@ -373,13 +387,24 @@ function renderTeam() {
   }
 }
 function showTeamMode(mode, operatorId = null) {
-  if (mode === "self" && session?.user?.authProvider === "google") return;
+  if (["self", "self-username"].includes(mode) && session?.user?.authProvider === "google") return;
+  if (mode === "rename-operator") {
+    const selected = operators.find((item) => String(item.id) === String(operatorId));
+    if (!selected || isGoogleOperator(selected)) return;
+    $("team-operator-username").value = selected.username || "";
+  }
+  if (mode === "self-username") {
+    $("team-self-username").value = session?.user?.username || "";
+    $("team-self-username-password").value = "";
+  }
+  if (teamMode === "self-username" && mode !== "self-username") $("team-self-username-form").reset();
   teamMode = mode;
   selectedOperatorId = operatorId;
   $("team-workspace").dataset.step = "detail";
   renderTeam();
-  const focusId = mode === "self" ? "team-current-password" : mode === "create" ? "team-create-username" : "team-detail-title";
+  const focusId = mode === "self" ? "team-current-password" : mode === "self-username" ? "team-self-username" : mode === "rename-operator" ? "team-operator-username" : mode === "create" ? "team-create-username" : "team-detail-title";
   $(focusId).focus();
+  if (["self-username", "rename-operator"].includes(mode)) $(focusId).select();
 }
 async function loadOperators() {
   if (!isAdmin()) return;
@@ -1469,11 +1494,50 @@ async function changeMyPassword(event) {
     $("team-self-submit").disabled = false;
   }
 }
+async function changeMyUsername(event) {
+  event.preventDefault();
+  if (teamBusy) return;
+  const username = $("team-self-username").value.trim().toLowerCase();
+  if (username === session?.user?.username) return flash("Choose a different username.", true);
+  teamBusy = true;
+  $("team-self-username-submit").disabled = true;
+  try {
+    const result = await request("/api/auth/username", { method: "POST", body: { username, currentPassword: $("team-self-username-password").value } });
+    $("team-self-username-password").value = "";
+    const next = location.pathname + location.search + "#team";
+    const params = new URLSearchParams({ notice: "username-changed", username: result.user?.username || username, next });
+    location.assign("/login?" + params);
+  } catch (error) {
+    flash(error.message, true);
+    teamBusy = false;
+    $("team-self-username-submit").disabled = false;
+  }
+}
+async function changeOperatorUsername(event) {
+  event.preventDefault();
+  const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
+  if (teamBusy || !selected || isGoogleOperator(selected)) return;
+  const username = $("team-operator-username").value.trim().toLowerCase();
+  if (username === selected.username) return flash("Choose a different username.", true);
+  teamBusy = true;
+  $("team-operator-username-submit").disabled = true;
+  try {
+    await request("/api/admin/operators/" + encodeURIComponent(selected.id) + "/username", { method: "POST", body: { username } });
+    $("team-operator-username-form").reset();
+    await loadOperators();
+    showTeamMode("manage", selected.id);
+    flash("Username changed. The operator must sign in again with their new name.");
+  } catch (error) { flash(error.message, true); }
+  finally { teamBusy = false; $("team-operator-username-submit").disabled = false; }
+}
 
 function wireControls() {
   for (const button of document.querySelectorAll(".nav[data-view]")) button.addEventListener("click", () => { showView(button.dataset.view); if (button.dataset.view === "run") showRunPanel("live"); });
   $("team-add-button").addEventListener("click", () => showTeamMode("create"));
+  $("team-my-username-button").addEventListener("click", () => showTeamMode("self-username"));
   $("team-my-password-button").addEventListener("click", () => showTeamMode("self"));
+  $("team-edit-username-button").addEventListener("click", () => showTeamMode("rename-operator", selectedOperatorId));
+  $("team-rename-back-button").addEventListener("click", () => showTeamMode("manage", selectedOperatorId));
   $("team-back-button").addEventListener("click", () => { $("team-workspace").dataset.step = "list"; $("team-add-button").focus(); });
   $("team-list").addEventListener("click", (event) => {
     const row = event.target.closest("button[data-operator-id]");
@@ -1483,6 +1547,8 @@ function wireControls() {
   $("team-next").addEventListener("click", () => { teamPage++; renderTeam(); });
   $("team-create-form").addEventListener("submit", createOperator);
   $("team-reset-form").addEventListener("submit", resetOperatorPassword);
+  $("team-operator-username-form").addEventListener("submit", changeOperatorUsername);
+  $("team-self-username-form").addEventListener("submit", changeMyUsername);
   $("team-self-form").addEventListener("submit", changeMyPassword);
   $("team-remove-button").addEventListener("click", removeOperator);
   for (const [passwordId, confirmId] of [["team-create-password", "team-create-confirm"], ["team-reset-password", "team-reset-confirm"], ["team-new-password", "team-new-confirm"]]) {

@@ -12,7 +12,8 @@ import { submitLead } from './leads.mjs';
 const PUBLIC_DIR = resolve(fileURLToPath(new URL('../public/', import.meta.url)));
 const HTML_ROUTES = { arena: 'arena.html', play: 'player.html', vote: 'vote.html', operator: 'operator.html', metrics: 'metrics.html' };
 const ASSET_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon' };
 const VOTER_COOKIE = 'signal_stadium_voter';
 const GITHUB_REPO_URL = 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt';
 const BODY_LIMIT = 240_000;
@@ -87,7 +88,7 @@ function sameOrigin(req, publicBaseUrl) {
 }
 function safePath(pathname) {
   const relative = pathname.replace(/^\/+/, '');
-  if (!/^(?:[a-z0-9-]+\.(?:html|js|css)|assets\/[a-z0-9._-]+|vendor\/[a-z0-9._-]+)$/i.test(relative)) return null;
+  if (!/^(?:[a-z0-9-]+\.(?:html|js|css)|favicon\.ico|assets\/[a-z0-9._-]+|vendor\/[a-z0-9._-]+)$/i.test(relative)) return null;
   const target = resolve(PUBLIC_DIR, relative);
   return target.startsWith(PUBLIC_DIR + sep) ? target : null;
 }
@@ -273,6 +274,14 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         store.audit(null, session.user.id, 'account:password_changed');
         return json(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie({ secure }) });
       }
+      if (pathname === '/api/auth/username' && method === 'POST') {
+        const session = auth.require(req.headers.cookie, 'operator', req.headers['x-csrf-token'] || '');
+        limiter.check(`username-change:${session.user.id}`, 8, 10 * 60_000);
+        const body = await readJson(req, 8_000);
+        const user = auth.renameUsername(session.user.id, body.currentPassword, body.username);
+        store.audit(null, session.user.id, 'account:username_changed', { username: user.username });
+        return json(res, 200, { user }, { 'Set-Cookie': auth.clearCookie({ secure }) });
+      }
       if (pathname === '/api/admin/operators') {
         if (method === 'GET') {
           auth.require(req.headers.cookie, 'admin');
@@ -294,6 +303,16 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         const body = await readJson(req, 8_000);
         const operator = auth.resetOperatorPassword(operatorPasswordMatch[1], body.password);
         store.audit(null, session.user.id, 'operator:password_reset', { operatorId: operator.id });
+        return json(res, 200, { operator });
+      }
+      const operatorUsernameMatch = pathname.match(/^\/api\/admin\/operators\/([0-9a-f-]{36})\/username$/i);
+      if (operatorUsernameMatch && method === 'POST') {
+        const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+        limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
+        const body = await readJson(req, 8_000);
+        const operator = auth.renameOperatorUsername(operatorUsernameMatch[1], body.username);
+        store.audit(null, session.user.id, 'operator:username_changed',
+          { operatorId: operator.id, username: operator.username });
         return json(res, 200, { operator });
       }
       const operatorMatch = pathname.match(/^\/api\/admin\/operators\/([0-9a-f-]{36})$/i);
