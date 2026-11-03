@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/public/assets/twilio-bug-official.png" width="52" alt="Twilio mark">
+  <img src="app/public/assets/twilio-bug-official.png" width="52" alt="Official Twilio bug mark, also used for the app icon">
 </p>
 
 <h1 align="center">Live Scavenger Hunt</h1>
@@ -39,7 +39,7 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display, checks their phone camera, and joins the heat. The phone checks the 2–20 character name and display consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
+A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display, checks their phone camera, and joins the heat. The phone checks the 2–20 character name and display consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
@@ -114,8 +114,8 @@ Each product panel links to its official Twilio page: [Video](https://www.twilio
 
 | Product | Role in the activation | Setup state |
 | --- | --- | --- |
-| **Twilio Video** | Phone cameras publish into an unrecorded room; the booth wall subscribes to the players' video. | Built in; needs Video credentials and a public HTTPS origin for a live event. |
-| **Twilio Messaging** | SMS or WhatsApp lets spectators send a ballot response. A web ballot is available without a sender. | Optional; needs event senders, webhook setup, and the applicable sender registration. |
+| **Twilio Video** | Phone cameras publish into an unrecorded room; the booth wall subscribes to the players' video. | Built in; needs the Account SID, API Key SID and secret, Auth Token, and a public HTTPS origin for a live event. |
+| **Twilio Messaging** | Spectators send SMS or WhatsApp ballots and receive an automated TwiML acknowledgment reply. A web ballot is available without a sender. | Optional; needs event senders, inbound webhook setup, and registration that covers the replies. |
 | **Twilio Segment** | Can mirror a limited, contact-free activity stream. The local report works without Segment. | Optional Write Key. Lead identity is sent only with separate marketing opt-in and explicit configuration. |
 | **Twilio SendGrid** | Can email a requested build guide. Expert requests are saved for staff follow-up. | Optional API key and verified sender. |
 
@@ -198,14 +198,14 @@ The server owns the round clock, sealed clue, slot assignment, winner decision, 
 
 ## Azure deployment
 
-The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) is deployed on Azure Container Apps in rehearsal mode. Its public HTTPS URL supports phone camera permissions; Twilio Video credentials are still needed for live Rooms. Local passwords work without Google; Google sign-in appears when its OAuth client credentials are deployed.
+The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) runs on Azure Container Apps. Provisioning starts it in rehearsal mode; the operator **Preflight** view reports the current media configuration. Its public HTTPS URL supports phone camera permissions, and the four Twilio Video and Auth Token settings enable live Rooms. Local passwords work without Google; Google sign-in appears when its OAuth client credentials are deployed.
 
 The Azure setup follows the Birdies & Eagles pattern: a dedicated resource group in `centralus`, private Container Registry, Container Apps environment, Log Analytics, and GitHub OIDC deploys. The app keeps SQLite on fast local container storage and uses Litestream to restore and replicate it to a private Azure Blob container. An Azure Blob lease allows only one replica to open the database, including during platform maintenance. A controlled rollout stops the previous game process before the replacement starts, so a release includes a brief planned pause. The Container App serves a public HTTPS URL and is configured for one replica.
 
-Start with [one-time infrastructure setup](docs/INFRA_SETUP.md), then use the [deployment guide](docs/DEPLOYMENT.md) for releases, backup checks, and recovery. [CI details](docs/CICD.md) describe the `Validate` gate that runs before an image can deploy. The first cloud boot uses rehearsal mode while Twilio credentials are pending. Litestream attempts to sync every second when Blob is healthy; backup lag can grow during a storage outage. Verify a current backup and restore before an event.
+Start with [one-time infrastructure setup](docs/INFRA_SETUP.md), then use the [deployment guide](docs/DEPLOYMENT.md) for releases, backup checks, and recovery. [CI details](docs/CICD.md) describe the `Validate` gate that runs before an image can deploy. GitHub Actions can activate live Video through the controlled rollout with four Twilio secrets and `TWILIO_VIDEO_MODE=live`; `rehearsal` switches back to snapshots, and an unset mode preserves the current setting. The same safe rollout accepts optional OpenAI, Segment, and SendGrid keys as GitHub Actions secrets; a verified SendGrid sender is also needed before requested guide emails can be delivered. Segment lead identification stays off unless explicitly enabled for visitors who separately opt in. Litestream attempts to sync every second when Blob is healthy; backup lag can grow during a storage outage. Verify a current backup and restore before an event.
 
 ## Production handoff
 
-**The Azure deployment path is included; the first cloud release runs in rehearsal mode.** Before opening a public booth, add Video credentials and the webhook Auth Token, verify the Blob backup and restore, and test the wall with real phones on the venue network. SMS/WhatsApp, AI vision, Segment, and SendGrid are optional integrations that each need their own setup. Follow the [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
+**The Azure deployment path is included and starts in rehearsal mode.** Before opening a public booth, add the Account SID, US1 Standard API Key SID and secret, and account Auth Token as GitHub Actions secrets; set `TWILIO_VIDEO_MODE=live` and deploy between heats. Verify the Blob backup and restore, then test the wall with real phones on the venue network. SMS/WhatsApp ballots are optional and need an inbound sender webhook plus registration for automated acknowledgment replies. AI vision, Segment, and SendGrid are optional integrations with [separate setup](docs/INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email). Follow the [Twilio activation steps](docs/INFRA_SETUP.md#activate-twilio-video) and [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
 
 When changing app behavior, screens, settings, or integrations, update this README and the relevant runbook/API sections in the same change. [Project guidance](AGENTS.md) records that maintenance rule.

@@ -1,6 +1,6 @@
 # Live Scavenger Hunt: Twilio product plan
 
-**Planning recommendation · 2026-11-02.** Live Scavenger Hunt is a configurable 2–6 player camera race. The public wall stays focused on the live feeds, hidden-until-GO clue, countdown, and result. Product education appears as a small **postgame CTA**: “See how Twilio powers this” and “Talk to a Twilio expert.” No product conversation interrupts a heat.
+**Historical planning recommendation · 2026-11-02.** Some options below are ideas rather than shipped features. The [README](../../README.md) and [runbook](../runbook.md) describe the current app: SMS/WhatsApp support is limited to audience ballots with automatic replies; requested guides use optional SendGrid email; local metrics work without Segment; Voice and Agent Connect are not implemented. Live Scavenger Hunt is a configurable 2–6 player camera race. The public wall stays focused on the live feeds, hidden-until-GO clue, countdown, and result. Product education appears after play. No product conversation interrupts a heat.
 
 ## The product moments
 

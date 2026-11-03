@@ -115,15 +115,57 @@ test('old Signal Stadium links lead to the renamed event', async () => {
   } finally { await app.close(); }
 });
 
-test('the browser can load the official bug favicon from the public root', async () => {
+test('every screen links to valid Twilio bug favicons in ICO and PNG sizes', async () => {
   const app = await fixture();
   try {
-    const response = await fetch(`${app.base}/favicon.ico`);
+    const response = await fetch(`${app.base}/favicon.ico?v=2`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type'), /image\/x-icon/);
     const bytes = Buffer.from(await response.arrayBuffer());
-    assert.ok(bytes.length > 100);
-    assert.deepEqual([...bytes.subarray(0, 4)], [0, 0, 1, 0]);
+    assert.equal(bytes.readUInt16LE(0), 0);
+    assert.equal(bytes.readUInt16LE(2), 1);
+    assert.equal(bytes.readUInt16LE(4), 3);
+    for (const [index, size] of [16, 32, 48].entries()) {
+      const entry = 6 + index * 16;
+      const width = bytes.readUInt8(entry);
+      const height = bytes.readUInt8(entry + 1);
+      const bitCount = bytes.readUInt16LE(entry + 6);
+      const frameLength = bytes.readUInt32LE(entry + 8);
+      const frameStart = bytes.readUInt32LE(entry + 12);
+      const maskLength = Math.ceil(size / 32) * 4 * size;
+      const pixelLength = size * size * 4;
+      assert.deepEqual([width, height, bytes.readUInt16LE(entry + 4), bitCount], [size, size, 1, 32]);
+      assert.equal(frameLength, 40 + pixelLength + maskLength);
+      assert.ok(frameStart >= 6 + 3 * 16);
+      assert.ok(frameStart + frameLength <= bytes.length);
+      assert.equal(bytes.readUInt32LE(frameStart), 40);
+      assert.equal(bytes.readInt32LE(frameStart + 4), size);
+      assert.equal(bytes.readInt32LE(frameStart + 8), size * 2);
+      assert.equal(bytes.readUInt16LE(frameStart + 12), 1);
+      assert.equal(bytes.readUInt16LE(frameStart + 14), bitCount);
+      assert.equal(bytes.readUInt32LE(frameStart + 16), 0);
+      const mask = bytes.subarray(frameStart + 40 + pixelLength, frameStart + frameLength);
+      assert.ok(mask.every(value => value === 0));
+    }
+    for (const size of [16, 32, 48]) {
+      const png = await fetch(`${app.base}/assets/twilio-bug-favicon-${size}.png?v=2`);
+      assert.equal(png.status, 200);
+      assert.match(png.headers.get('content-type'), /image\/png/);
+      const frame = Buffer.from(await png.arrayBuffer());
+      assert.deepEqual([...frame.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+      assert.equal(frame.readUInt32BE(16), size);
+      assert.equal(frame.readUInt32BE(20), size);
+    }
+    for (const path of ['/login', `/e/${app.event.slug}/arena`, `/e/${app.event.slug}/play`,
+      `/e/${app.event.slug}/vote`, `/e/${app.event.slug}/operator`, `/e/${app.event.slug}/metrics`]) {
+      const html = await app.request(path);
+      assert.equal(html.response.status, 200);
+      assert.ok(html.value.includes('/favicon.ico?v=2'), path);
+      for (const size of [16, 32, 48]) {
+        assert.ok(html.value.includes(`/assets/twilio-bug-favicon-${size}.png?v=2`), path);
+      }
+      assert.ok(html.value.includes('/assets/twilio-bug-official.png?v=2'), path);
+    }
   } finally { await app.close(); }
 });
 

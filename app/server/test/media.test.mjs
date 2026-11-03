@@ -6,6 +6,7 @@ const credentials = {
   TWILIO_ACCOUNT_SID: `AC${'1'.repeat(32)}`,
   TWILIO_API_KEY_SID: `SK${'2'.repeat(32)}`,
   TWILIO_API_KEY_SECRET: 'unit-test-secret',
+  TWILIO_AUTH_TOKEN: 'webhook-secret',
 };
 const event = { id: 'event-uuid-123', maxPlayers: 6 };
 const player = { id: 'player-uuid-456', heat: 3, slot: 2 };
@@ -62,12 +63,25 @@ test('defaults to local rehearsal; off without credentials is unconfigured', asy
   assert.equal(forced.mode(), 'rehearsal');
 });
 
+test('missing webhook Auth Token never enters live Video mode', async () => {
+  const { TWILIO_AUTH_TOKEN: _, ...videoCredentials } = credentials;
+  const rehearsal = new MediaService({ publicBaseUrl: 'https://booth.example', env: videoCredentials });
+  assert.equal(rehearsal.mode(), 'rehearsal');
+  assert.deepEqual(await rehearsal.playerToken(event, player), { mode: 'rehearsal' });
+  assert.equal(rehearsal.preflight().status, 'warning');
+  assert.match(rehearsal.preflight().detail, /TWILIO_AUTH_TOKEN/);
+
+  const off = new MediaService({ publicBaseUrl: 'https://booth.example', env: { ...videoCredentials, REHEARSAL_MODE: 'off' } });
+  assert.equal(off.mode(), 'unconfigured');
+  assert.deepEqual(await off.wallToken(event, 3), { mode: 'unconfigured' });
+  assert.equal(off.preflight().status, 'unconfigured');
+  assert.match(off.preflight().detail, /TWILIO_AUTH_TOKEN/);
+});
+
 test('creates one unrecorded Group Room and issues room scoped player and wall tokens', async () => {
   const client = fakeClient();
   const media = new MediaService({ publicBaseUrl: 'https://booth.example', env: credentials, twilioClient: client });
-  assert.equal(media.preflight().status, 'warning'); // Auth token is needed to validate callbacks.
-  const ready = new MediaService({ publicBaseUrl: 'https://booth.example', env: { ...credentials, TWILIO_AUTH_TOKEN: 'webhook-secret' }, twilioClient: client });
-  assert.equal(ready.preflight().status, 'ok');
+  assert.equal(media.preflight().status, 'ok');
   const roomName = media.roomName(event, 3);
   assert.match(roomName, /^live-scavenger-hunt-[a-f0-9]{20}-h3$/);
   assert.notEqual(roomName, media.roomName(event, 4));
@@ -96,6 +110,15 @@ test('creates one unrecorded Group Room and issues room scoped player and wall t
   assert.equal(jwtPayload(second.token).grants.identity, 'p:other-player');
   assert.equal(jwtPayload(wall.token).grants.video.room, roomName);
   assert.equal(jwtPayload(wall.token).grants.identity, `wall:${event.id}:3`);
+});
+
+test('room capacity keeps space for six players and the wall after a live limit increase', async () => {
+  const client = fakeClient();
+  const media = new MediaService({ publicBaseUrl: 'https://booth.example', env: credentials, twilioClient: client });
+  const smallHeat = { ...event, maxPlayers: 2 };
+  await media.playerToken(smallHeat, player);
+  assert.equal(client.creates[0].maxParticipants, 7);
+  assert.equal(client.creates.length, 1);
 });
 
 test('queued players cannot obtain Twilio tokens and public HTTPS is required', async () => {

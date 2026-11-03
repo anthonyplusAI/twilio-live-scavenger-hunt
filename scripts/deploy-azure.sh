@@ -38,6 +38,98 @@ if [ "${GOOGLE_AUTH_DISABLE:-0}" != '1' ] &&
   fi
   GOOGLE_AUTH_UPDATE=1
 fi
+# Twilio activation is an explicit deployment choice. Unset mode preserves the
+# current Video mode, even if credentials are already stored in GitHub. The
+# Auth Token may be updated alone for signed inbound Messaging webhooks.
+if [ -n "${TWILIO_VIDEO_MODE:-}" ] &&
+   [ "$TWILIO_VIDEO_MODE" != 'live' ] &&
+   [ "$TWILIO_VIDEO_MODE" != 'rehearsal' ]; then
+  echo 'TWILIO_VIDEO_MODE must be live or rehearsal when set.' >&2
+  exit 1
+fi
+TWILIO_VIDEO_UPDATE=0
+if [ "${TWILIO_VIDEO_MODE:-}" = 'live' ]; then
+  if [ -z "${TWILIO_ACCOUNT_SID:-}" ] ||
+     [ -z "${TWILIO_API_KEY_SID:-}" ] ||
+     [ -z "${TWILIO_API_KEY_SECRET:-}" ] ||
+     [ -z "${TWILIO_AUTH_TOKEN:-}" ]; then
+    echo 'Live Twilio Video requires TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, and TWILIO_AUTH_TOKEN.' >&2
+    exit 1
+  fi
+  if [[ ! "$TWILIO_ACCOUNT_SID" =~ ^AC[0-9a-fA-F]{32}$ ]]; then
+    echo 'TWILIO_ACCOUNT_SID must be an Account SID (AC plus 32 hexadecimal characters).' >&2
+    exit 1
+  fi
+  if [[ ! "$TWILIO_API_KEY_SID" =~ ^SK[0-9a-fA-F]{32}$ ]]; then
+    echo 'TWILIO_API_KEY_SID must be an API Key SID (SK plus 32 hexadecimal characters).' >&2
+    exit 1
+  fi
+  if [[ "$TWILIO_API_KEY_SECRET" =~ [[:space:]] ]]; then
+    echo 'TWILIO_API_KEY_SECRET cannot contain whitespace.' >&2
+    exit 1
+  fi
+  TWILIO_VIDEO_UPDATE=1
+fi
+if [ -n "${TWILIO_AUTH_TOKEN:-}" ] && [[ "$TWILIO_AUTH_TOKEN" =~ [[:space:]] ]]; then
+  echo 'TWILIO_AUTH_TOKEN cannot contain whitespace.' >&2
+  exit 1
+fi
+# Optional server integrations follow the same stopped-writer rollout. Blank
+# GitHub settings preserve the current Container App values. Only an explicit
+# Segment Identify value changes whether opted-in leads are identified.
+if [ -n "${OPENAI_API_KEY:-}" ] && [[ "$OPENAI_API_KEY" =~ [[:space:]] ]]; then
+  echo 'OPENAI_API_KEY cannot contain whitespace.' >&2
+  exit 1
+fi
+if [ -n "${OPENAI_VISION_MODEL:-}" ] && [[ "$OPENAI_VISION_MODEL" =~ [[:space:]] ]]; then
+  echo 'OPENAI_VISION_MODEL cannot contain whitespace.' >&2
+  exit 1
+fi
+if [ -n "${SEGMENT_WRITE_KEY:-}" ] && [[ "$SEGMENT_WRITE_KEY" =~ [[:space:]] ]]; then
+  echo 'SEGMENT_WRITE_KEY cannot contain whitespace.' >&2
+  exit 1
+fi
+if [ -n "${SEGMENT_IDENTIFY_LEADS:-}" ] &&
+   [ "$SEGMENT_IDENTIFY_LEADS" != '0' ] &&
+   [ "$SEGMENT_IDENTIFY_LEADS" != '1' ]; then
+  echo 'SEGMENT_IDENTIFY_LEADS must be 0 or 1 when set.' >&2
+  exit 1
+fi
+SENDGRID_UPDATE=0
+if [ -n "${SENDGRID_API_KEY:-}" ] || [ -n "${SENDGRID_FROM_EMAIL:-}" ]; then
+  if [ -z "${SENDGRID_API_KEY:-}" ] || [ -z "${SENDGRID_FROM_EMAIL:-}" ]; then
+    echo 'SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set to update guide email.' >&2
+    exit 1
+  fi
+  if [[ "$SENDGRID_API_KEY" =~ [[:space:]] ]]; then
+    echo 'SENDGRID_API_KEY cannot contain whitespace.' >&2
+    exit 1
+  fi
+  if [[ ! "$SENDGRID_FROM_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    echo 'SENDGRID_FROM_EMAIL must be a valid sender email address.' >&2
+    exit 1
+  fi
+  SENDGRID_UPDATE=1
+fi
+if [ -n "${SENDGRID_REGION:-}" ] &&
+   [ "$SENDGRID_REGION" != 'eu' ] &&
+   [ "$SENDGRID_REGION" != 'global' ] &&
+   [ "$SENDGRID_REGION" != 'us' ]; then
+  echo 'SENDGRID_REGION must be eu, global, or us when set.' >&2
+  exit 1
+fi
+if [ -n "${GITHUB_RUN_ID:-}" ]; then
+  DEPLOY_RUN_ID="$GITHUB_RUN_ID"
+else
+  # Keep manual local invocations distinct even within the same second.
+  DEPLOY_RUN_ID="$(date -u +%s)$$"
+fi
+DEPLOY_SUFFIX="r${DEPLOY_RUN_ID}a${GITHUB_RUN_ATTEMPT:-1}"
+if [[ ! "$DEPLOY_SUFFIX" =~ ^r[0-9]+a[0-9]+$ ]] ||
+   [ "${#DEPLOY_SUFFIX}" -gt 36 ]; then
+  echo 'Deployment run identifier must contain only digits and fit Azure revision and secret names.' >&2
+  exit 1
+fi
 
 OLD_REVISION=''
 OLD_TARGET_PORT=''
@@ -335,17 +427,68 @@ if jq -e '[.[] | select(.properties.active == true or ((.properties.replicas | t
 fi
 BASELINE_NAMES=$(jq -c '[.[].name]' <<< "$REVISIONS_JSON")
 
+store_container_secret() {
+  local name="$1" value="$2"
+  # Azure CLI diagnostics can include command arguments. Keep credential
+  # values out of workflow logs and use a generic error on failure.
+  if ! az containerapp secret set \
+    --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
+    --secrets "$name=$value" --output none >/dev/null 2>&1; then
+    echo "::error::Could not store Container App secret $name." >&2
+    return 1
+  fi
+}
+
 ENV_UPDATES=()
 if [ -n "${LITESTREAM_REQUIRE_REPLICA:-}" ]; then
   ENV_UPDATES+=("LITESTREAM_REQUIRE_REPLICA=$LITESTREAM_REQUIRE_REPLICA")
 fi
 if [ "$GOOGLE_AUTH_UPDATE" -eq 1 ]; then
   # App-level secret changes do not create revisions. Do this only after the
-  # old writer is stopped, then attach the secret to the candidate revision.
-  az containerapp secret set \
-    --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-    --secrets "google-client-secret=$GOOGLE_CLIENT_SECRET" --output none
-  ENV_UPDATES+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET=secretref:google-client-secret")
+  # old writer is stopped. Per-rollout names keep prior revision references
+  # intact if this candidate needs a pre-cutover rollback.
+  store_container_secret "google-client-secret-$DEPLOY_SUFFIX" "$GOOGLE_CLIENT_SECRET"
+  ENV_UPDATES+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET=secretref:google-client-secret-$DEPLOY_SUFFIX")
+fi
+if [ "$TWILIO_VIDEO_UPDATE" -eq 1 ]; then
+  store_container_secret "twilio-account-sid-$DEPLOY_SUFFIX" "$TWILIO_ACCOUNT_SID"
+  store_container_secret "twilio-api-key-sid-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SID"
+  store_container_secret "twilio-api-key-secret-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SECRET"
+  ENV_UPDATES+=(
+    "TWILIO_ACCOUNT_SID=secretref:twilio-account-sid-$DEPLOY_SUFFIX"
+    "TWILIO_API_KEY_SID=secretref:twilio-api-key-sid-$DEPLOY_SUFFIX"
+    "TWILIO_API_KEY_SECRET=secretref:twilio-api-key-secret-$DEPLOY_SUFFIX"
+  )
+fi
+if [ -n "${TWILIO_AUTH_TOKEN:-}" ]; then
+  store_container_secret "twilio-auth-token-$DEPLOY_SUFFIX" "$TWILIO_AUTH_TOKEN"
+  ENV_UPDATES+=("TWILIO_AUTH_TOKEN=secretref:twilio-auth-token-$DEPLOY_SUFFIX")
+fi
+if [ "${TWILIO_VIDEO_MODE:-}" = 'live' ]; then
+  ENV_UPDATES+=("REHEARSAL_MODE=off")
+elif [ "${TWILIO_VIDEO_MODE:-}" = 'rehearsal' ]; then
+  ENV_UPDATES+=("REHEARSAL_MODE=on")
+fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  store_container_secret "openai-api-key-$DEPLOY_SUFFIX" "$OPENAI_API_KEY"
+  ENV_UPDATES+=("OPENAI_API_KEY=secretref:openai-api-key-$DEPLOY_SUFFIX")
+fi
+if [ -n "${OPENAI_VISION_MODEL:-}" ]; then
+  ENV_UPDATES+=("OPENAI_VISION_MODEL=$OPENAI_VISION_MODEL")
+fi
+if [ -n "${SEGMENT_WRITE_KEY:-}" ]; then
+  store_container_secret "segment-write-key-$DEPLOY_SUFFIX" "$SEGMENT_WRITE_KEY"
+  ENV_UPDATES+=("SEGMENT_WRITE_KEY=secretref:segment-write-key-$DEPLOY_SUFFIX")
+fi
+if [ -n "${SEGMENT_IDENTIFY_LEADS:-}" ]; then
+  ENV_UPDATES+=("SEGMENT_IDENTIFY_LEADS=$SEGMENT_IDENTIFY_LEADS")
+fi
+if [ "$SENDGRID_UPDATE" -eq 1 ]; then
+  store_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"
+  ENV_UPDATES+=("SENDGRID_API_KEY=secretref:sendgrid-api-key-$DEPLOY_SUFFIX" "SENDGRID_FROM_EMAIL=$SENDGRID_FROM_EMAIL")
+fi
+if [ -n "${SENDGRID_REGION:-}" ]; then
+  ENV_UPDATES+=("SENDGRID_REGION=$SENDGRID_REGION")
 fi
 UPDATE_ARGS=()
 if [ "${#ENV_UPDATES[@]}" -gt 0 ]; then
@@ -354,7 +497,6 @@ fi
 if [ "${GOOGLE_AUTH_DISABLE:-0}" = '1' ]; then
   UPDATE_ARGS+=(--remove-env-vars GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
 fi
-DEPLOY_SUFFIX="r${GITHUB_RUN_ID:-$(date -u +%s)}a${GITHUB_RUN_ATTEMPT:-1}"
 EXPECTED_CANDIDATE="${ACA_NAME}--${DEPLOY_SUFFIX}"
 echo "Starting candidate from $IMAGE after the old writer stopped."
 UPDATE_ATTEMPTED=1

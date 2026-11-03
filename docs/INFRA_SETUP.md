@@ -139,8 +139,10 @@ retained for rollback and no longer used while sign-in is disabled.
 
 ## GitHub settings
 
-The provisioner creates the Azure and Litestream entries. Add the optional
-Google entries manually when you create the OAuth client.
+The provisioner creates the Azure and Litestream entries. Add Google and
+Twilio entries in **Settings → Secrets and variables → Actions** when those
+integrations are ready. The CI and image-build jobs never receive application
+credentials; only the deploy job reads them.
 
 | Kind | Name | Use |
 | --- | --- | --- |
@@ -149,6 +151,10 @@ Google entries manually when you create the OAuth client.
 | Secrets | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | OIDC identifiers for `azure/login`; no client secret. |
 | Optional secrets | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google admin sign-in; consumed by the deploy job only. |
 | Optional variable | `GOOGLE_AUTH_DISABLE` | Set to `1` for an explicit controlled sign-in disable; `0` re-enables when both secrets exist. |
+| Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
+| Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
+| Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY` | AI-assisted judging, Segment mirroring, and requested guide email respectively. |
+| Optional variables | `OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, explicit consent-based lead identification, verified guide sender, and SendGrid API region. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.
@@ -198,13 +204,95 @@ maintenance; the Blob lease protects against concurrent writers in that case.
 If Blob is unavailable, a new replica cannot acquire the lease or restore the
 database, so the game remains unavailable until storage recovers.
 
-## Complete Twilio setup later
+## Activate Twilio Video
 
-The deployed HTTPS origin is suitable for camera permission and webhook URLs.
-To enable live video, provide `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`,
-`TWILIO_API_KEY_SECRET`, and `TWILIO_AUTH_TOKEN` as Container App secrets, set
-`REHEARSAL_MODE=off`, and roll out those environment changes through the same
-stop-old-revision process. Configure Twilio webhook URLs with the exact public
-HTTPS origin. Messaging, AI judging, Segment, and SendGrid remain optional and
-each needs its own credentials or registration. See [the deployment guide](DEPLOYMENT.md)
-and [the booth runbook](runbook.md).
+The deployed HTTPS origin already supports phone camera permission and signed
+webhooks. The application creates a Video Group Room for each heat and supplies
+its own room status callback URL; no account-wide Video webhook is needed.
+
+1. In the Twilio Console, get the **Account SID** and **Auth Token** for the
+   account that will own the Rooms. Create a **Standard API Key** in **US1** for
+   Video and copy its SID and secret when the Console shows them. The API Key
+   secret and Auth Token are different credentials. Keep both in a password
+   manager; do not paste either into an issue, commit, or chat.
+2. Add the four GitHub **Actions secrets** listed in the table above. Store
+   the Account SID and API Key SID there too so all four values reach Azure as
+   Container App secret references. Set the repository **Actions variable**
+   `TWILIO_VIDEO_MODE` to `live`.
+3. Dispatch `deploy.yml` from `main` **between heats**. The script checks that
+   the quartet is complete and the SID shapes are correct *before* touching
+   Azure. It then stops and verifies the old writer, stores four
+   rollout-specific ACA secrets, and starts the candidate with
+   `REHEARSAL_MODE=off`. The previous revision keeps its original secret
+   references if the candidate needs a pre-cutover rollback. An unset mode
+   leaves the current setting alone. `TWILIO_VIDEO_MODE=rehearsal` explicitly
+   switches the next revision back to snapshots without deleting stored
+   credentials. Use the same controlled workflow for later credential changes;
+   a direct Container App environment update can start a second SQLite writer.
+4. After cutover, sign in and check **Operator → Preflight**. Run a real heat
+   with at least two phones and the signed-in arena wall. Confirm the phones
+   publish video, the wall subscribes, and the Video callback reports player
+   connection changes. A healthy `/health` response alone does not prove the
+   Twilio credentials work. The script can check completeness and SID format,
+   but the live heat verifies account access and the API Key secret.
+
+For SMS or WhatsApp ballots, the deployed Auth Token verifies Twilio's inbound
+signature even when Video remains in rehearsal mode. A nonempty
+`TWILIO_AUTH_TOKEN` Actions secret is attached during a controlled deployment
+without changing the explicit `REHEARSAL_MODE` setting. The hosted app starts
+with `REHEARSAL_MODE=on`. Use senders in the same Twilio account as that
+Auth Token; the app has one app-wide signing token. Configure the sender's
+inbound **POST** webhook
+to the exact public URL
+`https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/webhooks/twilio/messaging`,
+then enable that sender and channel in the event's voting settings. The app
+responds with TwiML ballot acknowledgments, which Twilio sends as replies from
+the sender. Obtain the sender registrations and approvals required for both
+inbound ballots and those replies in each event country. If replies go from a
+US local 10DLC number to US recipients, [register its A2P 10DLC brand and
+campaign](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/quickstart)
+before use. The WhatsApp Sandbox requires every test phone to send its join
+code; use a [registered WhatsApp Business
+sender](https://www.twilio.com/docs/whatsapp/self-sign-up) for expo visitors.
+The web ballot works without a Messaging sender.
+See [the deployment guide](DEPLOYMENT.md) and [the booth runbook](runbook.md)
+for verification and optional OpenAI, Segment, and SendGrid setup.
+
+## Activate optional AI, Segment, and guide email
+
+These server integrations are independent of live Twilio Video. Add their
+credentials under the same GitHub **Actions secrets and variables** page, then
+dispatch `deploy.yml` from `main` between heats. The deployment validates
+settings before the old revision stops and attaches API keys as
+rollout-specific ACA secret references only after that writer reaches zero
+replicas. Empty or absent
+settings preserve the existing ACA values.
+
+1. **AI judging:** add `OPENAI_API_KEY` as an Actions secret. Optionally set the
+   Actions variable `OPENAI_VISION_MODEL` to a model available to that account;
+   the app otherwise uses its built-in default. Only AI-assisted prompts send
+   a brief camera evidence image for review, and the operator can override the
+   verdict. Check the event's camera consent and privacy copy before use.
+2. **Segment:** create a Source and add its `SEGMENT_WRITE_KEY` as an Actions
+   secret to mirror the app's limited activity stream. Local metrics continue
+   to work without Segment. Leave `SEGMENT_IDENTIFY_LEADS` unset or set it to
+   `0` by default. Set the Actions variable to `1` only when you intentionally
+   want name/email/company sent for leads who separately checked marketing
+   opt-in. Set it back to `0` and deploy to turn that identification off.
+3. **Guide email:** verify the sending identity in SendGrid, create an API key
+   with Mail Send access, add `SENDGRID_API_KEY` as an Actions secret, and set
+   `SENDGRID_FROM_EMAIL` to the exact verified address as an Actions variable.
+   Both settings must be present when enabling or refreshing guide email; a
+   partial pair fails before downtime. Set `SENDGRID_REGION=eu` only for an EU
+   regional account. The default uses the global API; `global` or `us` can
+   explicitly switch a previously configured EU deployment back. A successful
+   requested-guide form submission sends one guide email; expert requests are
+   saved for staff follow-up and do not send a Voice call.
+
+After cutover, test one AI-assisted prompt, check that a safe game event appears
+in the intended Segment Source, and request a guide with a staff email address.
+The operator Preflight view checks configuration presence; those real actions
+confirm account access and delivery. Removing a GitHub secret does not clear an
+existing ACA secret reference. Older secret versions are kept for rollback;
+clean them up only after their referencing revisions are no longer needed.
+Keep all API keys out of the repository and browser code.
