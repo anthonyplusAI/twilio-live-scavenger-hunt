@@ -243,6 +243,8 @@ export class Integrations {
     if (!state.vote || state.vote.status !== 'open') {
       return { status: 200, body: this._twiml('There is no open ballot right now. Watch the arena for the next vote.'), contentType: 'text/xml' };
     }
+    const pausedReply = 'Voting is paused. Your vote was not counted. Send your choice again after booth staff resume.';
+    if (state.paused) return { status: 200, body: this._twiml(pausedReply), contentType: 'text/xml' };
     if (!state.vote.options.some(option => String(option.code).toUpperCase() === choice)) {
       return { status: 200, body: this._twiml('Use the ballot number shown on the screen.'), contentType: 'text/xml' };
     }
@@ -257,8 +259,11 @@ export class Integrations {
       message = 'Vote counted. Watch the arena for the result!';
     } catch (error) {
       if (error.code === 'duplicate_vote') message = 'You already voted in this ballot.';
-      else if (error.code === 'vote_closed') message = 'That ballot closed. Watch the arena for the next one.';
-      else message = 'Use the ballot number shown on the screen.';
+      else if (error.code === 'vote_closed') {
+        const current = this.engine.snapshot(event.slug).state;
+        message = current.paused && current.vote?.status === 'open' && current.vote.id === state.vote.id
+          ? pausedReply : 'That ballot closed. Watch the arena for the next one.';
+      } else message = 'Use the ballot number shown on the screen.';
     }
     return { status: 200, body: this._twiml(message), contentType: 'text/xml' };
   }

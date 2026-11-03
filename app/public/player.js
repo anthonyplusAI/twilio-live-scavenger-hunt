@@ -566,12 +566,12 @@ async function cameraDimensions(video) {
 function portraitStream(raw, video) {
   if (video.videoWidth <= video.videoHeight) return { stream: raw, canvas: null, timer: null };
   if (!HTMLCanvasElement.prototype.captureStream)
-    throw new Error('This browser cannot publish portrait video. Update your browser or try another phone.');
+    return { stream: raw, canvas: null, timer: null };
   const canvas = document.createElement('canvas');
   canvas.width = 540;
   canvas.height = 960;
   const context = canvas.getContext('2d', { alpha: false });
-  if (!context) throw new Error('Camera preview could not start. Try again.');
+  if (!context) return { stream: raw, canvas: null, timer: null };
   context.fillStyle = '#06132c';
   const draw = () => {
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
@@ -591,7 +591,7 @@ function portraitStream(raw, video) {
     return { stream: canvas.captureStream(24), canvas, timer };
   } catch {
     clearInterval(timer);
-    throw new Error('This browser cannot publish portrait video. Update your browser or try another phone.');
+    return { stream: raw, canvas: null, timer: null };
   }
 }
 

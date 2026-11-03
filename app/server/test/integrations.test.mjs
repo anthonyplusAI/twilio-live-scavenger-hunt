@@ -53,6 +53,54 @@ test('signed SMS and WhatsApp ballots route by sender/code, dedupe, and never cr
   app.store.close();
 });
 
+test('paused open SMS and WhatsApp ballots do not count messages and invite a retry after resume', () => {
+  const app = setup();
+  const path = '/webhooks/twilio/messaging';
+  const send = params => app.integrations.messagingWebhook({ path, signature: signature(path, params), params });
+  app.engine.command(app.event.slug, 'openVote', { type: 'category' }, { id: 'operator' });
+  app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
+  const sms = { MessageSid: 'SM-paused-sms', From: '+15550001111', To: '+15551234567', Body: 'STADIUM 1' };
+  const whatsapp = { MessageSid: 'SM-paused-whatsapp', From: 'whatsapp:+15550002222',
+    To: 'whatsapp:+15551234567', Body: 'STADIUM 2' };
+  for (const params of [sms, whatsapp]) {
+    const reply = send(params);
+    assert.equal(reply.status, 200);
+    assert.match(reply.body, /Voting is paused.*not counted.*send your choice again/i);
+  }
+  assert.equal(app.store.listVotes(app.event.id).length, 0);
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
+  assert.match(send({ ...sms, MessageSid: 'SM-resumed-sms' }).body, /Vote counted/);
+  assert.match(send({ ...whatsapp, MessageSid: 'SM-resumed-whatsapp' }).body, /Vote counted/);
+  assert.equal(app.store.listVotes(app.event.id).length, 2);
+  app.store.close();
+});
+
+test('SMS vote reply distinguishes a pause or final close racing after the initial snapshot', () => {
+  const app = setup();
+  const path = '/webhooks/twilio/messaging';
+  const send = sid => {
+    const params = { MessageSid: sid, From: '+15550003333', To: '+15551234567', Body: 'STADIUM 1' };
+    return app.integrations.messagingWebhook({ path, signature: signature(path, params), params });
+  };
+  const castVote = app.engine.castVote.bind(app.engine);
+  app.engine.command(app.event.slug, 'openVote', { type: 'category' }, { id: 'operator' });
+  app.engine.castVote = (slug, input) => {
+    app.engine.command(slug, 'pause', {}, { id: 'operator' });
+    return castVote(slug, input);
+  };
+  assert.match(send('SM-racing-pause').body, /Voting is paused.*not counted.*send your choice again/i);
+  assert.equal(app.store.listVotes(app.event.id).length, 0);
+
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
+  app.engine.castVote = (slug, input) => {
+    app.engine.command(slug, 'closeVote', {}, { id: 'operator' });
+    return castVote(slug, input);
+  };
+  assert.match(send('SM-racing-close').body, /That ballot closed/);
+  assert.equal(app.store.listVotes(app.event.id).length, 0);
+  app.store.close();
+});
+
 test('inbound ballots require exactly the effective event code and a displayed option number', () => {
   const app = setup();
   const event = app.store.saveEvent(app.event.slug, {

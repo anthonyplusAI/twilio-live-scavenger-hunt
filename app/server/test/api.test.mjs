@@ -21,7 +21,11 @@ async function fixture(changes = {}, options = {}) {
   auth.createUser('admin', 'correct-password-123', 'admin');
   auth.createUser('operator', 'operator-password-123', 'operator');
   const media = new MediaService({ env: { REHEARSAL_MODE: 'on' }, now: () => now });
-  const judge = new JudgeService({ engine, vision: { enabled: () => false }, now: () => now });
+  const judgeService = new JudgeService({ engine, vision: { enabled: () => false }, now: () => now });
+  const judge = options.onJudgeSubmit ? {
+    preflight: () => judgeService.preflight(),
+    submit: args => { options.onJudgeSubmit(args); return judgeService.submit(args); },
+  } : judgeService;
   const integrations = new Integrations({ store, engine, media, env: {} });
   engine.telemetry = integrations;
   const googleAuth = options.googleAuthFactory?.({ store, auth });
@@ -855,6 +859,26 @@ test('camera snapshots are available to a signed-in wall but not to an anonymous
     const frame = await app.request(path, { cookie: operator.cookie });
     assert.equal(frame.response.status, 200);
     assert.match(frame.response.headers.get('content-type'), /image\/jpeg/);
+  } finally { await app.close(); }
+});
+
+test('phone and operator evidence routes identify their sources to the judge', async () => {
+  const sources = [];
+  const app = await fixture({}, { onJudgeSubmit: args => sources.push(args.source) });
+  try {
+    const player = await app.join('Camera player');
+    const operator = await app.login('operator', 'operator-password-123');
+    const image = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const phone = await app.request(`/api/e/${app.event.slug}/frame`, {
+      method: 'POST', token: player.token, body: image,
+    });
+    assert.equal(phone.response.status, 200);
+    const wall = await app.request(`/api/admin/e/${app.event.slug}/evidence`, {
+      method: 'POST', cookie: operator.cookie, csrf: operator.csrf,
+      body: { playerId: player.player.id, imageBase64: image.toString('base64') },
+    });
+    assert.equal(wall.response.status, 200);
+    assert.deepEqual(sources, ['phone', 'wall']);
   } finally { await app.close(); }
 });
 

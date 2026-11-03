@@ -423,9 +423,10 @@ function applyPayload(payload) {
   if (!payload || typeof payload !== "object") return;
   if (payload.event) state.event = payload.event;
   const priorWindow = state.game?.vote?.id;
+  const wasPaused = Boolean(state.game?.paused);
   if (payload.state) state.game = payload.state;
   else if (payload.phase) state.game = payload;
-  if (state.game?.vote?.id !== priorWindow) state.error = "";
+  if (state.game?.vote?.id !== priorWindow || (wasPaused && !state.game?.paused)) state.error = "";
   if (payload.serverTime != null) {
     const serverTime = toMillis(payload.serverTime);
     if (serverTime) state.serverOffset = serverTime - Date.now();
@@ -433,17 +434,19 @@ function applyPayload(payload) {
   if (state.game) { recordVisit(); render(); setConnection("ARENA LIVE", "online"); }
 }
 async function refresh() {
-  if (!slug) { $("closed-title").textContent = "Event link missing"; $("closed-detail").textContent = "Scan the QR code at the arena to open this event’s ballot."; setConnection("LINK NEEDED", "offline"); return; }
+  if (!slug) { $("closed-title").textContent = "Event link missing"; $("closed-detail").textContent = "Scan the QR code at the arena to open this event’s ballot."; setConnection("LINK NEEDED", "offline"); return false; }
   try {
     const response = await fetch(`/api/e/${encodeURIComponent(slug)}`, { credentials: "same-origin", cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 404 ? "Event not found" : `Connection failed (${response.status})`);
     applyPayload(await response.json());
+    return true;
   } catch (error) {
     setConnection("RECONNECTING", "offline");
     if (!state.game) {
       $("closed-title").textContent = "Arena connection lost";
       $("closed-detail").textContent = error.message || "Trying to reconnect…";
     }
+    return false;
   }
 }
 function connectStream() {
@@ -469,10 +472,16 @@ async function submitVote(choice) {
     if (response.status === 409) {
       const closed = /clos|expir|window/i.test(String(payload.code || payload.error || ""));
       if (closed) {
-        state.error = "This ballot just closed.";
-        if (state.game?.vote?.id === vote.id) state.game.vote.status = "closed";
+        const refreshed = await refresh();
+        const sameOpenBallot = state.game?.vote?.id === vote.id && state.game.vote.status === "open";
+        const nextBallotOpened = Boolean(state.game?.vote?.id && state.game.vote.id !== vote.id);
+        state.error = !refreshed ? "Vote not sent. Check your connection and try again."
+          : nextBallotOpened ? ""
+          : sameOpenBallot
+            ? state.game.paused ? "Voting paused. Try again when staff resume." : "Voting is open. Tap again to cast your vote."
+            : "This ballot just closed.";
       } else state.blockedWindowId = vote.id;
-      refresh();
+      if (!closed) void refresh();
     } else if (!response.ok) throw new Error(payload.error || `Vote could not be sent (${response.status})`);
     else {
       saveChoice(vote.id, choice);

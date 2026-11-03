@@ -10,6 +10,10 @@ const COLOR_RANGES = {
   blue: hue => hue >= 170 && hue < 265,
   purple: hue => hue >= 265 && hue < 344,
 };
+const PHONE_START_GRACE_MS = 2500;
+const PHONE_FRAME_FRESH_MS = 3600;
+// Phone samples arrive about every 1.6s; a six-player wall can sample a player every 4.5s.
+const COLOR_SAMPLE_WINDOW_MS = { phone: 5500, wall: 10_000 };
 
 function hueAndSaturation(r, g, b) {
   const red = r / 255, green = g / 255, blue = b / 255;
@@ -66,6 +70,7 @@ export class JudgeService {
     this.now = now;
     this.samples = new Map();
     this.aiAttempts = new Map();
+    this.phoneFrames = new Map();
     this.engine.aiVisionAvailable = this.vision.enabled();
   }
 
@@ -74,15 +79,31 @@ export class JudgeService {
       detail: this.vision.enabled() ? 'Server-side image review configured.' : 'Object and text prompts need operator review until an OpenAI key is configured.' };
   }
 
-  async submit({ slug, playerId, buffer, receiptAt = this.now() } = {}) {
+  recordPhoneFrame(key, receiptAt) {
+    if (this.phoneFrames.size > 2000) this.phoneFrames.clear();
+    this.phoneFrames.set(key, receiptAt);
+    this.samples.delete(`${key}:wall`);
+  }
+
+  async submit({ slug, playerId, buffer, receiptAt = this.now(), source = 'phone' } = {}) {
     const event = this.engine.event(slug);
     const state = this.engine.store.getRuntime(event.id);
-    if (!state || state.paused || !['hunt', 'review'].includes(state.phase) || !state.lockedPlayerIds.includes(playerId))
+    if (!state || !['hunt', 'review'].includes(state.phase) || !state.lockedPlayerIds.includes(playerId))
       return { status: 'ignored', candidate: null };
     const player = this.engine.store.getPlayer(playerId);
     if (!player || ['left', 'kicked'].includes(player.status) ||
       (player.transport === 'twilio' && !player.mediaConnected))
       return { status: 'ignored', candidate: null, reason: 'media_disconnected' };
+    if (!['phone', 'wall'].includes(source))
+      throw new ValidationError('Choose a valid camera evidence source.', 'invalid_evidence');
+    const key = `${event.id}:${state.heatId}:${playerId}`;
+    if (state.paused) {
+      if (source === 'phone' && state.goAt && receiptAt >= Date.parse(state.goAt)) {
+        decodeEvidence(buffer);
+        this.recordPhoneFrame(key, receiptAt);
+      }
+      return { status: 'ignored', candidate: null };
+    }
     if (!state.goAt || receiptAt < Date.parse(state.goAt) || receiptAt > Date.parse(state.roundEndsAt) + 500)
       return { status: 'ignored', candidate: null };
     if (state.promptSnapshot?.judgeMode === 'operator' || state.promptSnapshot?.judgeMode === 'audience')
@@ -91,17 +112,28 @@ export class JudgeService {
       return { status: 'manual', candidate: state.candidate,
         errorCode: state.judgeNotice.code, error: state.judgeNotice.message };
     const decoded = decodeEvidence(buffer);
-    const key = `${event.id}:${state.heatId}:${playerId}`;
+    if (source === 'wall') {
+      // The phone's uncropped JPEG is preferred; the wall sees its published portrait stream.
+      const lastPhoneFrame = this.phoneFrames.get(key);
+      if (receiptAt - Date.parse(state.goAt) < PHONE_START_GRACE_MS ||
+        (lastPhoneFrame != null && receiptAt - lastPhoneFrame <= PHONE_FRAME_FRESH_MS))
+        return { status: 'pending', candidate: state.candidate };
+    } else {
+      this.recordPhoneFrame(key, receiptAt);
+    }
     const detector = state.promptSnapshot.detector || '';
     const color = detector.startsWith('color:') ? detector.slice(6).trim().toLowerCase() : null;
     if (state.promptSnapshot.judgeMode === 'rule' && color) {
       const result = detectColor(decoded, color);
-      const history = (this.samples.get(key) || []).filter(sample => receiptAt - sample.at <= 2500);
+      const sampleKey = `${key}:${source}`;
+      const history = (this.samples.get(sampleKey) || []).filter(sample => receiptAt - sample.at <= COLOR_SAMPLE_WINDOW_MS[source]);
       history.push({ at: receiptAt, matched: result.matched });
-      this.samples.set(key, history.slice(-4));
+      this.samples.set(sampleKey, history.slice(-4));
       const recent = history.slice(-4);
       const positives = recent.filter(sample => sample.matched);
-      if (positives.length >= 3 && positives.at(-1).at - positives[0].at >= 500) {
+      const required = source === 'wall' ? 2 : 3;
+      if (recent.at(-1).matched && positives.length >= required &&
+        positives.at(-1).at - positives[0].at >= 500) {
         const judged = this.engine.acceptJudgment(slug, {
           playerId, matched: true, confidence: Math.max(0.8, result.confidence),
           explanation: `${color} was visible across ${positives.length} recent frames`, source: 'rule', receiptAt,
@@ -118,22 +150,28 @@ export class JudgeService {
       return { status: 'manual', candidate: state.candidate, errorCode: notice?.code,
         error: notice?.message };
     }
-    const lastAttempt = this.aiAttempts.get(key);
+    const attemptKey = `${key}:${source}`;
+    const lastAttempt = this.aiAttempts.get(attemptKey);
     if (lastAttempt && (lastAttempt.inFlight || receiptAt - lastAttempt.at < 1800))
       return { status: 'pending', candidate: state.candidate };
-    this.aiAttempts.set(key, { at: receiptAt, inFlight: true });
+    this.aiAttempts.set(attemptKey, { at: receiptAt, inFlight: true });
+    const supersededByPhone = () => source === 'wall' && (this.phoneFrames.get(key) ?? -Infinity) >= receiptAt;
     let verdict;
     try {
       verdict = await this.vision.judge(buffer, state.promptSnapshot);
     } catch (error) {
+      if (supersededByPhone())
+        return { status: 'pending', candidate: this.engine.store.getRuntime(event.id)?.candidate || null };
       const notice = this.engine.reportJudgeUnavailable(slug, { code: 'ai_unavailable', heatId: state.heatId });
       return { status: 'manual', candidate: this.engine.store.getRuntime(event.id)?.candidate || null,
         errorCode: notice?.code, error: notice?.message };
     } finally {
-      this.aiAttempts.set(key, { at: receiptAt, inFlight: false });
+      this.aiAttempts.set(attemptKey, { at: receiptAt, inFlight: false });
       if (this.aiAttempts.size > 2000) this.aiAttempts.clear();
       if (this.samples.size > 2000) this.samples.clear();
     }
+    if (supersededByPhone())
+      return { status: 'pending', candidate: this.engine.store.getRuntime(event.id)?.candidate || null };
     if (!verdict.matched || verdict.confidence < 0.72)
       return { status: 'pending', candidate: this.engine.store.getRuntime(event.id)?.candidate || null, confidence: verdict.confidence };
     const judged = this.engine.acceptJudgment(slug, {

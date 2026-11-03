@@ -156,7 +156,7 @@ function render() {
     $('eyebrow').textContent = 'Booth paused';
     setHeadline(currentPhase === 'lobby' ? 'BOOTH PAUSED.' : 'HEAT PAUSED.');
     $('subline').textContent = currentPhase === 'lobby'
-      ? 'Scan to join now. The heat begins after staff resume.'
+      ? 'Scan to join now. Staff will resume the booth when ready.'
       : 'Scan to join the next heat. Play resumes after staff return.';
   } else if (vote) {
     $('eyebrow').textContent = vote.type === 'creative' ? 'Audience vote' : 'Choose the next category';

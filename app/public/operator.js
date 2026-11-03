@@ -33,7 +33,6 @@ let preflight = [];
 let mediaMode = null;
 let stream = null;
 let clockOffset = 0;
-let frozenSeconds = null;
 let lastHeat = null;
 let selectedWinners = new Set();
 let selectedPastHeatId = null;
@@ -1077,9 +1076,12 @@ function renderReady() {
   $("start-rule").textContent = startNames[committed.startMode] || "Flexible start";
   $("minimum-rule").textContent = "Min " + committed.minPlayers + (runtime.queuedCount ? " · " + runtime.queuedCount + " next" : "");
   $("judge-policy-label").textContent = committed.judgePolicy === "manual" ? "Manual judging" : committed.judgePolicy === "operator-confirm" ? "Confirm to award" : "Override enabled";
-  const canStart = runtime.phase === "lobby" && Number(runtime.readyCount || 0) >= committed.minPlayers;
+  const canStart = runtime.phase === "lobby" && !runtime.paused && Number(runtime.readyCount || 0) >= committed.minPlayers;
   $("start-button").disabled = !canStart || commandBusy;
-  $("start-button").textContent = canStart ? "Start heat" : Number(runtime.readyCount || 0) < committed.minPlayers && runtime.phase === "lobby" ? "Need " + committed.minPlayers + " ready" : "Heat in progress";
+  $("start-button").textContent = runtime.phase === "lobby" && runtime.paused
+    ? "Resume to start"
+    : canStart ? "Start heat" : Number(runtime.readyCount || 0) < committed.minPlayers && runtime.phase === "lobby" ? "Need " + committed.minPlayers + " ready" : "Heat in progress";
+  $("start-button").title = runtime.phase === "lobby" && runtime.paused ? "Resume the booth before starting this heat." : "";
   $("pause-button").textContent = runtime.paused ? "Resume" : "Pause";
   $("pause-button").disabled = commandBusy;
 }
@@ -1282,25 +1284,26 @@ function clockDetails() {
     label = "Results";
   }
   if (runtime.paused) {
-    if (frozenSeconds == null) {
-      const phaseDeadline = { lobby: "readyDeadline", countdown: "countdownEndsAt", hunt: "roundEndsAt", review: "reviewEndsAt", result: "resultEndsAt" }[phase];
-      const serverFrozen = typeof runtime.pauseRemaining === "object" && runtime.pauseRemaining !== null
-        ? runtime.pauseRemaining[phaseDeadline]
-        : runtime.pauseRemaining ?? runtime.remainingSeconds ?? runtime.pauseRemainingSeconds;
-      const numeric = Number(serverFrozen);
-      frozenSeconds = serverFrozen != null && Number.isFinite(numeric) ? (numeric > 180 ? numeric / 1000 : numeric) : seconds;
-    }
-    seconds = frozenSeconds;
+    const phaseDeadline = { lobby: "readyDeadline", countdown: "countdownEndsAt", hunt: "roundEndsAt", review: "reviewEndsAt", result: "resultEndsAt" }[phase];
+    const structuredPause = typeof runtime.pauseRemaining === "object" && runtime.pauseRemaining !== null;
+    const serverFrozen = structuredPause
+      ? runtime.pauseRemaining[phaseDeadline]
+      : runtime.pauseRemaining ?? runtime.remainingSeconds ?? runtime.pauseRemainingSeconds;
+    const numeric = Number(serverFrozen);
+    if (serverFrozen != null && Number.isFinite(numeric)) seconds = (structuredPause || numeric > 180) ? numeric / 1000 : numeric;
+    else if (phase === "lobby") seconds = null;
     label = "Paused";
-  } else frozenSeconds = null;
-  return { seconds: Math.max(0, Math.ceil(seconds ?? total)), total: Math.max(1, total), label };
+  }
+  const waitingForMinimum = runtime.paused && phase === "lobby" && seconds == null;
+  return { seconds: waitingForMinimum ? null : Math.max(0, Math.ceil(seconds ?? total)), total: Math.max(1, total), label };
 }
 function renderClock() {
   if (!runtime || !committed) return;
   const { seconds, total, label } = clockDetails();
-  $("stage-time").textContent = String(seconds).padStart(2, "0");
-  $("dial").style.setProperty("--progress", String(Math.max(0, Math.min(1, seconds / total))));
+  $("stage-time").textContent = seconds == null ? "—" : String(seconds).padStart(2, "0");
+  $("dial").style.setProperty("--progress", String(seconds == null ? 0 : Math.max(0, Math.min(1, seconds / total))));
   $("dial").querySelector(".dial-label").textContent = label;
+  $("dial").querySelector(".dial-unit").textContent = seconds == null ? "not started" : "seconds";
 }
 function renderRun() {
   if (!runtime || !committed) return;
