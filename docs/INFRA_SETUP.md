@@ -154,7 +154,7 @@ credentials; only the deploy job reads them.
 | Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
 | Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
 | Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY` | AI-assisted judging, Segment mirroring, and requested guide email respectively. |
-| Optional variables | `OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, explicit consent-based lead identification, verified guide sender, and SendGrid API region. |
+| Optional variables | `OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, verified guide sender, and SendGrid API region. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.
@@ -275,10 +275,9 @@ settings preserve the existing ACA values.
    verdict. Check the event's camera consent and privacy copy before use.
 2. **Segment:** create a Source and add its `SEGMENT_WRITE_KEY` as an Actions
    secret to mirror the app's limited activity stream. Local metrics continue
-   to work without Segment. Leave `SEGMENT_IDENTIFY_LEADS` unset or set it to
-   `0` by default. Set the Actions variable to `1` only when you intentionally
-   want name/email/company sent for leads who separately checked marketing
-   opt-in. Set it back to `0` and deploy to turn that identification off.
+   to work without Segment. The app sends no lead identity to Segment. The
+   retired `SEGMENT_IDENTIFY_LEADS` Actions variable can be removed; the deploy
+   workflow no longer forwards it.
 3. **Guide email:** verify the sending identity in SendGrid, create an API key
    with Mail Send access, add `SENDGRID_API_KEY` as an Actions secret, and set
    `SENDGRID_FROM_EMAIL` to the exact verified address as an Actions variable.

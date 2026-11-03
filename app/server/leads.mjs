@@ -36,16 +36,14 @@ export function validateLead(event, player, input, state, now = new Date()) {
   }
   if (!email && !phone) fail('Provide an email or phone number for your request.');
   if (intent === 'guide' && !email) fail('Enter an email address to receive the build guide.');
-  if (input.marketingOptIn != null && typeof input.marketingOptIn !== 'boolean')
-    fail('Choose yes or no for product updates.');
-  const marketingOptIn = input.marketingOptIn === true;
-  if (marketingOptIn && (!settings.marketingOptIn || !email)) fail('Product updates require an email and an enabled opt-in.');
+  if (input.marketingOptIn != null && input.marketingOptIn !== false)
+    fail('Email product updates are not offered on this form.');
   return {
     id: randomUUID(), eventId: event.id, createdAt: now.toISOString(), intent,
     participantId: player.id, heatId: state.heatId || null,
     fieldValues, fieldSnapshot: structuredClone(settings.fields),
-    name, email, phone, company, marketingOptIn,
-    consentVersion: intent === 'capture' ? 'live-scavenger-hunt-join-v2' : 'signal-stadium-leads-v1',
+    name, email, phone, company, marketingOptIn: false,
+    consentVersion: intent === 'capture' ? 'live-scavenger-hunt-join-v3' : 'live-scavenger-hunt-leads-v2',
     deliveryStatus: intent === 'capture' ? 'not-requested' : intent === 'expert' ? 'operator-follow-up' : 'pending-configuration',
   };
 }
@@ -100,7 +98,6 @@ export async function submitLead({ store, engine, integrations, slug, token, inp
   });
   if (stored.activity) integrations.track(stored.activity);
   if (!stored.duplicate) {
-    integrations.identifyOptedInLead(lead);
     const status = await integrations.sendGuide(lead, event);
     store.updateLeadDelivery(lead.id, status);
     return { leadId: lead.id, deliveryStatus: status };

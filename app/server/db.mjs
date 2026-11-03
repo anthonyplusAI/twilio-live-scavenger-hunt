@@ -185,6 +185,72 @@ export class Store {
       this.createEvent('Live Scavenger Hunt', 'live-scavenger-hunt');
   }
 
+  migratePromptJudgingToAi() {
+    return this.transaction(() => {
+      const key = 'prompt_judging_ai_v1';
+      if (this.getSetting(key) === 'done') return 0;
+      let changedEvents = 0;
+      for (const event of this.listEvents()) {
+        const changedPrompts = event.prompts.filter(prompt => prompt.judgeMode !== 'ai-assisted');
+        if (!changedPrompts.length) continue;
+        const prompts = event.prompts.map(prompt => prompt.judgeMode === 'ai-assisted'
+          ? prompt : { ...prompt, judgeMode: 'ai-assisted', detector: `visual:${prompt.text}` });
+        const next = normalizeEvent({ ...event, prompts }, event);
+        next.revision = event.revision + 1;
+        next.updatedAt = nowIso();
+        this.sql.prepare('UPDATE events SET revision=?,config_json=?,updated_at=? WHERE id=?')
+          .run(next.revision, json(next), next.updatedAt, event.id);
+        this.audit(event.id, null, 'event:ai-judging-migrated', { prompts: changedPrompts.length });
+        changedEvents++;
+      }
+      this.sql.prepare('INSERT INTO app_settings(key,value) VALUES(?,?)').run(key, 'done');
+      return changedEvents;
+    });
+  }
+
+  migrateEmailUpdatesOff() {
+    return this.transaction(() => {
+      const key = 'lead_email_updates_removed_v1';
+      if (this.getSetting(key) === 'done') return 0;
+      let changedEvents = 0;
+      for (const event of this.listEvents()) {
+        if (!Object.hasOwn(event.leadCapture, 'marketingOptIn')) continue;
+        const next = normalizeEvent(event, event);
+        next.revision = event.revision + 1;
+        next.updatedAt = nowIso();
+        this.sql.prepare('UPDATE events SET revision=?,config_json=?,updated_at=? WHERE id=?')
+          .run(next.revision, json(next), next.updatedAt, event.id);
+        this.audit(event.id, null, 'event:email-updates-removed', {});
+        changedEvents++;
+      }
+      this.sql.prepare('INSERT INTO app_settings(key,value) VALUES(?,?)').run(key, 'done');
+      return changedEvents;
+    });
+  }
+
+  migrateRoundDurationDefaults() {
+    return this.transaction(() => {
+      const key = 'round_duration_defaults_v2';
+      if (this.getSetting(key) === 'done') return 0;
+      let changedEvents = 0;
+      for (const event of this.listEvents()) {
+        const roundSeconds = event.roundSeconds === 20 ? 45 : event.roundSeconds;
+        const prompts = event.prompts.map(prompt => /^V\d{2}$/.test(prompt.id) && prompt.category === 'Creative' && prompt.seconds === 30
+          ? { ...prompt, seconds: 60 } : prompt);
+        if (roundSeconds === event.roundSeconds && prompts.every((prompt, index) => prompt === event.prompts[index])) continue;
+        const next = normalizeEvent({ ...event, roundSeconds, prompts }, event);
+        next.revision = event.revision + 1;
+        next.updatedAt = nowIso();
+        this.sql.prepare('UPDATE events SET revision=?,config_json=?,updated_at=? WHERE id=?')
+          .run(next.revision, json(next), next.updatedAt, event.id);
+        this.audit(event.id, null, 'event:round-defaults-migrated', { roundSeconds });
+        changedEvents++;
+      }
+      this.sql.prepare('INSERT INTO app_settings(key,value) VALUES(?,?)').run(key, 'done');
+      return changedEvents;
+    });
+  }
+
   saveEvent(slug, draft, expectedRevision) {
     return this.transaction(() => {
       const current = this.getEvent(slug);
@@ -266,7 +332,7 @@ export class Store {
   updatePlayer(id, patch) {
     const fields = {
       alias: 'alias', heat: 'heat', slot: 'slot', status: 'status', mediaConnected: 'media_connected',
-      transport: 'transport', readyAt: 'ready_at', lastSeenAt: 'last_seen_at', leftAt: 'left_at',
+      transport: 'transport', joinedAt: 'joined_at', readyAt: 'ready_at', lastSeenAt: 'last_seen_at', leftAt: 'left_at',
     };
     const pairs = Object.entries(patch).filter(([key]) => fields[key]);
     if (!pairs.length) return this.getPlayer(id);

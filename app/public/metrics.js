@@ -412,7 +412,7 @@ function renderLeadDetail() {
   setText("lead-detail-heading", leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor"));
   const when = new Date(lead.createdAt);
   const date = Number.isFinite(when.getTime()) ? when.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date unavailable";
-  setText("lead-detail-summary", `Captured ${date} · ${requestedFollowup(lead)} · Email updates: ${lead.marketingOptIn ? "yes" : "no"}`);
+  setText("lead-detail-summary", `Captured ${date} · ${requestedFollowup(lead)}`);
   const entries = leadFieldEntries(lead), pages = leadDetailPages(entries);
   state.detailPage = Math.min(state.detailPage, Math.max(0, pages.length - 1));
   const current = pages[state.detailPage] || { start: 0, items: [] }, start = current.start, visible = current.items, host = $("lead-detail-fields");
@@ -466,7 +466,6 @@ function renderLeads(summary) {
   const experts = state.reportSummary?.expertRequests ?? state.leads.filter(lead => Boolean(lead.expertRequestedAt) || lead.intent === "expert").length;
   setText("lead-guides", number(guides)); setText("lead-experts", number(experts));
   setText("intent-guide", number(guides)); setText("intent-expert", number(experts));
-  setText("intent-marketing", number(state.leads.filter(lead => lead.marketingOptIn).length));
   const selected = state.events.find(event => event.slug === state.event);
   const leadStatus = state.event === "all" ? "Lead forms are configured per event."
     : selected?.leadCaptureEnabled === false ? "Lead capture is off for this event."

@@ -69,14 +69,6 @@ export class Integrations {
     } catch (error) { console.error(`Segment track: ${error.message}`); }
   }
 
-  identifyOptedInLead(lead) {
-    if (!this.segment || this.env.SEGMENT_IDENTIFY_LEADS !== '1' || !lead.marketingOptIn) return;
-    const traits = { email: lead.email || undefined, name: lead.name || undefined,
-      company: lead.company || undefined, eventId: lead.eventId };
-    try { this.segment.identify({ userId: lead.id, traits }); }
-    catch (error) { console.error(`Segment identify: ${error.message}`); }
-  }
-
   async sendGuide(lead, event) {
     if (lead.intent !== 'guide') return 'operator-follow-up';
     if (!lead.email) return 'pending-email';

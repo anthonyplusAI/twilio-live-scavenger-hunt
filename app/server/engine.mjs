@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { ValidationError } from './config.mjs';
 import { validateLead } from './leads.mjs';
 
@@ -38,13 +38,15 @@ function publicVote(store, eventId, vote) {
 }
 
 export class GameEngine extends EventEmitter {
-  constructor({ store, now = () => Date.now(), mediaMode = () => 'rehearsal', telemetry = null } = {}) {
+  constructor({ store, now = () => Date.now(), mediaMode = () => 'rehearsal', telemetry = null,
+    randomIndex = randomInt } = {}) {
     super();
     if (!store) throw new Error('GameEngine needs a Store.');
     this.store = store;
     this.now = now;
     this.mediaMode = mediaMode;
     this.telemetry = telemetry;
+    this.randomIndex = randomIndex;
     this.interval = null;
     this.lastPresenceSweep = new Map();
   }
@@ -134,8 +136,8 @@ export class GameEngine extends EventEmitter {
       ? state.resultRoster.map(spot => {
         const current = byId.get(spot.id);
         if (!current || current.status === 'kicked') return null;
-        return { ...spot, status: current.status,
-          mediaConnected: current.status === 'left' ? false : current.mediaConnected };
+        return { ...spot, status: current.status === 'queued' ? 'finished' : current.status,
+          mediaConnected: ['left', 'queued'].includes(current.status) ? false : current.mediaConnected };
       }).filter(Boolean)
       : liveRoster;
     const readyCount = roster.filter(player => ['ready', 'locked', 'active', 'finished'].includes(player.status)).length;
@@ -243,12 +245,34 @@ export class GameEngine extends EventEmitter {
       touch();
       return player;
     });
-    if (capturedLead) {
-      try { this.telemetry?.identifyOptedInLead?.(capturedLead); }
-      catch { /* Lead analytics never blocks a player join. */ }
-    }
     const state = this.snapshot(slug).state;
     return { player: this._withQueuePosition(this.store.getPlayer(value.id)), token, state };
+  }
+
+  replay(slug, token) {
+    const player = this._mutate(slug, context => {
+      const { event, state, now, touch, activity } = context;
+      const current = this._authenticatePlayer(event.id, token);
+      if (['queued', 'joined', 'ready'].includes(current.status)) return current;
+      if (current.status !== 'finished') fail('Finish this heat before playing again.', 'replay_unavailable');
+      if (state.phase === 'lobby') this._fillOpenLobbySlots(context);
+      const occupied = this.store.listPlayers(event.id, state.heat)
+        .filter(entry => entry.slot != null && !['left', 'kicked'].includes(entry.status));
+      const available = Array.from({ length: event.maxPlayers }, (_, index) => index + 1)
+        .find(slot => !occupied.some(entry => entry.slot === slot));
+      const slot = state.phase === 'lobby' ? available ?? null : null;
+      const next = this.store.updatePlayer(current.id, {
+        heat: slot ? state.heat : state.heat + 1, slot,
+        status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
+        joinedAt: toIso(now), readyAt: null, lastSeenAt: toIso(now), leftAt: null,
+      });
+      activity('player_joined', { playerId: next.id, heat: next.heat, queued: !slot });
+      if (!slot) activity('player_queued', { playerId: next.id, heat: next.heat });
+      touch();
+      return next;
+    });
+    const state = this.snapshot(slug).state;
+    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
   }
 
   me(slug, token) {
@@ -408,9 +432,16 @@ export class GameEngine extends EventEmitter {
     if (!enabled.length) fail('Enable at least one prompt before starting.');
     let selected = enabled.find(prompt => prompt.id === state.queuedPromptId);
     if (!selected) {
-      const category = enabled.filter(prompt => prompt.category === state.preferredCategory);
-      const pool = category.length ? category : enabled;
-      selected = pool.find(prompt => !state.usedPromptIds.includes(prompt.id)) || pool[0];
+      let unused = enabled.filter(prompt => !state.usedPromptIds.includes(prompt.id));
+      if (!unused.length) {
+        const lastPromptId = state.usedPromptIds.at(-1);
+        unused = enabled.filter(prompt => prompt.id !== lastPromptId);
+        if (!unused.length) unused = enabled;
+        state.usedPromptIds = [];
+      }
+      const category = unused.filter(prompt => prompt.category === state.preferredCategory);
+      const pool = category.length ? category : unused;
+      selected = pool[this.randomIndex(pool.length)];
     }
     state.usedPromptIds = [...state.usedPromptIds.filter(id => id !== selected.id), selected.id].slice(-100);
     state.queuedPromptId = null;

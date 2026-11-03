@@ -8,7 +8,7 @@ function setup(changes = {}) {
   let event = store.seedDefault();
   if (Object.keys(changes).length) event = store.saveEvent(event.slug, { ...event, ...changes }, event.revision);
   let now = Date.UTC(2026, 0, 1, 12);
-  const engine = new GameEngine({ store, now: () => now });
+  const engine = new GameEngine({ store, now: () => now, randomIndex: () => 0 });
   const advance = milliseconds => { now += milliseconds; engine.tickAll(); };
   const join = alias => {
     const response = engine.join(event.slug, { alias, displayConsent: true });
@@ -18,6 +18,29 @@ function setup(changes = {}) {
   const ready = response => engine.ready(event.slug, response.token);
   return { store, event, engine, advance, join, ready, get now() { return now; }, set now(value) { now = value; } };
 }
+
+test('automatic prompt draws are random without repeats, with category and manual overrides', () => {
+  const app = setup();
+  try {
+    const event = { ...app.event, prompts: app.event.prompts.filter(prompt => ['C01', 'O01', 'T01'].includes(prompt.id)) };
+    const state = { usedPromptIds: [], queuedPromptId: null, preferredCategory: null };
+    app.engine.randomIndex = max => max - 1;
+    const draw = () => app.engine._choosePrompt(event, state).id;
+
+    assert.deepEqual([draw(), draw(), draw()], ['T01', 'O01', 'C01']);
+    assert.equal(draw(), 'T01'); // A new cycle cannot immediately repeat C01.
+    assert.deepEqual(state.usedPromptIds, ['T01']);
+
+    state.preferredCategory = 'Text'; // Its only prompt is used; keep the no-repeat rule.
+    assert.equal(draw(), 'O01');
+    state.queuedPromptId = 'O01'; // Staff can intentionally repeat a prompt.
+    assert.equal(draw(), 'O01');
+    assert.equal(state.queuedPromptId, null);
+
+    const categoryState = { usedPromptIds: [], queuedPromptId: null, preferredCategory: 'Object' };
+    assert.equal(app.engine._choosePrompt(event, categoryState).id, 'O01');
+  } finally { app.store.close(); }
+});
 
 test('atomic slot assignment caps an event at its configured capacity and queues late arrivals', () => {
   const app = setup({ minPlayers: 2, maxPlayers: 2 });
@@ -179,15 +202,69 @@ test('late players move into the next heat, while a completed heat keeps its ori
   assert.equal(c.player.status, 'queued');
   app.advance(3000);
   app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' });
-  const changed = app.store.saveEvent(app.event.slug, { ...app.event, roundSeconds: 45 }, app.event.revision);
-  assert.equal(app.store.listHeats(app.event.id)[0].rules.roundSeconds, 20);
-  assert.equal(changed.roundSeconds, 45);
+  const changed = app.store.saveEvent(app.event.slug, { ...app.event, roundSeconds: 55 }, app.event.revision);
+  assert.equal(app.store.listHeats(app.event.id)[0].rules.roundSeconds, 45);
+  assert.equal(changed.roundSeconds, 55);
   app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
   const next = app.engine.snapshot(app.event.slug).state;
   assert.equal(next.heat, 2);
   assert.equal(next.roster[0].id, c.player.id);
   assert.equal(next.roster[0].slot, 1);
   app.store.close();
+});
+
+test('a finished player can replay with the same token, queue once, and leave when done', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.throws(() => app.engine.replay(app.event.slug, first.token),
+      error => error.code === 'replay_unavailable');
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    const replayed = app.engine.replay(app.event.slug, first.token);
+    assert.equal(replayed.player.id, first.player.id);
+    assert.equal(replayed.player.alias, 'Ada');
+    assert.equal(replayed.player.status, 'queued');
+    assert.equal(replayed.player.heat, 2);
+    assert.equal(replayed.player.slot, null);
+    assert.equal(replayed.state.queuedCount, 1);
+    assert.equal(replayed.state.roster.find(player => player.id === first.player.id)?.status, 'finished');
+    assert.equal(app.engine.replay(app.event.slug, first.token).player.id, first.player.id);
+    assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'player_joined').length, 3);
+
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    const promoted = app.engine.me(app.event.slug, first.token);
+    assert.equal(promoted.player.status, 'joined');
+    assert.equal(promoted.player.slot, 1);
+    app.engine.leave(app.event.slug, first.token);
+    assert.throws(() => app.engine.me(app.event.slug, first.token), error => error.code === 'unauthorized');
+  } finally { app.store.close(); }
+});
+
+test('a replaying player waits behind visitors already queued for a vacant lobby spot', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    const third = app.join('Cy'), fourth = app.join('Dee'), fifth = app.join('Eve');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    assert.equal(app.engine.me(app.event.slug, third.token).player.slot, 1);
+    assert.equal(app.engine.me(app.event.slug, fourth.token).player.slot, 2);
+    assert.equal(app.engine.me(app.event.slug, fifth.token).player.queuePosition, 1);
+
+    // Simulate a lobby vacancy left by an interrupted cleanup before replay arrives.
+    app.store.updatePlayer(third.player.id, { slot: null, status: 'left' });
+    const replay = app.engine.replay(app.event.slug, first.token);
+    assert.equal(app.engine.me(app.event.slug, fifth.token).player.slot, 1);
+    assert.equal(replay.player.status, 'queued');
+    assert.equal(replay.player.queuePosition, 1);
+    assert.equal(replay.state.queuedCount, 1);
+  } finally { app.store.close(); }
 });
 
 test('restart advances absolute deadlines once and never duplicates heat completion', () => {
@@ -197,6 +274,8 @@ test('restart advances absolute deadlines once and never duplicates heat complet
   app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
   app.now += 50_000;
   const restarted = new GameEngine({ store: app.store, now: () => app.now });
+  assert.equal(restarted.snapshot(app.event.slug).state.phase, 'review');
+  app.now += 6000;
   assert.equal(restarted.snapshot(app.event.slug).state.phase, 'result');
   restarted.snapshot(app.event.slug);
   assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'heat_completed').length, 1);
@@ -292,7 +371,7 @@ test('pause freezes the round clock and resume restores its remaining time', () 
   app.advance(100_000);
   assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'hunt');
   app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
-  assert.equal(Date.parse(app.engine.snapshot(app.event.slug).state.roundEndsAt) - app.now, 20_000);
+  assert.equal(Date.parse(app.engine.snapshot(app.event.slug).state.roundEndsAt) - app.now, 45_000);
   app.store.close();
 });
 
