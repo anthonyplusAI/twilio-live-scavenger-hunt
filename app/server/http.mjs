@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { ValidationError } from './config.mjs';
 import { GoogleAuthService, safeOperatorNext } from './google-auth.mjs';
@@ -21,7 +21,8 @@ const statusFor = error => error.status || ({
   not_found: 404, unauthorized: 401, forbidden: 403, revision_conflict: 409,
   player_kicked: 403,
   duplicate_vote: 409, vote_closed: 409, media_required: 409, player_queued: 409,
-  invalid_state: 409, replay_unavailable: 409, rate_limited: 429, media_unavailable: 503,
+  invalid_state: 409, replay_unavailable: 409, join_lead_required: 409,
+  rate_limited: 429, media_unavailable: 503,
   webhook_unconfigured: 503,
 }[error.code] || 400);
 
@@ -70,6 +71,17 @@ async function readJson(req, maxBytes = BODY_LIMIT) {
     if (error instanceof ValidationError) throw error;
     throw new ValidationError('The JSON request could not be read.', 'invalid_json');
   }
+}
+async function readOptionalJson(req, maxBytes = BODY_LIMIT) {
+  const buffer = await readBuffer(req, maxBytes);
+  if (!buffer.length) return {};
+  if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json'))
+    throw new ValidationError('Send JSON for this request.', 'invalid_content_type');
+  try {
+    const value = JSON.parse(buffer.toString('utf8'));
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error('object expected');
+    return value;
+  } catch { throw new ValidationError('The JSON request could not be read.', 'invalid_json'); }
 }
 async function readForm(req) {
   const type = String(req.headers['content-type'] || '').toLowerCase();
@@ -395,7 +407,12 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       }));
     }
     if (tail === 'me' && method === 'GET') return json(res, 200, engine.me(slug, bearer(req)));
-    if (tail === 'replay' && method === 'POST') return json(res, 200, engine.replay(slug, bearer(req)));
+    if (tail === 'replay' && method === 'POST') {
+      const token = bearer(req);
+      const tokenKey = createHash('sha256').update(token).digest('hex');
+      limiter.check(`replay:${slug}:${tokenKey}`, 8, 60_000);
+      return json(res, 200, engine.replay(slug, token, await readOptionalJson(req, 16_000)));
+    }
     if (tail === 'ready' && method === 'POST') return json(res, 200, engine.ready(slug, bearer(req)));
     if (tail === 'heartbeat' && method === 'POST') return json(res, 200, engine.heartbeat(slug, bearer(req)));
     if (tail === 'leave' && method === 'POST') return json(res, 200, engine.leave(slug, bearer(req)));

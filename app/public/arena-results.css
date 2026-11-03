@@ -112,6 +112,29 @@
   color: #fff;
   box-shadow: 0 5px 16px rgba(239,34,58,.4);
 }
+.arena-page .screen[data-phase="result"] .player-tile.is-frozen .camera-placeholder { display: none; }
+.arena-page .screen[data-phase="result"] .frozen-frame {
+  object-fit: contain;
+  background: #07142f;
+  animation: frame-freeze .62s ease-out both;
+}
+.arena-page .freeze-tag {
+  position: absolute;
+  z-index: 3;
+  top: clamp(38px, 4.2vw, 66px);
+  right: clamp(7px, .8vw, 13px);
+  padding: 4px 6px 3px;
+  border: 1px solid rgba(238,244,255,.56);
+  border-radius: 4px;
+  background: rgba(5,16,39,.68);
+  color: #f5f8ff;
+  font-size: clamp(7px, .55vw, 9px);
+  font-weight: 800;
+  letter-spacing: .1em;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .arena-page .winner-stamp {
   position: absolute;
   z-index: 4;
@@ -164,6 +187,7 @@ html[data-theme="light"] .arena-page .screen[data-phase="result"] .player-tile.i
 @keyframes winner-arrive { from { opacity: .55; transform: translateY(32px) scale(.89); filter: brightness(1.5); } 65% { opacity: 1; transform: translateY(-17px) scale(1.065); } to { opacity: 1; transform: translateY(-9px) scale(1.03); filter: brightness(1); } }
 @keyframes winner-sweep { from { transform: translateX(-65%) rotate(-9deg); opacity: 0; } 30% { opacity: 1; } to { transform: translateX(65%) rotate(-9deg); opacity: 0; } }
 @keyframes played-settle { from { opacity: 1; filter: saturate(1); } to { opacity: .79; filter: saturate(.7); } }
+@keyframes frame-freeze { 0% { filter: brightness(1.28) saturate(.7); opacity: .72; } 100% { filter: brightness(1) saturate(1); opacity: 1; } }
 @keyframes stamp-pop { from { opacity: 0; transform: translateX(-50%) translateY(20px) rotate(-18deg) scale(.55); } 70% { transform: translateX(-50%) translateY(-6px) rotate(3deg) scale(1.08); } to { opacity: 1; transform: translateX(-50%) rotate(-5deg) scale(1); } }
 
 @media (max-width: 900px) {
@@ -188,6 +212,7 @@ html[data-theme="light"] .arena-page .screen[data-phase="result"] .player-tile.i
   .arena-page .screen[data-phase="result"].show-result .player-tile.is-winner,
   .arena-page .screen[data-phase="result"].show-result .player-tile.is-winner .feed-art::after,
   .arena-page .screen[data-phase="result"].show-result .player-tile.is-played,
+  .arena-page .screen[data-phase="result"] .frozen-frame,
   .arena-page .screen[data-phase="result"].show-result .winner-stamp { animation: none !important; }
   .arena-page .screen[data-phase="result"] .result-effects-rings,
   .arena-page .screen[data-phase="result"] .result-confetti { display: none; }

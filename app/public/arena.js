@@ -4,7 +4,7 @@ const adminBase = `/api/admin/e/${encodeURIComponent(slug)}`;
 const routeBase = `/e/${encodeURIComponent(slug)}`;
 const githubRepoUrl = 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt';
 const requestedDemo = new URLSearchParams(location.search).get('demo');
-const previewMode = ['hunt', 'win', 'lose', 'tie', 'no-match'].includes(requestedDemo) ? requestedDemo : null;
+const previewMode = ['hunt', 'vote', 'win', 'lose', 'tie', 'no-match'].includes(requestedDemo) ? requestedDemo : null;
 const screen = document.getElementById('screen');
 const players = document.getElementById('players');
 const field = document.getElementById('field');
@@ -12,12 +12,24 @@ const $ = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const pad = value => String(value || 0).padStart(2, '0');
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const countdownRetryDelays = [350, 700, 1_400, 2_800, 2_800];
 
 const app = {
   event: null,
   state: null,
   serverOffset: 0,
+  lastServerTime: 0,
   lastPayloadAt: 0,
+  lastSnapshotAttemptAt: 0,
+  snapshotRequest: null,
+  countdownBoundaryKey: null,
+  countdownBoundaryWake: null,
+  countdownRefreshAttempts: 0,
+  countdownNextAttemptAt: 0,
+  resultFrameHeat: null,
+  resultFrames: new Map(),
+  resultFrameTried: new Set(),
+  lastGoodFrames: new Map(),
   connected: false,
   mediaMode: null,
   mediaStatus: 'Connecting',
@@ -36,13 +48,15 @@ const app = {
   renderSignature: '',
   previousPhase: null,
   previousCountdown: null,
-  previousQrTarget: null,
   connectedHeat: null,
   resultEffectKey: null,
 };
 
 $('operatorLink').href = `${routeBase}/operator`;
 $('joinLink').href = `${routeBase}/play`;
+$('joinQr').src = `${apiBase}/qr.svg?target=play`;
+$('voteLink').href = `${routeBase}/vote`;
+$('voteQr').src = `${apiBase}/qr.svg?target=vote`;
 $('githubStarLink').href = previewMode ? githubRepoUrl : `${routeBase}/github?source=arena_link`;
 $('githubQr').src = `${apiBase}/qr.svg?target=github${previewMode ? '&preview=1' : ''}`;
 
@@ -64,21 +78,204 @@ async function fetchJson(url, options = {}) {
   return value;
 }
 
+function countdownDeadline() {
+  if (previewMode || app.state?.paused || !['countdown', 'locked'].includes(phase())) return null;
+  const deadline = Date.parse(app.state?.countdownEndsAt || '');
+  return Number.isFinite(deadline) ? deadline : null;
+}
+
+function resetCountdownBoundary() {
+  clearTimeout(app.countdownBoundaryWake);
+  app.countdownBoundaryWake = null;
+  app.countdownBoundaryKey = null;
+  app.countdownRefreshAttempts = 0;
+  app.countdownNextAttemptAt = 0;
+}
+
+function trackCountdownBoundary() {
+  const deadline = countdownDeadline();
+  if (deadline === null) { resetCountdownBoundary(); return; }
+  const key = `${app.state.heat}:${deadline}`;
+  if (key !== app.countdownBoundaryKey) {
+    resetCountdownBoundary();
+    app.countdownBoundaryKey = key;
+  }
+  if (deadline > now() && !app.countdownBoundaryWake) {
+    app.countdownBoundaryWake = setTimeout(() => {
+      app.countdownBoundaryWake = null;
+      maybeRefreshCountdown();
+    }, Math.max(0, deadline - now() + 25));
+  }
+}
+
+function maybeRefreshCountdown() {
+  const deadline = countdownDeadline();
+  if (deadline === null) { resetCountdownBoundary(); return; }
+  trackCountdownBoundary();
+  if (now() < deadline) return;
+  clearTimeout(app.countdownBoundaryWake);
+  app.countdownBoundaryWake = null;
+  if (app.snapshotRequest || app.countdownRefreshAttempts >= countdownRetryDelays.length ||
+      Date.now() < app.countdownNextAttemptAt) return;
+  const attempt = app.countdownRefreshAttempts++;
+  app.countdownNextAttemptAt = Date.now() + countdownRetryDelays[attempt];
+  void refreshSnapshot();
+}
+
+function refreshSnapshot() {
+  if (app.snapshotRequest) return app.snapshotRequest;
+  app.lastSnapshotAttemptAt = Date.now();
+  app.snapshotRequest = fetchJson(apiBase)
+    .then(payload => { applyState(payload); return true; })
+    .catch(() => { app.connected = false; return false; })
+    .finally(() => { app.snapshotRequest = null; });
+  return app.snapshotRequest;
+}
+
+function clearResultFrames() {
+  for (const source of app.resultFrames.values()) {
+    if (source.startsWith('blob:')) URL.revokeObjectURL(source);
+  }
+  app.resultFrames.clear();
+  app.resultFrameTried.clear();
+  app.resultFrameHeat = null;
+}
+
+function captureStill(element, { maxWidth = 480, maxHeight = 854, quality = .78 } = {}) {
+  if (!element) return null;
+  const video = element.tagName === 'VIDEO';
+  const width = video ? element.videoWidth : element.naturalWidth;
+  const height = video ? element.videoHeight : element.naturalHeight;
+  if (!width || !height || (video && element.readyState < 2)) return null;
+  try {
+    const scale = Math.min(1, maxWidth / width, maxHeight / height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext('2d', { alpha: false }).drawImage(element, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch { return null; }
+}
+
+function rememberPlayerFrame(playerId, element, force = false) {
+  if (previewMode || !app.state || phase() === 'result' ||
+      (!force && !roster().some(player => player.id === playerId && player.mediaConnected))) return;
+  const previous = app.lastGoodFrames.get(playerId);
+  if (!force && previous?.heat === app.state.heat && Date.now() - previous.at < 1_600) return;
+  const source = captureStill(element, { maxWidth: 320, maxHeight: 568, quality: .62 });
+  if (source) app.lastGoodFrames.set(playerId, { heat: app.state.heat, at: Date.now(), source });
+}
+
+function rememberLiveFrames() {
+  if (app.event?.mediaMode !== 'twilio' || !app.wallAuthorized || phase() === 'result') return;
+  for (const [playerId, { element }] of app.videoTracks) rememberPlayerFrame(playerId, element);
+}
+
+function captureResultFrames(nextState) {
+  if (previewMode || nextState.phase !== 'result' || app.resultFrameHeat === nextState.heat) return;
+  clearResultFrames();
+  app.resultFrameHeat = nextState.heat;
+  for (const player of nextState.roster || []) {
+    const tile = [...players.children].find(child => child.dataset.playerId === player.id);
+    const source = tile?.querySelector('video.feed-video, img.rehearsal-frame');
+    const frame = captureStill(source) ||
+      (app.lastGoodFrames.get(player.id)?.heat === nextState.heat ? app.lastGoodFrames.get(player.id).source : null);
+    if (frame) app.resultFrames.set(player.id, frame);
+  }
+  app.lastGoodFrames.clear();
+}
+
+function showResultFrame(playerId, source) {
+  if (phase() !== 'result') return;
+  const tile = [...players.children].find(child => child.dataset.playerId === playerId);
+  const art = tile?.querySelector('.feed-art');
+  if (!art) return;
+  let image = art.querySelector('.frozen-frame');
+  if (!image) {
+    image = document.createElement('img');
+    image.className = 'feed-video frozen-frame';
+    image.alt = '';
+    art.append(image);
+  }
+  image.src = source;
+  if (!art.querySelector('.freeze-tag')) {
+    const tag = document.createElement('span');
+    tag.className = 'freeze-tag';
+    tag.textContent = 'FINAL FRAME';
+    art.append(tag);
+  }
+  tile.classList.add('is-frozen');
+}
+
+async function fetchMissingResultFrame(playerId, heat) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (app.resultFrameHeat !== heat || phase() !== 'result') return;
+    try {
+      const response = await fetch(`${apiBase}/frame/${encodeURIComponent(playerId)}?t=${Date.now()}`,
+        { credentials: 'same-origin', cache: 'no-store' });
+      if (response.status === 404) return;
+      if (response.ok) {
+        if (!response.headers.get('Content-Type')?.startsWith('image/jpeg')) return;
+        const blob = await response.blob();
+        if (!blob.size) return;
+        const source = URL.createObjectURL(blob);
+        if (app.resultFrameHeat !== heat || phase() !== 'result' || !roster().some(player => player.id === playerId)) {
+          URL.revokeObjectURL(source);
+          return;
+        }
+        app.resultFrames.set(playerId, source);
+        showResultFrame(playerId, source);
+        return;
+      }
+      if (![401, 403, 429, 500, 502, 503, 504].includes(response.status)) return;
+    } catch { /* A short network interruption can recover during the result hold. */ }
+    if (attempt < 3) {
+      await new Promise(resolve => setTimeout(resolve, [750, 1_500, 3_000][attempt]));
+    }
+  }
+}
+
+function requestMissingResultFrames() {
+  if (previewMode || phase() !== 'result') return;
+  const heat = app.state.heat;
+  for (const player of roster()) {
+    if (!player.slot || app.resultFrames.has(player.id) || app.resultFrameTried.has(player.id)) continue;
+    app.resultFrameTried.add(player.id);
+    void fetchMissingResultFrame(player.id, heat);
+  }
+}
+
 function applyState(payload) {
   if (!payload?.state) return;
+  const incomingVersion = Number(payload.state.version);
+  const currentVersion = Number(app.state?.version);
+  const incomingServerTime = payload.serverTime == null ? NaN : new Date(payload.serverTime).getTime();
+  if (app.state && Number.isFinite(incomingVersion) && Number.isFinite(currentVersion) &&
+      (incomingVersion < currentVersion ||
+        (incomingVersion === currentVersion && Number.isFinite(incomingServerTime) &&
+          incomingServerTime < app.lastServerTime))) return;
   const nextHeat = payload.state.heat;
+  captureResultFrames(payload.state);
+  if (payload.state.phase !== 'result' && app.resultFrameHeat !== null) clearResultFrames();
+  if (payload.state.phase === 'lobby') {
+    const currentIds = new Set((payload.state.roster || []).map(player => player.id));
+    for (const id of app.lastGoodFrames.keys()) if (!currentIds.has(id)) app.lastGoodFrames.delete(id);
+  }
   const previousMedia = new Map(roster().map(player => [player.id, player.mediaConnected]));
   if (app.connectedHeat != null && nextHeat !== app.connectedHeat) {
     const previousSession = app.mediaSession;
     app.mediaSession = null;
     clearTracks();
+    app.lastGoodFrames.clear();
     previousSession?.disconnect();
     app.mediaStatus = 'Video reconnecting';
   }
   app.connectedHeat = nextHeat;
   if (payload.serverTime) app.serverOffset = new Date(payload.serverTime).getTime() - Date.now();
+  if (Number.isFinite(incomingServerTime)) app.lastServerTime = incomingServerTime;
   if (payload.event) app.event = payload.event;
   app.state = payload.state;
+  trackCountdownBoundary();
   const active = new Map(roster().map(player => [player.id, player]));
   for (const [id, { element }] of app.videoTracks) {
     if (!active.has(id)) {
@@ -91,6 +288,7 @@ function applyState(payload) {
   app.lastPayloadAt = Date.now();
   app.connected = true;
   render();
+  requestMissingResultFrames();
   ensureMedia().catch(() => {});
 }
 
@@ -109,17 +307,6 @@ function setHeadline(text) {
   }
   node.classList.toggle('is-long', text.length > 29 && text.length <= 46);
   node.classList.toggle('is-extra-long', text.length > 46);
-}
-
-function setQrTarget(target) {
-  if (target === app.previousQrTarget) return;
-  app.previousQrTarget = target;
-  $('joinQr').src = `${apiBase}/qr.svg?target=${target}`;
-  $('joinQr').alt = target === 'vote' ? 'Scan to vote on the next challenge' : 'Scan to join Live Scavenger Hunt';
-  $('joinLink').href = `${routeBase}/${target === 'vote' ? 'vote' : 'play'}`;
-  $('joinLink').setAttribute('aria-label', target === 'vote' ? 'Open spectator voting' : 'Open the player page');
-  $('joinTitle').textContent = target === 'vote' ? 'Scan to vote' : 'Scan to play';
-  $('joinDetail').textContent = 'Point your phone camera here';
 }
 
 function render() {
@@ -149,7 +336,9 @@ function render() {
   $('liveMark').textContent = app.mediaStatus;
   renderTiles();
   syncResultEffects();
-  setQrTarget(vote && !app.state.paused ? 'vote' : 'play');
+  const voteOpen = Boolean(vote && !app.state.paused);
+  screen.classList.toggle('has-active-vote', voteOpen);
+  $('voteLink').hidden = !voteOpen;
   $('footerStatus').hidden = !!vote || !!app.state.paused || currentPhase !== 'result';
 
   if (app.state.paused) {
@@ -161,7 +350,7 @@ function render() {
   } else if (vote) {
     $('eyebrow').textContent = vote.type === 'creative' ? 'Audience vote' : 'Choose the next category';
     setHeadline(vote.type === 'creative' ? 'CROWD, MAKE THE CALL.' : 'YOU PICK WHAT’S NEXT.');
-    $('subline').textContent = vote.type === 'creative' ? 'Scan to choose your favorite find.' : 'The clue stays secret until GO.';
+    $('subline').textContent = 'Scan the vote card. New players can still join.';
   } else if (currentPhase === 'countdown' || currentPhase === 'locked') {
     $('eyebrow').textContent = 'The challenge is sealed';
     setHeadline('GET READY.');
@@ -255,8 +444,12 @@ function renderTiles() {
   app.tileSignature = signature;
   players.dataset.slots = String(count);
   players.innerHTML = slots.map((player, index) => tileMarkup(player, player?.slot || index + 1, !!player && winnerIds().includes(player.id), index)).join('');
-  for (const [id, track] of app.videoTracks) {
-    if (roster().some(player => player.id === id && player.mediaConnected)) attachTrack(id, track.element);
+  if (phase() === 'result') {
+    for (const [id, source] of app.resultFrames) showResultFrame(id, source);
+  } else {
+    for (const [id, track] of app.videoTracks) {
+      if (roster().some(player => player.id === id && player.mediaConnected)) attachTrack(id, track.element);
+    }
   }
   layoutTiles();
 }
@@ -316,7 +509,8 @@ function updateClock() {
     $('subline').textContent = lobbyMessage();
     progress = clamp((app.state.readyCount || 0) / (app.event.minPlayers || 2) * 100, 0, 100);
   } else if (currentPhase === 'countdown' || currentPhase === 'locked') {
-    value = String(timeLeft(app.state.countdownEndsAt) || 0); label = 'To go'; progress = 100;
+    const seconds = timeLeft(app.state.countdownEndsAt);
+    value = seconds ? String(seconds) : '…'; label = seconds ? 'To go' : 'Starting'; progress = 100;
   } else if (currentPhase === 'hunt' || currentPhase === 'active') {
     const seconds = timeLeft(app.state.roundEndsAt);
     value = String(seconds); label = 'Seconds';
@@ -346,6 +540,7 @@ function playerIdFromIdentity(identity) {
   return String(identity || '').split(':').at(-1);
 }
 function attachTrack(id, element) {
+  if (phase() === 'result') return;
   const tile = [...players.children].find(child => child.dataset.playerId === id);
   if (!tile) return;
   const art = tile.querySelector('.feed-art');
@@ -355,6 +550,7 @@ function attachTrack(id, element) {
   if (phase() !== 'result') tile.querySelector('.tile-state').textContent = 'Live';
 }
 function removeTrack(id, element) {
+  rememberPlayerFrame(id, element, true);
   const tile = [...players.children].find(child => child.dataset.playerId === id);
   if (element.parentElement) element.remove();
   if (!tile) return;
@@ -385,6 +581,7 @@ async function wallSession() {
       app.mediaSession = null;
       connection?.disconnect?.();
       clearTracks();
+      app.lastGoodFrames.clear();
       for (const frame of players.querySelectorAll('.rehearsal-frame')) frame.remove();
       for (const tile of players.children) {
         tile.classList.remove('is-live');
@@ -464,7 +661,7 @@ async function ensureMedia() {
 }
 
 function refreshRehearsalFrames() {
-  if (app.event?.mediaMode !== 'rehearsal' || !app.state || !app.wallAuthorized) return;
+  if (app.event?.mediaMode !== 'rehearsal' || !app.state || !app.wallAuthorized || phase() === 'result') return;
   for (const player of roster()) {
     if (!player.slot || !player.mediaConnected || app.frameBusy.has(player.id) || Date.now() < (app.frameRetryAt.get(player.id) || 0)) continue;
     const tile = [...players.children].find(child => child.dataset.playerId === player.id);
@@ -472,6 +669,8 @@ function refreshRehearsalFrames() {
     app.frameBusy.add(player.id);
     const image = new Image();
     image.onload = () => {
+      if (phase() === 'result') { app.frameBusy.delete(player.id); return; }
+      rememberPlayerFrame(player.id, image);
       const currentTile = [...players.children].find(child => child.dataset.playerId === player.id);
       if (currentTile) {
         let shown = currentTile.querySelector('.rehearsal-frame');
@@ -530,27 +729,31 @@ async function initialize() {
     const requestedCountValue = new URLSearchParams(location.search).get('players');
     const requestedCount = requestedCountValue === null ? NaN : Number(requestedCountValue);
     const previewCount = Number.isInteger(requestedCount) ? clamp(requestedCount, 2, 6) : 4;
+    const votePreview = previewMode === 'vote';
     const demoRoster = ['Maya', 'Jordan', 'Dev', 'Kai', 'Ari', 'Sam'].slice(0, previewCount).map((alias, index) => ({
       id: `preview-${alias.toLowerCase()}`, alias, slot: index + 1,
-      status: 'finished', mediaConnected: true,
+      status: votePreview ? 'ready' : 'finished', mediaConnected: true,
     }));
     const demoWinners = {
       win: [demoRoster[0].id], lose: [demoRoster[1].id],
       tie: [demoRoster[0].id, demoRoster[Math.min(2, previewCount - 1)].id], 'no-match': [],
     };
-    app.event = { name: 'Live Scavenger Hunt', minPlayers: 2, maxPlayers: previewCount, roundSeconds: 45, mediaMode: 'rehearsal' };
-    app.state = { phase: previewMode === 'hunt' ? 'hunt' : 'result', heat: 1, readyCount: previewCount, lockedCount: previewCount,
-      roster: demoRoster, winners: demoWinners[previewMode] || [], vote: null, paused: false,
+    app.event = { name: 'Live Scavenger Hunt', minPlayers: 2, maxPlayers: previewCount, roundSeconds: 45,
+      vote: { windowSeconds: 30 }, mediaMode: 'rehearsal' };
+    app.state = { phase: votePreview ? 'lobby' : previewMode === 'hunt' ? 'hunt' : 'result',
+      heat: 1, readyCount: previewCount, lockedCount: votePreview ? 0 : previewCount,
+      roster: demoRoster, winners: demoWinners[previewMode] || [],
+      vote: votePreview ? { id: 'preview-category-vote', type: 'category', status: 'open',
+        closesAt: new Date(Date.now() + 30_000).toISOString() } : null, paused: false,
       prompt: previewMode === 'hunt' ? { text: 'SHOW SOMETHING RED.', seconds: 20 } : null,
       roundEndsAt: previewMode === 'hunt' ? new Date(Date.now() + 14_000).toISOString() : null };
     app.mediaStatus = 'Visual preview';
     screen.classList.add('is-preview');
-    $('previewReplay').hidden = previewMode === 'hunt';
+    $('previewReplay').hidden = previewMode === 'hunt' || votePreview;
     render();
     return;
   }
-  try { applyState(await fetchJson(apiBase)); }
-  catch {
+  if (!await refreshSnapshot()) {
     app.mediaStatus = 'Arena reconnecting';
     $('liveMark').textContent = app.mediaStatus;
     setHeadline('STAND BY.');
@@ -562,18 +765,19 @@ async function initialize() {
   stream.onerror = () => { app.connected = false; };
   setInterval(async () => {
     updateClock();
+    maybeRefreshCountdown();
     refreshRehearsalFrames();
+    rememberLiveFrames();
     sampleEvidence();
-    if (Date.now() - app.lastPayloadAt > 12_000) {
-      try { applyState(await fetchJson(apiBase)); } catch { app.connected = false; }
-    }
+    if (Date.now() - app.lastPayloadAt > 12_000 &&
+        Date.now() - app.lastSnapshotAttemptAt > 5_000) void refreshSnapshot();
   }, 700);
   setInterval(() => ensureMedia().catch(() => {}), 7_000);
 }
 
 if ('ResizeObserver' in window) new ResizeObserver(layoutTiles).observe(field);
 else addEventListener('resize', layoutTiles);
-addEventListener('pagehide', () => app.mediaSession?.disconnect?.());
+addEventListener('pagehide', () => { app.mediaSession?.disconnect?.(); clearResultFrames(); app.lastGoodFrames.clear(); });
 
 // Keep booth controls out of the audience-facing scene until staff interact
 // with the display. A keyboard Tab reveals them before focus moves into the nav.

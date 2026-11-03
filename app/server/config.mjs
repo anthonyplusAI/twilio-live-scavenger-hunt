@@ -49,7 +49,7 @@ export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenge
   return {
     id: randomUUID(), slug, name, venue: '', timeZone: 'UTC',
     minPlayers: 2, maxPlayers: 6, roundSeconds: 45, joinSeconds: 30,
-    resultSeconds: 8, tieWindowMs: 300, startMode: 'flexible',
+    resultSeconds: 15, tieWindowMs: 300, startMode: 'manual',
     judgePolicy: 'auto-with-override', autoAdvance: true, retentionDays: 90,
     leadCapture: {
       enabled: true, timing: 'after-play', guideEnabled: true, expertEnabled: true,
