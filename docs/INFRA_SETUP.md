@@ -121,8 +121,10 @@ returned claim. See [Google's OpenID Connect guidance](https://developers.google
    workflow variable. The deploy job reads these secrets; the CI and image-build
    jobs do not.
 4. Dispatch `deploy.yml` on `main` between heats. The controlled rollout first
-   stops the old SQLite writer, then stores the client secret as a Container App
-   secret and attaches both settings to the candidate revision. Check
+   stops the old SQLite writer, then stores the client secret with any other
+   supplied credentials as a batch. It waits for Azure
+   provisioning to settle, verifies the expected secret names, and attaches
+   both settings to the candidate revision. Check
    `/api/auth/providers` for `google.enabled: true`, then sign in on the stable
    public hostname with a verified Twilio Workspace account. A non-Twilio
    account should be denied. The Google button appears on `/login` only when
@@ -199,6 +201,9 @@ longer; this is a **backup/restore design**, not a zero-loss database. Check
 backup freshness and restore integrity before each event. Do not deploy during an
 active heat. The deployment workflow intentionally creates a short outage to
 prevent two game engines or Litestream writers from running at once.
+Azure control-plane conflicts can extend that pause; use the
+[deployment recovery steps](DEPLOYMENT.md#failed-rollout-recovery)
+if the old revision is not restored automatically.
 The app allows a 60-second graceful shutdown so Litestream can finish its
 final sync. Container Apps can briefly exceed a configured replica limit during platform
 maintenance; the Blob lease protects against concurrent writers in that case.
@@ -223,7 +228,8 @@ its own room status callback URL; no account-wide Video webhook is needed.
 3. Dispatch `deploy.yml` from `main` **between heats**. The script checks that
    the quartet is complete and the SID shapes are correct *before* touching
    Azure. It then stops and verifies the old writer, stores four
-   rollout-specific ACA secrets, and starts the candidate with
+   rollout-specific ACA secrets as a batch, waits for Azure
+   provisioning to settle, verifies their names, and starts the candidate with
    `REHEARSAL_MODE=off`. The previous revision keeps its original secret
    references if the candidate needs a pre-cutover rollback. An unset mode
    leaves the current setting alone. `TWILIO_VIDEO_MODE=rehearsal` explicitly
@@ -266,7 +272,9 @@ credentials under the same GitHub **Actions secrets and variables** page, then
 dispatch `deploy.yml` from `main` between heats. The deployment validates
 settings before the old revision stops and attaches API keys as
 rollout-specific ACA secret references only after that writer reaches zero
-replicas. Empty or absent
+replicas. Supplied secrets are batched into a Container App update; the workflow waits
+for provisioning to settle and verifies their names before starting the
+replacement. Empty or absent
 settings preserve the existing ACA values.
 
 1. **AI judging:** add `OPENAI_API_KEY` as an Actions secret. Optionally set the

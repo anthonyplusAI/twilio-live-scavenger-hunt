@@ -218,6 +218,166 @@ wait_for_stopped_candidate() {
   return 1
 }
 
+# Azure can report a successful revision/secret command before the app-level
+# Create/Update operation has settled. Require two settled reads before the
+# next write, while allowing rollback to continue after a terminal failure.
+wait_for_app_operation() {
+  local allow_failed="${1:-0}" details provisioning stable=0
+  for attempt in $(seq 1 60); do
+    if details=$(az containerapp show \
+      --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" --output json 2>/dev/null); then
+      provisioning=$(jq -r '.properties.provisioningState // "Unknown"' <<< "$details")
+      case "$provisioning" in
+        Succeeded)
+          stable=$((stable + 1))
+          if [ "$stable" -ge 2 ]; then return 0; fi
+          ;;
+        Failed|Canceled)
+          if [ "$allow_failed" -eq 1 ]; then return 0; fi
+          echo "::error::Container App provisioning ended with $provisioning." >&2
+          return 1
+          ;;
+        *) stable=0 ;;
+      esac
+    else
+      provisioning='Unavailable'
+      stable=0
+    fi
+    if [ "$attempt" -eq 1 ] || [ $((attempt % 6)) -eq 0 ]; then
+      echo "Waiting for Container App provisioning to settle ($provisioning, $attempt/60)..."
+    fi
+    sleep 5
+  done
+  echo '::error::Container App provisioning did not settle within five minutes.' >&2
+  return 1
+}
+
+# Keep potentially sensitive Azure CLI diagnostics in memory. Only the
+# documented error code is printed; a CLI error can echo secret arguments.
+azure_error_code() {
+  local output="$1"
+  if [[ "$output" =~ ERROR:[[:space:]]*\(([A-Za-z][A-Za-z0-9]+)\) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  else
+    printf 'Unknown'
+  fi
+}
+
+retry_control_plane_operation() {
+  local label="$1" output code
+  shift
+  for attempt in $(seq 1 60); do
+    if output=$("$@" --output none 2>&1 >/dev/null); then
+      wait_for_app_operation 1 || return 1
+      return 0
+    fi
+    code=$(azure_error_code "$output")
+    if [ "$code" != 'ContainerAppOperationInProgress' ]; then
+      echo "::error::Could not $label (Azure error: $code)." >&2
+      return 1
+    fi
+    echo "Azure operation is still in progress; retrying $label ($attempt/60)..." >&2
+    wait_for_app_operation 1 || return 1
+    sleep 5
+  done
+  echo "::error::Could not $label after waiting for Azure operations." >&2
+  return 1
+}
+
+wait_for_previous_revision_ready() {
+  local details active replicas health provisioning running stable=0
+  for attempt in $(seq 1 60); do
+    if details=$(revision_json "$OLD_REVISION" 2>/dev/null); then
+      active=$(jq -r '.properties.active | if . == null then "unknown" else tostring end' <<< "$details")
+      replicas=$(jq -r '(.properties.replicas | tonumber? // 0)' <<< "$details")
+      health=$(jq -r '.properties.healthState // "Unknown"' <<< "$details")
+      provisioning=$(jq -r '.properties.provisioningState // "Unknown"' <<< "$details")
+      running=$(jq -r '.properties.runningState // "Unknown"' <<< "$details")
+      if [ "$active" = 'true' ] && [ "$replicas" -eq 1 ] &&
+         [ "$health" = 'Healthy' ] && [ "$provisioning" = 'Provisioned' ]; then
+        stable=$((stable + 1))
+        if [ "$stable" -ge 2 ]; then return 0; fi
+      else
+        stable=0
+      fi
+      if [ "$provisioning" = 'Failed' ] || [ "$running" = 'Failed' ]; then
+        echo "::error::Previous revision activation failed (provisioning=$provisioning, running=$running)." >&2
+        return 1
+      fi
+      if [ "$attempt" -eq 1 ] || [ $((attempt % 6)) -eq 0 ]; then
+        echo "Waiting for previous revision to become healthy (active=$active, replicas=$replicas, health=$health, $attempt/60)..." >&2
+      fi
+    else
+      stable=0
+      if [ "$attempt" -eq 1 ] || [ $((attempt % 6)) -eq 0 ]; then
+        echo "Waiting for previous revision status ($attempt/60)..." >&2
+      fi
+    fi
+    sleep 5
+  done
+  echo '::error::Previous revision did not become healthy within five minutes.' >&2
+  return 1
+}
+
+# A successful CLI response does not prove the revision has started or that
+# traffic is serving it. Check the app, old revision, and full revision set.
+wait_for_rollback_restoration() {
+  local app details revisions app_state active replicas health provisioning running port
+  local active_count replica_count old_count route_ok stable=0
+  for attempt in $(seq 1 60); do
+    app=$(az containerapp show \
+      --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" --output json 2>/dev/null) || app=''
+    details=$(revision_json "$OLD_REVISION" 2>/dev/null) || details=''
+    revisions=$(all_revisions_json 2>/dev/null) || revisions=''
+    if [ -n "$app" ] && [ -n "$details" ] && [ -n "$revisions" ] &&
+       jq -e . <<< "$app" >/dev/null 2>&1 &&
+       jq -e . <<< "$details" >/dev/null 2>&1 &&
+       jq -e . <<< "$revisions" >/dev/null 2>&1; then
+      app_state=$(jq -r '.properties.provisioningState // "Unknown"' <<< "$app")
+      port=$(jq -r '.properties.configuration.ingress.targetPort // "Unknown"' <<< "$app")
+      active=$(jq -r '.properties.active | if . == null then "unknown" else tostring end' <<< "$details")
+      replicas=$(jq -r '(.properties.replicas | tonumber? // 0)' <<< "$details")
+      health=$(jq -r '.properties.healthState // "Unknown"' <<< "$details")
+      provisioning=$(jq -r '.properties.provisioningState // "Unknown"' <<< "$details")
+      running=$(jq -r '.properties.runningState // "Unknown"' <<< "$details")
+      active_count=$(jq '[.[] | select(.properties.active == true)] | length' <<< "$revisions")
+      replica_count=$(jq '[.[].properties.replicas | tonumber? // 0] | add // 0' <<< "$revisions")
+      old_count=$(jq -r --arg old "$OLD_REVISION" \
+        '[.[] | select(.name == $old and .properties.active == true and (.properties.replicas | tonumber? // 0) == 1)] | length' \
+        <<< "$revisions")
+      route_ok=0
+      if pinned_to_old "$app"; then route_ok=1; fi
+      if [ "$app_state" = 'Succeeded' ] && [ "$port" = "$OLD_TARGET_PORT" ] &&
+         [ "$active" = 'true' ] &&
+         [ "$replicas" -eq 1 ] && [ "$health" = 'Healthy' ] &&
+         [ "$provisioning" = 'Provisioned' ] &&
+         [ "$active_count" -eq 1 ] && [ "$replica_count" -eq 1 ] &&
+         [ "$old_count" -eq 1 ] && [ "$route_ok" -eq 1 ]; then
+        stable=$((stable + 1))
+        if [ "$stable" -ge 2 ]; then return 0; fi
+      else
+        stable=0
+      fi
+      if [ "$app_state" = 'Failed' ] || [ "$app_state" = 'Canceled' ] ||
+         [ "$provisioning" = 'Failed' ] || [ "$running" = 'Failed' ]; then
+        echo "::error::Rollback reached a failed Azure state (app=$app_state, revision=$provisioning, running=$running)." >&2
+        return 1
+      fi
+      if [ "$attempt" -eq 1 ] || [ $((attempt % 6)) -eq 0 ]; then
+        echo "Waiting for previous revision to serve traffic (active=$active, replicas=$replicas, health=$health, route=$route_ok, port=$port, $attempt/60)..." >&2
+      fi
+    else
+      stable=0
+      if [ "$attempt" -eq 1 ] || [ $((attempt % 6)) -eq 0 ]; then
+        echo "Waiting for previous revision status ($attempt/60)..." >&2
+      fi
+    fi
+    sleep 5
+  done
+  echo '::error::Previous revision did not become the sole healthy one-replica traffic target within five minutes.' >&2
+  return 1
+}
+
 on_exit() {
   local status="$1" revisions candidate latest_revision expected_seen current_port rollback_ok=1
   trap - EXIT
@@ -260,14 +420,17 @@ on_exit() {
       .properties.active == true or ((.properties.replicas | tonumber? // 0) > 0)
     )) | .name' \
     <<< "$revisions")
-  for candidate in "${replacements[@]}"; do
-    az containerapp revision deactivate \
-      --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-      --revision "$candidate" --output none >/dev/null 2>&1 || true
-  done
-  for candidate in "${replacements[@]}"; do
-    wait_for_stopped_candidate "$candidate" || rollback_ok=0
-  done
+  # Bash 3.2 treats an empty array expansion as unbound under set -u.
+  if [ "${#replacements[@]}" -gt 0 ]; then
+    for candidate in "${replacements[@]}"; do
+      az containerapp revision deactivate \
+        --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
+        --revision "$candidate" --output none >/dev/null 2>&1 || true
+    done
+    for candidate in "${replacements[@]}"; do
+      wait_for_stopped_candidate "$candidate" || rollback_ok=0
+    done
+  fi
   if [ "$rollback_ok" -ne 1 ]; then
     echo '::error::A replacement revision may still be running. Refusing to reactivate the old writer.' >&2
     exit "$status"
@@ -283,23 +446,29 @@ on_exit() {
     if [ -z "$current_port" ]; then
       rollback_ok=0
     elif [ "$current_port" != "$OLD_TARGET_PORT" ]; then
-      az containerapp ingress update \
+      retry_control_plane_operation 'restore the previous ingress port' az containerapp ingress update \
         --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-        --target-port "$OLD_TARGET_PORT" --output none || rollback_ok=0
+        --target-port "$OLD_TARGET_PORT" || rollback_ok=0
       current_port=$(az containerapp show \
         --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
         --query properties.configuration.ingress.targetPort --output tsv 2>/dev/null || true)
       [ "$current_port" = "$OLD_TARGET_PORT" ] || rollback_ok=0
     fi
     if [ "$rollback_ok" -eq 1 ]; then
-      az containerapp revision activate \
+      retry_control_plane_operation 'activate the previous revision' az containerapp revision activate \
         --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-        --revision "$OLD_REVISION" --output none || rollback_ok=0
+        --revision "$OLD_REVISION" || rollback_ok=0
     fi
     if [ "$rollback_ok" -eq 1 ]; then
-      az containerapp ingress traffic set \
+      wait_for_previous_revision_ready || rollback_ok=0
+    fi
+    if [ "$rollback_ok" -eq 1 ]; then
+      retry_control_plane_operation 'restore traffic to the previous revision' az containerapp ingress traffic set \
         --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-        --revision-weight "${OLD_REVISION}=100" --output none || rollback_ok=0
+        --revision-weight "${OLD_REVISION}=100" || rollback_ok=0
+    fi
+    if [ "$rollback_ok" -eq 1 ]; then
+      wait_for_rollback_restoration || rollback_ok=0
     fi
     if [ "$rollback_ok" -eq 1 ]; then
       echo "Restored previous revision $OLD_REVISION." >&2
@@ -419,17 +588,59 @@ if jq -e '[.[] | select(.properties.active == true or ((.properties.replicas | t
   exit 1
 fi
 BASELINE_NAMES=$(jq -c '[.[].name]' <<< "$REVISIONS_JSON")
+wait_for_app_operation
 
-store_container_secret() {
+SECRET_UPDATES=()
+SECRET_NAMES=()
+queue_container_secret() {
   local name="$1" value="$2"
-  # Azure CLI diagnostics can include command arguments. Keep credential
-  # values out of workflow logs and use a generic error on failure.
-  if ! az containerapp secret set \
+  SECRET_UPDATES+=("$name=$value")
+  SECRET_NAMES+=("$name")
+}
+
+expected_secret_names_present() {
+  local names name
+  # Query names at Azure before any output reaches the runner log. Secret
+  # values are never returned to the shell or written to workflow output.
+  names=$(az containerapp secret list \
     --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
-    --secrets "$name=$value" --output none >/dev/null 2>&1; then
-    echo "::error::Could not store Container App secret $name." >&2
-    return 1
-  fi
+    --query '[].name' --output json 2>/dev/null) || return 1
+  jq -e 'type == "array"' <<< "$names" >/dev/null 2>&1 || return 1
+  for name in "${SECRET_NAMES[@]}"; do
+    jq -e --arg name "$name" 'index($name) != null' <<< "$names" >/dev/null 2>&1 || return 1
+  done
+}
+
+store_container_secrets() {
+  local output code
+  [ "${#SECRET_UPDATES[@]}" -gt 0 ] || return 0
+  for attempt in $(seq 1 6); do
+    # One app-level write avoids overlapping Create/Update operations. Azure
+    # CLI can still return nonzero after the control plane accepted the write,
+    # so settle and verify every unique per-rollout name before deciding.
+    if output=$(az containerapp secret set \
+      --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
+      --secrets "${SECRET_UPDATES[@]}" --output none 2>&1 >/dev/null); then
+      code='Success'
+    else
+      code=$(azure_error_code "$output")
+    fi
+    wait_for_app_operation || return 1
+    if expected_secret_names_present; then
+      if [ "$code" != 'Success' ]; then
+        echo "Azure reported $code, but all rollout secret names are present after provisioning settled."
+      fi
+      return 0
+    fi
+    if [ "$code" != 'Success' ] && [ "$code" != 'ContainerAppOperationInProgress' ]; then
+      echo "::error::Could not store the Container App secret batch (Azure error: $code)." >&2
+      return 1
+    fi
+    echo "Waiting to verify the Container App secret batch ($attempt/6)..."
+    sleep 5
+  done
+  echo '::error::Could not verify all Container App secret names after six attempts.' >&2
+  return 1
 }
 
 ENV_UPDATES=()
@@ -440,13 +651,13 @@ if [ "$GOOGLE_AUTH_UPDATE" -eq 1 ]; then
   # App-level secret changes do not create revisions. Do this only after the
   # old writer is stopped. Per-rollout names keep prior revision references
   # intact if this candidate needs a pre-cutover rollback.
-  store_container_secret "google-client-secret-$DEPLOY_SUFFIX" "$GOOGLE_CLIENT_SECRET"
+  queue_container_secret "google-client-secret-$DEPLOY_SUFFIX" "$GOOGLE_CLIENT_SECRET"
   ENV_UPDATES+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET=secretref:google-client-secret-$DEPLOY_SUFFIX")
 fi
 if [ "$TWILIO_VIDEO_UPDATE" -eq 1 ]; then
-  store_container_secret "twilio-account-sid-$DEPLOY_SUFFIX" "$TWILIO_ACCOUNT_SID"
-  store_container_secret "twilio-api-key-sid-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SID"
-  store_container_secret "twilio-api-key-secret-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SECRET"
+  queue_container_secret "twilio-account-sid-$DEPLOY_SUFFIX" "$TWILIO_ACCOUNT_SID"
+  queue_container_secret "twilio-api-key-sid-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SID"
+  queue_container_secret "twilio-api-key-secret-$DEPLOY_SUFFIX" "$TWILIO_API_KEY_SECRET"
   ENV_UPDATES+=(
     "TWILIO_ACCOUNT_SID=secretref:twilio-account-sid-$DEPLOY_SUFFIX"
     "TWILIO_API_KEY_SID=secretref:twilio-api-key-sid-$DEPLOY_SUFFIX"
@@ -454,7 +665,7 @@ if [ "$TWILIO_VIDEO_UPDATE" -eq 1 ]; then
   )
 fi
 if [ -n "${TWILIO_AUTH_TOKEN:-}" ]; then
-  store_container_secret "twilio-auth-token-$DEPLOY_SUFFIX" "$TWILIO_AUTH_TOKEN"
+  queue_container_secret "twilio-auth-token-$DEPLOY_SUFFIX" "$TWILIO_AUTH_TOKEN"
   ENV_UPDATES+=("TWILIO_AUTH_TOKEN=secretref:twilio-auth-token-$DEPLOY_SUFFIX")
 fi
 if [ "${TWILIO_VIDEO_MODE:-}" = 'live' ]; then
@@ -463,30 +674,32 @@ elif [ "${TWILIO_VIDEO_MODE:-}" = 'rehearsal' ]; then
   ENV_UPDATES+=("REHEARSAL_MODE=on")
 fi
 if [ -n "${OPENAI_API_KEY:-}" ]; then
-  store_container_secret "openai-api-key-$DEPLOY_SUFFIX" "$OPENAI_API_KEY"
+  queue_container_secret "openai-api-key-$DEPLOY_SUFFIX" "$OPENAI_API_KEY"
   ENV_UPDATES+=("OPENAI_API_KEY=secretref:openai-api-key-$DEPLOY_SUFFIX")
 fi
 if [ -n "${OPENAI_VISION_MODEL:-}" ]; then
   ENV_UPDATES+=("OPENAI_VISION_MODEL=$OPENAI_VISION_MODEL")
 fi
 if [ -n "${SEGMENT_WRITE_KEY:-}" ]; then
-  store_container_secret "segment-write-key-$DEPLOY_SUFFIX" "$SEGMENT_WRITE_KEY"
+  queue_container_secret "segment-write-key-$DEPLOY_SUFFIX" "$SEGMENT_WRITE_KEY"
   ENV_UPDATES+=("SEGMENT_WRITE_KEY=secretref:segment-write-key-$DEPLOY_SUFFIX")
 fi
 if [ "$SENDGRID_UPDATE" -eq 1 ]; then
-  store_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"
+  queue_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"
   ENV_UPDATES+=("SENDGRID_API_KEY=secretref:sendgrid-api-key-$DEPLOY_SUFFIX" "SENDGRID_FROM_EMAIL=$SENDGRID_FROM_EMAIL")
 fi
 if [ -n "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:-}" ]; then
-  store_container_secret "sendgrid-webhook-key-$DEPLOY_SUFFIX" "$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
+  queue_container_secret "sendgrid-webhook-key-$DEPLOY_SUFFIX" "$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
   ENV_UPDATES+=("SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY=secretref:sendgrid-webhook-key-$DEPLOY_SUFFIX")
 fi
 if [ -n "${SENDGRID_REGION:-}" ]; then
   ENV_UPDATES+=("SENDGRID_REGION=$SENDGRID_REGION")
 fi
-UPDATE_ARGS=()
+store_container_secrets
+# Keep the array nonempty for Bash 3.2 under set -u on image-only releases.
+UPDATE_ARGS=(--output none)
 if [ "${#ENV_UPDATES[@]}" -gt 0 ]; then
-  UPDATE_ARGS=(--set-env-vars "${ENV_UPDATES[@]}")
+  UPDATE_ARGS+=(--set-env-vars "${ENV_UPDATES[@]}")
 fi
 if [ "${GOOGLE_AUTH_DISABLE:-0}" = '1' ]; then
   UPDATE_ARGS+=(--remove-env-vars GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
@@ -498,7 +711,7 @@ az containerapp update \
   --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
   --image "$IMAGE" --revision-suffix "$DEPLOY_SUFFIX" \
   --min-replicas 1 --max-replicas 1 --termination-grace-period 60 \
-  "${UPDATE_ARGS[@]}" --output none
+  "${UPDATE_ARGS[@]}"
 APP_JSON=$(az containerapp show \
   --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" --output json)
 if ! pinned_to_old "$APP_JSON"; then
