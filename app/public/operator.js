@@ -55,8 +55,11 @@ let votePage = 0;
 let preflightPage = 0;
 let toastTimer = 0;
 let operators = [];
+let localAdmin = null;
+let adminEditorDirty = false;
+let adminNeedsReview = false;
 let teamPage = 0;
-let teamMode = "create";
+let teamMode = "admin";
 let selectedOperatorId = null;
 let teamBusy = false;
 
@@ -227,7 +230,10 @@ function showView(view) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
-  if (view === "team") loadOperators().catch((error) => flash(error.message, true));
+  if (view === "team") {
+    loadOperators().catch((error) => flash(error.message, true));
+    loadLocalAdmin().catch((error) => flash(error.message, true));
+  }
   if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
 }
 function showRunPanel(panel) {
@@ -292,13 +298,27 @@ function renderRole() {
   const metrics = document.querySelector(".metrics-link");
   metrics.hidden = !isAdmin();
   document.querySelector(".team-nav").hidden = !isAdmin();
-  $("team-my-username-button").hidden = session?.user?.authProvider === "google";
-  $("team-my-password-button").hidden = session?.user?.authProvider === "google";
 }
 function operatorLabel(operator) { return String(operator?.email || operator?.username || "Operator"); }
 function isGoogleOperator(operator) { return String(operator?.authProvider || "password").toLowerCase() === "google"; }
 function teamPageSize() { return window.innerWidth <= 760 ? 4 : 5; }
+function updateAdminSaveState() {
+  const username = $("team-admin-username").value.trim().toLowerCase();
+  const changed = Boolean(localAdmin) && (username !== localAdmin.username || $("team-admin-password").value.length > 0);
+  $("team-admin-submit").disabled = teamBusy || adminNeedsReview || !changed;
+}
+function renderAdminAccount() {
+  const username = String(localAdmin?.username || "");
+  $("team-admin-card-username").textContent = username || "Account unavailable";
+  $("team-admin-current").textContent = username || "Account unavailable";
+  $("team-admin-initial").textContent = username.slice(0, 1).toUpperCase() || "A";
+  $("team-admin-button").setAttribute("aria-pressed", String(teamMode === "admin"));
+  if (!adminEditorDirty) $("team-admin-username").value = username;
+  for (const id of ["team-admin-username", "team-admin-password", "team-admin-confirm"]) $(id).disabled = !localAdmin;
+  updateAdminSaveState();
+}
 function renderTeam() {
+  renderAdminAccount();
   const list = $("team-list");
   const size = teamPageSize();
   const pages = Math.max(1, Math.ceil(operators.length / size));
@@ -347,16 +367,16 @@ function renderTeam() {
   $("team-next").disabled = teamPage >= pages - 1;
 
   const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
-  if (["manage", "rename-operator"].includes(teamMode) && !selected) teamMode = "create";
+  if (["manage", "rename-operator"].includes(teamMode) && !selected) teamMode = "admin";
   if (teamMode === "rename-operator" && isGoogleOperator(selected)) teamMode = "manage";
   const managing = ["manage", "rename-operator"].includes(teamMode);
   const google = managing && isGoogleOperator(selected);
+  $("team-admin-button").setAttribute("aria-pressed", String(teamMode === "admin"));
+  $("team-admin-form").hidden = teamMode !== "admin";
   $("team-create-form").hidden = teamMode !== "create";
   $("team-reset-form").hidden = teamMode !== "manage" || google;
   $("team-operator-username-form").hidden = teamMode !== "rename-operator" || google;
   $("team-google-detail").hidden = teamMode !== "manage" || !google;
-  $("team-self-username-form").hidden = teamMode !== "self-username";
-  $("team-self-form").hidden = teamMode !== "self";
   if (managing) {
     const label = operatorLabel(selected);
     $("team-detail-kicker").textContent = google ? "Google account" : "Local account";
@@ -369,17 +389,10 @@ function renderTeam() {
       $("team-rename-current").textContent = label;
       $("team-rename-initial").textContent = label.trim().slice(0, 1).toUpperCase() || "O";
     }
-  } else if (teamMode === "self-username") {
-    const username = String(session?.user?.username || "admin");
-    $("team-self-current").textContent = username;
-    $("team-self-initial").textContent = username.slice(0, 1).toUpperCase() || "A";
-    $("team-detail-kicker").textContent = "Your account";
-    $("team-detail-title").textContent = "Change my username";
-    $("team-detail-copy").textContent = "Choose the name you will use to sign in next time.";
-  } else if (teamMode === "self") {
-    $("team-detail-kicker").textContent = "Your account";
-    $("team-detail-title").textContent = "Change my password";
-    $("team-detail-copy").textContent = "Enter your current password to protect this account.";
+  } else if (teamMode === "admin") {
+    $("team-detail-kicker").textContent = "Primary local account";
+    $("team-detail-title").textContent = "Admin login";
+    $("team-detail-copy").textContent = "Update the existing admin username or password.";
   } else {
     $("team-detail-kicker").textContent = "New account";
     $("team-detail-title").textContent = "Add an operator";
@@ -387,29 +400,29 @@ function renderTeam() {
   }
 }
 function showTeamMode(mode, operatorId = null) {
-  if (["self", "self-username"].includes(mode) && session?.user?.authProvider === "google") return;
   if (mode === "rename-operator") {
     const selected = operators.find((item) => String(item.id) === String(operatorId));
     if (!selected || isGoogleOperator(selected)) return;
     $("team-operator-username").value = selected.username || "";
   }
-  if (mode === "self-username") {
-    $("team-self-username").value = session?.user?.username || "";
-    $("team-self-username-password").value = "";
-  }
-  if (teamMode === "self-username" && mode !== "self-username") $("team-self-username-form").reset();
   teamMode = mode;
   selectedOperatorId = operatorId;
   $("team-workspace").dataset.step = "detail";
   renderTeam();
-  const focusId = mode === "self" ? "team-current-password" : mode === "self-username" ? "team-self-username" : mode === "rename-operator" ? "team-operator-username" : mode === "create" ? "team-create-username" : "team-detail-title";
+  const focusId = mode === "admin" ? "team-admin-username" : mode === "rename-operator" ? "team-operator-username" : mode === "create" ? "team-create-username" : "team-detail-title";
   $(focusId).focus();
-  if (["self-username", "rename-operator"].includes(mode)) $(focusId).select();
+  if (["admin", "rename-operator"].includes(mode)) $(focusId).select();
 }
 async function loadOperators() {
   if (!isAdmin()) return;
   const payload = await request("/api/admin/operators");
   operators = Array.isArray(payload.operators) ? payload.operators.filter((item) => String(item.role || "operator").toLowerCase() === "operator") : [];
+  renderTeam();
+}
+async function loadLocalAdmin() {
+  if (!isAdmin()) return;
+  const payload = await request("/api/admin/local-admin");
+  localAdmin = payload.admin || null;
   renderTeam();
 }
 async function loadAuthProviders() {
@@ -1428,16 +1441,88 @@ function confirmTeamPassword(passwordId, confirmId) {
   if (!matches) confirmation.reportValidity();
   return matches;
 }
+function showAdminCollision() {
+  $("team-admin-collision").hidden = false;
+  $("team-admin-from-create").focus();
+}
+function editAdminFromCreate() {
+  const password = $("team-create-password").value;
+  const confirmation = $("team-create-confirm").value;
+  $("team-admin-collision").hidden = true;
+  showTeamMode("admin");
+  $("team-admin-password").value = password;
+  $("team-admin-confirm").value = confirmation;
+  adminEditorDirty = true;
+  adminNeedsReview = false;
+  $("team-admin-stale").hidden = true;
+  updateAdminSaveState();
+  $("team-create-form").reset();
+  $("team-admin-password").focus();
+}
+function resolveAdminStale(useCurrentUsername) {
+  if (useCurrentUsername) $("team-admin-username").value = localAdmin?.username || "";
+  adminNeedsReview = false;
+  $("team-admin-stale").hidden = true;
+  updateAdminSaveState();
+  $("team-admin-username").focus();
+}
+async function saveAdminLogin(event) {
+  event.preventDefault();
+  if (teamBusy || !localAdmin) return;
+  const username = $("team-admin-username").value.trim().toLowerCase();
+  const password = $("team-admin-password").value;
+  const confirmation = $("team-admin-confirm").value;
+  if (!password && confirmation) {
+    $("team-admin-password").setCustomValidity("Enter a new password first.");
+    $("team-admin-password").reportValidity();
+    return;
+  }
+  if (password && !confirmTeamPassword("team-admin-password", "team-admin-confirm")) return;
+  if (username === localAdmin.username && !password) return flash("Enter a new username or password to save.", true);
+  const body = { username, expectedUsername: localAdmin.username };
+  if (password) body.password = password;
+  teamBusy = true;
+  updateAdminSaveState();
+  try {
+    const result = await request("/api/admin/local-admin", { method: "POST", body });
+    localAdmin = result.admin || { ...localAdmin, username };
+    adminEditorDirty = false;
+    adminNeedsReview = false;
+    $("team-admin-stale").hidden = true;
+    $("team-admin-form").reset();
+    renderTeam();
+    if (result.signedOut) {
+      const next = location.pathname + location.search + "#team";
+      const params = new URLSearchParams({ notice: "admin-credentials-changed", username: localAdmin.username, next });
+      location.assign("/login?" + params);
+      return;
+    }
+    flash(result.passwordChanged ? "Admin login and password saved." : "Admin username saved.");
+  } catch (error) {
+    if (error.code === "admin_changed") {
+      try {
+        await loadLocalAdmin();
+        adminNeedsReview = true;
+        $("team-admin-stale-current").textContent = localAdmin?.username || "unavailable";
+        $("team-admin-stale").hidden = false;
+        flash("Admin login changed on another screen. Review your draft before saving.", true);
+      } catch { flash("Admin login changed. Reload Team and review the latest account before saving.", true); }
+    } else flash(error.message, true);
+  }
+  finally { teamBusy = false; updateAdminSaveState(); }
+}
 async function createOperator(event) {
   event.preventDefault();
   if (teamBusy || !confirmTeamPassword("team-create-password", "team-create-confirm")) return;
   const username = $("team-create-username").value.trim().toLowerCase();
   const password = $("team-create-password").value;
+  if (username === localAdmin?.username) return showAdminCollision();
   teamBusy = true;
   $("team-create-submit").disabled = true;
   try {
     const result = await request("/api/admin/operators", { method: "POST", body: { username, password } });
     $("team-create-form").reset();
+    $("team-admin-collision").hidden = true;
     await loadOperators();
     const id = result.operator?.id || operators.find((item) => item.username === username)?.id;
     if (id != null) {
@@ -1446,7 +1531,13 @@ async function createOperator(event) {
       showTeamMode("manage", id);
     }
     flash("Operator account created.");
-  } catch (error) { flash(error.message, true); }
+  } catch (error) {
+    if (error.code === "username_exists" && !localAdmin) {
+      try { await loadLocalAdmin(); } catch { /* preserve the original error */ }
+    }
+    if (error.code === "username_exists" && username === localAdmin?.username) showAdminCollision();
+    else flash(error.message, true);
+  }
   finally { teamBusy = false; $("team-create-submit").disabled = false; }
 }
 async function resetOperatorPassword(event) {
@@ -1470,48 +1561,13 @@ async function removeOperator() {
   $("team-remove-button").disabled = true;
   try {
     await request("/api/admin/operators/" + encodeURIComponent(selected.id), { method: "DELETE" });
-    teamMode = "create";
+    teamMode = "admin";
     selectedOperatorId = null;
     $("team-workspace").dataset.step = "list";
     await loadOperators();
     flash("Operator access removed.");
   } catch (error) { flash(error.message, true); }
   finally { teamBusy = false; $("team-remove-button").disabled = false; }
-}
-async function changeMyPassword(event) {
-  event.preventDefault();
-  if (teamBusy || !confirmTeamPassword("team-new-password", "team-new-confirm")) return;
-  teamBusy = true;
-  $("team-self-submit").disabled = true;
-  try {
-    await request("/api/auth/password", { method: "POST", body: { currentPassword: $("team-current-password").value, newPassword: $("team-new-password").value } });
-    $("team-self-form").reset();
-    const next = location.pathname + location.search + "#team";
-    location.assign("/login?notice=password-changed&next=" + encodeURIComponent(next));
-  } catch (error) {
-    flash(error.message, true);
-    teamBusy = false;
-    $("team-self-submit").disabled = false;
-  }
-}
-async function changeMyUsername(event) {
-  event.preventDefault();
-  if (teamBusy) return;
-  const username = $("team-self-username").value.trim().toLowerCase();
-  if (username === session?.user?.username) return flash("Choose a different username.", true);
-  teamBusy = true;
-  $("team-self-username-submit").disabled = true;
-  try {
-    const result = await request("/api/auth/username", { method: "POST", body: { username, currentPassword: $("team-self-username-password").value } });
-    $("team-self-username-password").value = "";
-    const next = location.pathname + location.search + "#team";
-    const params = new URLSearchParams({ notice: "username-changed", username: result.user?.username || username, next });
-    location.assign("/login?" + params);
-  } catch (error) {
-    flash(error.message, true);
-    teamBusy = false;
-    $("team-self-username-submit").disabled = false;
-  }
 }
 async function changeOperatorUsername(event) {
   event.preventDefault();
@@ -1533,26 +1589,29 @@ async function changeOperatorUsername(event) {
 
 function wireControls() {
   for (const button of document.querySelectorAll(".nav[data-view]")) button.addEventListener("click", () => { showView(button.dataset.view); if (button.dataset.view === "run") showRunPanel("live"); });
+  $("team-admin-button").addEventListener("click", () => showTeamMode("admin"));
   $("team-add-button").addEventListener("click", () => showTeamMode("create"));
-  $("team-my-username-button").addEventListener("click", () => showTeamMode("self-username"));
-  $("team-my-password-button").addEventListener("click", () => showTeamMode("self"));
+  $("team-admin-from-create").addEventListener("click", editAdminFromCreate);
+  $("team-admin-use-current").addEventListener("click", () => resolveAdminStale(true));
+  $("team-admin-keep-draft").addEventListener("click", () => resolveAdminStale(false));
   $("team-edit-username-button").addEventListener("click", () => showTeamMode("rename-operator", selectedOperatorId));
   $("team-rename-back-button").addEventListener("click", () => showTeamMode("manage", selectedOperatorId));
-  $("team-back-button").addEventListener("click", () => { $("team-workspace").dataset.step = "list"; $("team-add-button").focus(); });
+  $("team-back-button").addEventListener("click", () => { $("team-workspace").dataset.step = "list"; $("team-admin-button").focus(); });
   $("team-list").addEventListener("click", (event) => {
     const row = event.target.closest("button[data-operator-id]");
     if (row) showTeamMode("manage", row.dataset.operatorId);
   });
   $("team-prev").addEventListener("click", () => { teamPage--; renderTeam(); });
   $("team-next").addEventListener("click", () => { teamPage++; renderTeam(); });
+  $("team-admin-form").addEventListener("submit", saveAdminLogin);
+  $("team-admin-form").addEventListener("input", () => { adminEditorDirty = true; updateAdminSaveState(); });
+  $("team-create-username").addEventListener("input", () => { $("team-admin-collision").hidden = true; });
   $("team-create-form").addEventListener("submit", createOperator);
   $("team-reset-form").addEventListener("submit", resetOperatorPassword);
   $("team-operator-username-form").addEventListener("submit", changeOperatorUsername);
-  $("team-self-username-form").addEventListener("submit", changeMyUsername);
-  $("team-self-form").addEventListener("submit", changeMyPassword);
   $("team-remove-button").addEventListener("click", removeOperator);
-  for (const [passwordId, confirmId] of [["team-create-password", "team-create-confirm"], ["team-reset-password", "team-reset-confirm"], ["team-new-password", "team-new-confirm"]]) {
-    for (const id of [passwordId, confirmId]) $(id).addEventListener("input", () => $(confirmId).setCustomValidity(""));
+  for (const [passwordId, confirmId] of [["team-admin-password", "team-admin-confirm"], ["team-create-password", "team-create-confirm"], ["team-reset-password", "team-reset-confirm"]]) {
+    for (const id of [passwordId, confirmId]) $(id).addEventListener("input", () => { $(passwordId).setCustomValidity(""); $(confirmId).setCustomValidity(""); });
   }
   $("past-results-button").addEventListener("click", () => showRunPanel("past"));
   $("past-back-button").addEventListener("click", () => showRunPanel("live"));
