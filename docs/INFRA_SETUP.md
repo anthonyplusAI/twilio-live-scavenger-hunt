@@ -29,6 +29,9 @@ container through Azure Resource Manager without a storage key. The app also
 holds a renewable lease on `live-scavenger-hunt-writer.lock` in this container while Litestream
 and the game server run. An extra replica waits for that lease instead of
 becoming a second SQLite writer.
+GitHub currently issues immutable OIDC subjects containing numeric owner and
+repository IDs. The provisioner reads the repository's subject prefix from
+GitHub and registers the exact `main` branch claim in Entra.
 
 ## Before running
 
