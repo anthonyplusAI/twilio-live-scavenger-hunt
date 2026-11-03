@@ -67,17 +67,27 @@ async function fetchJson(url, options = {}) {
 function applyState(payload) {
   if (!payload?.state) return;
   const nextHeat = payload.state.heat;
-  if (app.connectedHeat != null && nextHeat !== app.connectedHeat && app.mediaSession) {
-    app.mediaSession.disconnect();
+  const previousMedia = new Map(roster().map(player => [player.id, player.mediaConnected]));
+  if (app.connectedHeat != null && nextHeat !== app.connectedHeat) {
+    const previousSession = app.mediaSession;
     app.mediaSession = null;
-    app.videoTracks.clear();
-    app.evidenceSent.clear();
+    clearTracks();
+    previousSession?.disconnect();
     app.mediaStatus = 'Video reconnecting';
   }
   app.connectedHeat = nextHeat;
   if (payload.serverTime) app.serverOffset = new Date(payload.serverTime).getTime() - Date.now();
   if (payload.event) app.event = payload.event;
   app.state = payload.state;
+  const active = new Map(roster().map(player => [player.id, player]));
+  for (const [id, { element }] of app.videoTracks) {
+    if (!active.has(id)) {
+      removeTrack(id, element);
+      app.videoTracks.delete(id);
+      app.evidenceSent.delete(id);
+    } else if (previousMedia.get(id) && !active.get(id).mediaConnected) removeTrack(id, element);
+    else if (!previousMedia.get(id) && active.get(id).mediaConnected) attachTrack(id, element);
+  }
   app.lastPayloadAt = Date.now();
   app.connected = true;
   render();
@@ -243,7 +253,9 @@ function renderTiles() {
   app.tileSignature = signature;
   players.dataset.slots = String(count);
   players.innerHTML = slots.map((player, index) => tileMarkup(player, player?.slot || index + 1, !!player && winnerIds().includes(player.id), index)).join('');
-  for (const [id, track] of app.videoTracks) attachTrack(id, track.element);
+  for (const [id, track] of app.videoTracks) {
+    if (roster().some(player => player.id === id && player.mediaConnected)) attachTrack(id, track.element);
+  }
   layoutTiles();
 }
 
@@ -342,10 +354,15 @@ function attachTrack(id, element) {
 }
 function removeTrack(id, element) {
   const tile = [...players.children].find(child => child.dataset.playerId === id);
-  if (!tile) return;
   if (element.parentElement) element.remove();
+  if (!tile) return;
   tile.classList.remove('is-live');
   if (phase() !== 'result') tile.querySelector('.tile-state').textContent = 'Connecting';
+}
+function clearTracks() {
+  for (const [id, { element }] of app.videoTracks) removeTrack(id, element);
+  app.videoTracks.clear();
+  app.evidenceSent.clear();
 }
 
 async function wallSession() {
@@ -365,8 +382,7 @@ async function wallSession() {
       const connection = app.mediaSession;
       app.mediaSession = null;
       connection?.disconnect?.();
-      for (const { element } of app.videoTracks.values()) element.remove();
-      app.videoTracks.clear();
+      clearTracks();
       for (const frame of players.querySelectorAll('.rehearsal-frame')) frame.remove();
       for (const tile of players.children) {
         tile.classList.remove('is-live');
@@ -408,9 +424,9 @@ async function ensureMedia() {
       onTrack: ({ identity, element, track }) => {
         const id = playerIdFromIdentity(identity);
         const previous = app.videoTracks.get(id);
-        if (previous && previous.element !== element) previous.element.remove();
+        if (previous && previous.element !== element) removeTrack(id, previous.element);
         app.videoTracks.set(id, { element, track });
-        attachTrack(id, element);
+        if (roster().some(player => player.id === id && player.mediaConnected)) attachTrack(id, element);
       },
       onTrackRemoved: ({ identity, element }) => {
         const id = playerIdFromIdentity(identity);
@@ -420,7 +436,7 @@ async function ensureMedia() {
       onDisconnected: () => {
         if (app.mediaSession !== connection) return;
         app.mediaSession = null;
-        app.videoTracks.clear();
+        clearTracks();
         app.mediaStatus = 'Video reconnecting';
         render();
       },
@@ -500,7 +516,7 @@ function sampleEvidence() {
   // including six-player heats and admin-configured long rounds.
   const interval = Math.max(app.state.prompt.judgeMode === 'ai-assisted' ? 2800 : 1400, roster().length * 750);
   for (const [playerId, { element }] of app.videoTracks) {
-    if (!roster().some(player => player.id === playerId)) continue;
+    if (!roster().some(player => player.id === playerId && player.mediaConnected)) continue;
     if (Date.now() - (app.evidenceSent.get(playerId) || 0) < interval) continue;
     app.evidenceSent.set(playerId, Date.now());
     sendEvidence(playerId, element);

@@ -42,6 +42,7 @@ let pastSelectionDirty = false;
 let selectedPromptId = null;
 let promptBuffer = null;
 let promptDirty = false;
+let promptPriorityAuto = false;
 let eventDirty = false;
 let conflict = false;
 let saving = false;
@@ -125,7 +126,10 @@ function ensureEventShape(event) {
   const copy = clone(event);
   copy.prompts = Array.isArray(copy.prompts) ? copy.prompts : [];
   copy.leadCapture = copy.leadCapture || {};
+  delete copy.leadCapture.marketingOptIn;
+  copy.leadCapture.timing = copy.leadCapture.timing || "after-play";
   copy.leadCapture.fields = Array.isArray(copy.leadCapture.fields) ? copy.leadCapture.fields : [];
+  copy.cta = copy.cta || { primary: "github" };
   copy.vote = copy.vote || {};
   copy.vote.channels = copy.vote.channels || {};
   copy.vote.categories = Array.isArray(copy.vote.categories) ? copy.vote.categories : ["Color", "Object", "Text", "Creative"];
@@ -157,6 +161,7 @@ function setCommitted(event) {
   conflict = false;
   selectedPromptId = draft.prompts.some((item) => item.id === selectedPromptId) ? selectedPromptId : draft.prompts[0]?.id || null;
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
+  promptPriorityAuto = promptBuffer?.priority == null;
   $("reload-event-button").hidden = true;
   $("save-event-button").disabled = !isAdmin();
   saveStatus("Saved · rev " + committed.revision, "saved");
@@ -249,7 +254,7 @@ function setEventStep(step) {
   const sections = {
     basics: ["Game", "Booth and timing", "Set the event name, roster size, and round clock."],
     rules: ["Rules", "Heat rules", "Choose when a heat starts and how winners are decided."],
-    leads: ["Leads", "Lead capture", "Choose what players share before their camera check."],
+    leads: ["Leads", "Lead capture", "Choose when visitors share details and what happens next."],
     systems: ["Systems", "Audience and delivery", "Set voting, messaging, data retention, and readiness."],
   };
   const [kicker, title, description] = sections[step] || sections.basics;
@@ -483,6 +488,8 @@ function renderEventForm() {
   $("event-auto").checked = Boolean(draft.autoAdvance);
   const lead = draft.leadCapture;
   $("lead-enabled").checked = Boolean(lead.enabled);
+  $("lead-timing").value = lead.timing || "after-play";
+  $("primary-cta").value = draft.cta?.primary || "github";
   $("lead-guide").checked = Boolean(lead.guideEnabled);
   $("lead-expert").checked = Boolean(lead.expertEnabled);
   renderLeadFields();
@@ -511,8 +518,16 @@ function updateMessagingPreview() {
 }
 function updateLeadControls() {
   const enabled = $("lead-enabled").checked;
+  const timing = $("lead-timing").value;
+  const primary = $("primary-cta");
+  for (const option of primary.options) {
+    if (option.value === "guide") option.disabled = !enabled || !$("lead-guide").checked;
+    if (option.value === "expert") option.disabled = !enabled || !$("lead-expert").checked;
+  }
+  if (primary.selectedOptions[0]?.disabled) { primary.value = "github"; markDirty(); }
+  $("lead-timing").disabled = !enabled;
   $("lead-pane").classList.toggle("is-off", !enabled);
-  $("lead-visibility").textContent = enabled ? "Join form on" : "Join form off";
+  $("lead-visibility").textContent = enabled ? timing === "join" ? "Join form on" : "After-play form on" : "Lead form off";
 }
 function leadFieldPageSize() { return innerWidth <= 360 && innerHeight <= 600 ? 2 : 3; }
 function renderLeadFields() {
@@ -663,8 +678,10 @@ function syncEventForm() {
   draft.judgePolicy = $("event-judge").value;
   draft.autoAdvance = $("event-auto").checked;
   draft.leadCapture.enabled = $("lead-enabled").checked;
+  draft.leadCapture.timing = $("lead-timing").value;
   draft.leadCapture.guideEnabled = $("lead-guide").checked;
   draft.leadCapture.expertEnabled = $("lead-expert").checked;
+  draft.cta = { primary: $("primary-cta").value };
   draft.vote.enabled = $("vote-enabled").checked;
   draft.vote.windowSeconds = Number($("vote-seconds").value);
   draft.vote.creativeWindowSeconds = Number($("vote-creative-seconds").value);
@@ -706,6 +723,10 @@ function validateEvent() {
       return "Fast detector needs a simple color clue, such as SHOW SOMETHING RED.";
   }
   const lead = draft.leadCapture;
+  if (!["join", "after-play"].includes(lead.timing)) return "Choose when to ask for visitor details.";
+  if (!["github", "guide", "expert"].includes(draft.cta?.primary)) return "Choose a main action.";
+  if (draft.cta.primary === "guide" && (!lead.enabled || !lead.guideEnabled)) return "Enable build guide requests to make them the main action.";
+  if (draft.cta.primary === "expert" && (!lead.enabled || !lead.expertEnabled)) return "Enable expert requests to make them the main action.";
   if (lead.fields.length > 8) return "The lead form can have up to eight fields.";
   const ids = new Set();
   const labels = new Set();
@@ -718,7 +739,7 @@ function validateEvent() {
     ids.add(field.id);
     labels.add(label.toLowerCase());
   }
-  if (lead.enabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add an email or phone field for join-time lead capture.";
+  if (lead.enabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add an email or phone field for lead capture.";
   if (lead.enabled && lead.guideEnabled && !lead.fields.some((field) => field.type === "email" && field.required)) return "The build guide needs a required email field.";
   if (lead.enabled && lead.expertEnabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add email or phone for expert requests.";
   return null;
@@ -792,7 +813,7 @@ function renderPromptList() {
     const title = document.createElement("strong");
     title.textContent = prompt.text;
     const detail = document.createElement("small");
-    detail.textContent = prompt.category + " / " + (prompt.seconds || draft.roundSeconds) + " sec / " + prompt.judgeMode;
+    detail.textContent = prompt.category + " / " + ((prompt.priority || defaultPromptPriority(prompt)) === "low" ? "Low" : "Standard") + " / " + (prompt.seconds || draft.roundSeconds) + " sec / " + prompt.judgeMode;
     copy.append(title, detail);
     const dot = document.createElement("span");
     dot.className = "prompt-dot" + (prompt.enabled ? " enabled" : "");
@@ -811,6 +832,10 @@ function renderPromptList() {
 function colorTargetFromText(value) {
   return String(value || "").trim().match(/^(?:SHOW|FIND) SOMETHING (RED|BLUE|YELLOW|GREEN|ORANGE|PURPLE)[.!]?$/i)?.[1]?.toLowerCase() || null;
 }
+function defaultPromptPriority(prompt) {
+  return prompt?.category === "Color" && /^(?:SHOW|FIND) (?:SOMETHING|ANYTHING|THE COLOR) [A-Z]+[.!]?$/i.test(String(prompt?.text || "").trim())
+    ? "low" : "standard";
+}
 function promptHint(prompt) {
   if (prompt?.judgeMode === "rule") return "Fast detector: SHOW SOMETHING RED. Use AI assisted for named objects.";
   if (prompt?.category === "Text") return "Printed-word ideas: TWILIO, API, WEBHOOK, CODE, SMS, 404.";
@@ -824,9 +849,10 @@ function renderPromptEditor() {
   $("prompt-category").value = prompt?.category || "Object";
   $("prompt-judge").value = prompt?.judgeMode || "ai-assisted";
   $("prompt-seconds").value = prompt?.seconds ?? "";
+  $("prompt-priority").value = prompt?.priority || defaultPromptPriority(prompt);
   $("prompt-enabled").checked = prompt?.enabled ?? false;
   $("prompt-hint").textContent = promptHint(prompt);
-  for (const id of ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-enabled", "save-prompt-button", "discard-prompt-button"]) {
+  for (const id of ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-priority", "prompt-enabled", "save-prompt-button", "discard-prompt-button"]) {
     $(id).disabled = !prompt || !isAdmin();
   }
   $("queue-editor-button").disabled = !prompt || !prompt.enabled;
@@ -836,6 +862,7 @@ function commitPromptBuffer() {
   const text = String(promptBuffer.text || "").trim();
   if (!text || text.length > 55) return flash("A prompt needs 1–55 characters.", true), false;
   if (!allowedCategories.includes(promptBuffer.category)) return flash("Choose a prompt category.", true), false;
+  if (!["standard", "low"].includes(promptBuffer.priority || defaultPromptPriority(promptBuffer))) return flash("Choose a rotation priority.", true), false;
   if (promptBuffer.seconds != null && (!Number.isInteger(promptBuffer.seconds) || promptBuffer.seconds < 5 || promptBuffer.seconds > 180)) {
     return flash("Prompt length must be 5–180 seconds.", true), false;
   }
@@ -849,10 +876,12 @@ function commitPromptBuffer() {
     promptBuffer.detector = promptBuffer.judgeMode === "ai-assisted" ? `visual:${text}` : "manual";
   }
   promptBuffer.text = text;
+  promptBuffer.priority ||= defaultPromptPriority(promptBuffer);
   const index = draft.prompts.findIndex((item) => item.id === promptBuffer.id);
   if (index >= 0) draft.prompts[index] = clone(promptBuffer);
   else draft.prompts.push(clone(promptBuffer));
   promptDirty = false;
+  promptPriorityAuto = false;
   markDirty();
   renderPromptList();
   return true;
@@ -861,6 +890,7 @@ function selectPrompt(id) {
   if (promptDirty && !commitPromptBuffer()) return;
   selectedPromptId = id;
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
+  promptPriorityAuto = promptBuffer?.priority == null;
   promptDirty = false;
   renderPromptList();
   renderPromptEditor();
@@ -871,7 +901,8 @@ function addPrompt() {
   if (draft.prompts.length >= 100) return flash("The deck can have up to 100 prompts.", true);
   if (promptDirty && !commitPromptBuffer()) return;
   selectedPromptId = "prompt-" + crypto.randomUUID();
-  promptBuffer = { id: selectedPromptId, text: "", category: "Object", judgeMode: "ai-assisted", detector: "manual", enabled: true, seconds: null };
+  promptBuffer = { id: selectedPromptId, text: "", category: "Object", judgeMode: "ai-assisted", detector: "manual", priority: "standard", enabled: true, seconds: null };
+  promptPriorityAuto = true;
   promptDirty = true;
   saveStatus("Unsaved prompt", "dirty");
   renderPromptList();
@@ -879,12 +910,15 @@ function addPrompt() {
   setPromptStep("edit");
   $("prompt-text").focus();
 }
-function onPromptInput() {
+function onPromptInput(event) {
   if (!promptBuffer || !isAdmin()) return;
   promptBuffer.text = $("prompt-text").value;
   promptBuffer.category = $("prompt-category").value;
   promptBuffer.judgeMode = $("prompt-judge").value;
   promptBuffer.seconds = $("prompt-seconds").value === "" ? null : Number($("prompt-seconds").value);
+  if (event?.target?.id === "prompt-priority") promptPriorityAuto = false;
+  if (promptPriorityAuto) $("prompt-priority").value = defaultPromptPriority(promptBuffer);
+  promptBuffer.priority = $("prompt-priority").value;
   promptBuffer.enabled = $("prompt-enabled").checked;
   promptDirty = true;
   saveStatus("Unsaved prompt", "dirty");
@@ -894,6 +928,7 @@ function onPromptInput() {
 function discardPromptBuffer() {
   if (!activePrompt()) selectedPromptId = draft.prompts[0]?.id || null;
   promptBuffer = activePrompt() ? clone(activePrompt()) : null;
+  promptPriorityAuto = promptBuffer?.priority == null;
   promptDirty = false;
   renderPromptEditor();
   saveStatus(eventDirty ? "Unsaved changes" : "Saved · rev " + committed.revision, eventDirty ? "dirty" : "saved");
@@ -1065,7 +1100,12 @@ function renderCandidates() {
   }
   const hasProposal = proposed.size > 0;
   const note = $("candidate-note");
-  if (hasProposal) {
+  if (runtime.judgeNotice && ["hunt", "review"].includes(runtime.phase)) {
+    note.textContent = `${runtime.judgeNotice.message} Choose a winner, tie, or No valid match.`;
+    note.title = note.textContent;
+    note.classList.remove("has-proposal");
+    note.classList.add("is-warning");
+  } else if (hasProposal) {
     const source = String(candidate.source || "Judge").replace(/[-_]/g, " ");
     const confidence = Number(candidate.confidence);
     const machineSource = /rule|ai|vision|model|detector/i.test(source);
@@ -1075,10 +1115,12 @@ function renderCandidates() {
     note.textContent = source + " proposal" + confidenceText + (candidate.explanation ? " · " + candidate.explanation : "");
     note.title = note.textContent;
     note.classList.add("has-proposal");
+    note.classList.remove("is-warning");
   } else {
     note.textContent = "Select one player, or several for a tie.";
     note.title = "";
     note.classList.remove("has-proposal");
+    note.classList.remove("is-warning");
   }
   const canJudge = ["hunt", "review", "result"].includes(runtime.phase) && !commandBusy;
   $("ai-button").textContent = hasProposal ? "Use proposal" : "Propose selected";
@@ -1635,12 +1677,12 @@ function wireControls() {
     if (!isAdmin()) return;
     markDirty();
     if (event.target.id === "vote-event-code") updateMessagingPreview();
-    if (["lead-enabled", "lead-guide", "lead-expert"].includes(event.target.id)) updateLeadControls();
+    if (["lead-enabled", "lead-guide", "lead-expert", "lead-timing", "primary-cta"].includes(event.target.id)) updateLeadControls();
   });
   $("event-form").addEventListener("change", (event) => {
     if (!isAdmin()) return;
     markDirty();
-    if (["lead-enabled", "lead-guide", "lead-expert"].includes(event.target.id)) updateLeadControls();
+    if (["lead-enabled", "lead-guide", "lead-expert", "lead-timing", "primary-cta"].includes(event.target.id)) updateLeadControls();
   });
   $("event-form").addEventListener("submit", async (event) => { event.preventDefault(); await saveEvent(true); });
   $("reload-event-button").addEventListener("click", async () => {
@@ -1687,7 +1729,7 @@ function wireControls() {
   $("prompt-prev").addEventListener("click", () => { promptPage--; renderPromptList(); });
   $("prompt-next").addEventListener("click", () => { promptPage++; renderPromptList(); });
   $("add-prompt-button").addEventListener("click", addPrompt);
-  for (const id of ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-enabled"]) $(id).addEventListener("input", onPromptInput);
+  for (const id of ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-priority", "prompt-enabled"]) $(id).addEventListener("input", onPromptInput);
   $("prompt-form").addEventListener("submit", async (event) => { event.preventDefault(); await saveEvent(true); });
   $("queue-editor-button").addEventListener("click", async () => {
     if (!promptBuffer?.enabled) return flash("Enable this prompt before queueing it.", true);

@@ -80,7 +80,7 @@ Leave the username as `admin` and enter a new password to reset it, or change
 the username as well. The account's active sessions end after either change.
 If the database already has users, bootstrap leaves them unchanged. Treat the
 Container App secret and Blob replica as sensitive because the database holds
-accounts, event settings, metrics, and opt-in leads.
+accounts, event settings, metrics, and captured leads.
 
 After signing in, use **Team → Add operator** in the control room to create
 separate local operator accounts. An admin can reset and rename those accounts
@@ -153,12 +153,13 @@ credentials; only the deploy job reads them.
 | Optional variable | `GOOGLE_AUTH_DISABLE` | Set to `1` for an explicit controlled sign-in disable; `0` re-enables when both secrets exist. |
 | Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
 | Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
-| Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY` | AI-assisted judging, Segment mirroring, and requested guide email respectively. |
+| Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`, `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | AI-assisted judging, Segment mirroring, requested guide email, and verification of SendGrid delivery callbacks respectively. |
 | Optional variables | `OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, verified guide sender, and SendGrid API region. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.
 GitHub's deploy workflow never forwards these identifiers to its test job.
+Segment only receives the limited, contact-free activity stream.
 
 ## First rollout and backup verification
 
@@ -275,24 +276,43 @@ settings preserve the existing ACA values.
    verdict. Check the event's camera consent and privacy copy before use.
 2. **Segment:** create a Source and add its `SEGMENT_WRITE_KEY` as an Actions
    secret to mirror the app's limited activity stream. Local metrics continue
-   to work without Segment. The app sends no lead identity to Segment. The
-   retired `SEGMENT_IDENTIFY_LEADS` Actions variable can be removed; the deploy
-   workflow no longer forwards it.
+   to work without Segment. The app sends no lead identity to Segment.
 3. **Guide email:** verify the sending identity in SendGrid, create an API key
    with Mail Send access, add `SENDGRID_API_KEY` as an Actions secret, and set
    `SENDGRID_FROM_EMAIL` to the exact verified address as an Actions variable.
    Both settings must be present when enabling or refreshing guide email; a
    partial pair fails before downtime. Set `SENDGRID_REGION=eu` only for an EU
    regional account. The default uses the global API; `global` or `us` can
-   explicitly switch a previously configured EU deployment back. A successful
-   build-guide request after a player joins with saved contact details sends
-   one guide email; expert requests are saved for staff follow-up and do not
-   send a Voice call.
+   explicitly switch a previously configured EU deployment back. The default
+   post-heat action is a GitHub star link. An admin can instead make the guide
+   or expert action primary in event settings. A first follow-up action opens a
+   voluntary contact form after play; a compatible second request reuses those
+   details. A guide request needs an email. The same actions
+   are available to spectators who do not play. Expert requests enter the
+   admin-only follow-up queue in Metrics and do not place a Voice call.
+4. **Confirm guide delivery:** in SendGrid, open **Settings → Mail Settings →
+   Event Webhooks**, create an Event Webhook with POST URL
+   `https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/webhooks/sendgrid/events`
+   (replace the host if this event runs at another origin), and select
+   **processed**, **deferred**, **delivered**, **bounce**, and **dropped** events.
+   Enable **Signed Event Webhook** and save the webhook. Open its edit screen
+   to copy the public verification key; add it as the Actions secret
+   `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY`, then deploy. The app rejects unsigned
+   or invalid callbacks. See [SendGrid's signed webhook setup](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)
+   for the signing control and key location. Mail Send's HTTP `202` means
+   SendGrid accepted the message; only a signed callback can confirm delivery
+   or report a bounce/drop. The webhook key is independent of the Mail Send API
+   key and can be added after guide sending is configured. A guide requested
+   again for the same event and email within 24 hours is recorded without
+   another send. Definite HTTP 429 responses retry with backoff; HTTP 503 and
+   uncertain network outcomes require staff review without automatic retry.
 
 After cutover, test one AI-assisted prompt, check that a safe game event appears
 in the intended Segment Source, and request a guide with a staff email address.
-The operator Preflight view checks configuration presence; those real actions
-confirm account access and delivery. Removing a GitHub secret does not clear an
+Check **accepted** first, then **delivered** after the signed SendGrid callback;
+an accepted message alone does not establish delivery. The operator Preflight
+view checks configuration presence; those real actions confirm account access
+and the complete send path. Removing a GitHub secret does not clear an
 existing ACA secret reference. Older secret versions are kept for rollback;
 clean them up only after their referencing revisions are no longer needed.
 Keep all API keys out of the repository and browser code.

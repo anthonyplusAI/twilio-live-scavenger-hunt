@@ -38,7 +38,7 @@ const state = {
   range: ranges.has(initialParams.get("range")) ? initialParams.get("range") : "7d",
   customFrom: initialParams.get("from") || "",
   customTo: initialParams.get("to") || "",
-  events: [], activity: [], leads: [], reportSummary: null,
+  events: [], activity: [], leads: [], expertQueue: [], showExpertQueue: false, reportSummary: null, csrfToken: "",
   promptPage: 0, voteChoicePage: 0, leadPage: 0,
   detailLeadId: null, detailPage: 0, detailReturnFocus: null,
   requestId: 0,
@@ -112,11 +112,10 @@ function normalizeLeads(input) {
       eventId: String(row.eventId ?? row.event_id ?? ""),
       createdAt: row.createdAt ?? row.created_at ?? row.at,
       fieldValues: values, fieldSnapshot: snapshot,
-      marketingOptIn: row.marketingOptIn === true || row.marketing_opt_in === true,
     };
   }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
-function uniquePeople(rows, keys = ["participantId", "playerId", "sessionId"]) {
+function uniquePeople(rows, keys = ["sessionId", "participantId", "playerId"]) {
   const people = new Set();
   rows.forEach(row => {
     const id = keys.map(key => row.properties?.[key]).find(Boolean);
@@ -174,7 +173,14 @@ function buildSummary(records, leads) {
     choices.get(key).votes++;
   });
   const durations = verified.map(row => Number(row.properties.timeToMatchMs)).filter(value => Number.isFinite(value) && value >= 0);
-  const uniqueVisitors = uniquePeople(landings), uniquePlayers = uniquePeople(joins);
+  const uniqueVisitors = uniquePeople(landings, ["sessionId"]);
+  const joinSessions = joins.length;
+  const joinedBrowsers = uniquePeople(joins, ["sessionId", "playerId", "participantId"]);
+  const eventSessionKey = row => row.properties.sessionId ? `${row.eventId}:${row.properties.sessionId}` : null;
+  const formSessions = new Set(leadForms.map(eventSessionKey).filter(Boolean));
+  const convertedSessions = new Set([...byType("lead_captured"), ...byType("lead_submitted")]
+    .map(eventSessionKey).filter(id => formSessions.has(id)));
+  const leadConversionRate = formSessions.size ? convertedSessions.size / formSessions.size * 100 : null;
   const productLinkRows = byType("twilio_product_link_opened");
   const twilioProductLinkClicks = productLinkRows.length;
   const twilioProductLinkClicksByProduct = { video: 0, messaging: 0, segment: 0 };
@@ -191,7 +197,7 @@ function buildSummary(records, leads) {
     githubRepoClicksBySource[key]++;
   });
   return {
-    totalEvents: records.length, uniqueVisitors, uniquePlayers,
+    totalEvents: records.length, uniqueVisitors, joinSessions, joinedBrowsers, leadConversionRate,
     engagementActions: records.filter(row => engagementTypes.has(row.type)).length,
     twilioProductLinkClicks, twilioProductLinkClicksByProduct, githubRepoClicks, githubRepoClicksBySource,
     playerEntries,
@@ -212,7 +218,7 @@ function buildSummary(records, leads) {
     daily: [...daily.values()].sort((a, b) => a.day.localeCompare(b.day)),
     funnel: [
       { label: "Opened", count: uniqueVisitors },
-      { label: "Joined", count: uniquePlayers },
+      { label: "Joined", count: joinedBrowsers },
       { label: "Saw result", count: uniquePeople(resultViews) },
       { label: "Opened CTA", count: uniquePeople(ctaOpens) },
       { label: "Twilio pages", count: twilioProductLinkClicks, title: "Clicks on official Twilio product pages" },
@@ -271,11 +277,17 @@ function renderFunnel(summary) {
     fill.style.width = `${row.count / max * 100}%`;
     track.append(fill); element.append(make("span", "", row.label), track, make("strong", "", number(row.count))); host.append(element);
   }
-  setText("funnel-rate", summary.uniqueVisitors ? `${percent(summary.uniqueLeads / summary.uniqueVisitors * 100)} lead rate` : "— lead rate");
+  setText("funnel-rate", summary.leadConversionRate == null ? "— form rate" : `${percent(summary.leadConversionRate)} form rate`);
 }
 function renderOverview(summary) {
   setText("kpi-visitors", number(summary.uniqueVisitors));
-  setText("kpi-players", number(summary.uniquePlayers));
+  setText("kpi-players", number(summary.joinSessions));
+  const joinedBrowsers = state.reportSummary?.uniqueVisitorSessions;
+  const unattributed = Number(state.reportSummary?.unattributedJoinSessions) || 0;
+  setText("kpi-players-note", unattributed ? Number.isInteger(joinedBrowsers) && joinedBrowsers > 0
+    ? `${number(joinedBrowsers)} tracked browsers` : "earlier joins lack browser IDs"
+    : Number.isInteger(joinedBrowsers) ? `${number(joinedBrowsers)} browser${joinedBrowsers === 1 ? "" : "s"} joined` : "game entries");
+  $("kpi-players-note").title = unattributed ? `${number(unattributed)} earlier join sessions have no browser ID; the player join total includes them.` : "Each join is a game entry; one browser can join more than once.";
   setText("kpi-actions", number(summary.engagementActions));
   setText("kpi-leads", number(state.leads.length));
   for (const product of ["video", "messaging", "segment"]) setText(`product-${product}-clicks`, number(summary.twilioProductLinkClicksByProduct[product]));
@@ -322,7 +334,7 @@ function renderAudience(summary) {
   setText("audience-categories", number(summary.voteTypes.category));
   setText("audience-creatives", number(summary.voteTypes.creative));
   setText("vote-conversion", summary.ballotVisitors ? `${percent(summary.channelVotes.web / summary.ballotVisitors * 100)} web rate` : "— web rate");
-  setText("vote-visit-note", `${number(summary.ballotVisitors)} ballot visits · Voting never creates a lead.`);
+  setText("vote-visit-note", `${number(summary.ballotVisitors)} ballot browsers · Optional follow-up is separate.`);
   const choices = summary.voteChoices, size = pageSize("choice"), pages = Math.max(1, Math.ceil(choices.length / size));
   state.voteChoicePage = Math.min(state.voteChoicePage, pages - 1);
   const host = $("vote-choice-rows"); host.replaceChildren();
@@ -396,23 +408,46 @@ function closeLeadDetail() {
   const replacement = [...document.querySelectorAll(".lead-detail-button")].find(button => button.dataset.leadId === formerId);
   (formerFocus?.isConnected ? formerFocus : replacement || $("event-filter")).focus();
 }
+function listedLeads() { return state.showExpertQueue ? state.expertQueue : state.leads; }
+function findDisplayedLead(id) { return [...state.leads, ...state.expertQueue].find(lead => lead.id === id); }
 function requestedFollowup(lead) {
   const guide = Boolean(lead.guideRequestedAt) || lead.intent === "guide";
   const expert = Boolean(lead.expertRequestedAt) || lead.intent === "expert";
-  if (guide && expert) return "Guide + expert";
-  if (guide) return "Build guide";
-  if (expert) return "Expert conversation";
+  const expertState = expert ? lead.expertStatus === "contacted" ? "contacted" : "pending" : "";
+  const guideStates = {
+    "pending-configuration": "waiting for setup",
+    "pending-email": "needs email",
+    "recent-request": "recent request",
+    accepted: "accepted by SendGrid",
+    processed: "processed by SendGrid",
+    deferred: "deferred by SendGrid",
+    delivered: "delivered",
+    bounced: "bounced",
+    dropped: "dropped",
+    retrying: "retrying",
+    failed: "failed",
+    "needs-review": "needs review",
+  };
+  const guideState = guide ? guideStates[lead.deliveryStatus] || "queued" : "";
+  if (guide && expert) return `Guide ${guideState} · Expert ${expertState}`;
+  if (guide) return `Guide ${guideState}`;
+  if (expert) return `Expert ${expertState}`;
   return "None requested";
 }
 function renderLeadDetail() {
   if (!state.detailLeadId) return;
-  const lead = state.leads.find(item => item.id === state.detailLeadId);
+  const lead = findDisplayedLead(state.detailLeadId);
   if (!lead) { closeLeadDetail(); return; }
   const email = leadValue(lead, "email", "email"), phone = leadValue(lead, "phone", "tel");
   setText("lead-detail-heading", leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor"));
   const when = new Date(lead.createdAt);
   const date = Number.isFinite(when.getTime()) ? when.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Date unavailable";
   setText("lead-detail-summary", `Captured ${date} · ${requestedFollowup(lead)}`);
+  const action = $("expert-followup-button");
+  action.hidden = !lead.expertRequestedAt;
+  action.dataset.leadId = lead.id;
+  action.textContent = lead.expertStatus === "contacted" ? "Reopen follow-up" : "Mark contacted";
+  $("lead-detail-overlay").querySelector(".lead-detail-footer").classList.toggle("has-expert-action", !action.hidden);
   const entries = leadFieldEntries(lead), pages = leadDetailPages(entries);
   state.detailPage = Math.min(state.detailPage, Math.max(0, pages.length - 1));
   const current = pages[state.detailPage] || { start: 0, items: [] }, start = current.start, visible = current.items, host = $("lead-detail-fields");
@@ -439,10 +474,10 @@ function openLeadDetail(lead, button) {
   renderLeadDetail(); $("lead-detail-close").focus();
 }
 function renderLeadRows() {
-  const leads = state.leads, size = pageSize("lead"), pages = Math.max(1, Math.ceil(leads.length / size));
+  const leads = listedLeads(), size = pageSize("lead"), pages = Math.max(1, Math.ceil(leads.length / size));
   state.leadPage = Math.min(state.leadPage, pages - 1);
   const host = $("lead-rows"); host.replaceChildren();
-  if (!leads.length) host.append(makeEmpty("No leads in this range", "Players who share details at join appear here."));
+  if (!leads.length) host.append(makeEmpty(state.showExpertQueue ? "No pending expert requests" : "No leads in this range", state.showExpertQueue ? "New requests appear here until staff marks them contacted." : "Visitors who share details appear here."));
   else for (const lead of leads.slice(state.leadPage * size, (state.leadPage + 1) * size)) {
     const email = leadValue(lead, "email", "email"), phone = leadValue(lead, "phone", "tel");
     const contactName = leadValue(lead, "name") || (email ? "Email contact" : phone ? "Phone contact" : "Visitor");
@@ -451,25 +486,33 @@ function renderLeadRows() {
     details.type = "button"; details.dataset.leadId = lead.id;
     details.setAttribute("aria-label", `View saved answers for ${contactName}`);
     details.addEventListener("click", () => openLeadDetail(lead, details));
-    row.append(contact, make("span", "request", requestedFollowup(lead)), make("span", "date", shortDate(lead.createdAt)), details);
+    row.append(contact, make("span", `request ${lead.expertRequestedAt && lead.expertStatus !== "contacted" ? "pending" : ""}`, requestedFollowup(lead)), make("span", "date", shortDate(state.showExpertQueue ? lead.expertRequestedAt : lead.createdAt)), details);
     host.append(row);
   }
-  setText("lead-page", leads.length ? `${state.leadPage * size + 1}–${Math.min((state.leadPage + 1) * size, leads.length)} of ${leads.length} leads` : "0 leads");
+  setText("lead-page", leads.length ? `${state.leadPage * size + 1}–${Math.min((state.leadPage + 1) * size, leads.length)} of ${leads.length} ${state.showExpertQueue ? "pending" : "leads"}` : state.showExpertQueue ? "0 pending" : "0 leads");
   $("lead-prev").disabled = state.leadPage <= 0;
   $("lead-next").disabled = state.leadPage >= pages - 1;
-  $("export-leads").disabled = !leads.length;
+  // The expert queue spans all dates; the CSV stays scoped to the date-filtered lead roster.
+  $("export-leads").disabled = !state.leads.length;
 }
 function renderLeads(summary) {
   setText("lead-count", number(state.leads.length));
-  setText("lead-conversion", summary.leadFormOpens ? percent(state.leads.length / summary.leadFormOpens * 100) : "—");
+  setText("lead-conversion", summary.leadConversionRate == null ? "—" : percent(summary.leadConversionRate));
+  $("lead-conversion").title = summary.leadConversionRate == null ? "Conversion requires form-open and submission events from the same browser session." : "Browser sessions that submitted details after opening the form.";
   const guides = state.reportSummary?.guideRequests ?? state.leads.filter(lead => Boolean(lead.guideRequestedAt) || lead.intent === "guide").length;
   const experts = state.reportSummary?.expertRequests ?? state.leads.filter(lead => Boolean(lead.expertRequestedAt) || lead.intent === "expert").length;
   setText("lead-guides", number(guides)); setText("lead-experts", number(experts));
+  const pending = Number(state.reportSummary?.pendingExpertRequests ?? state.expertQueue.length) || 0;
+  setText("lead-experts-note", `${number(pending)} pending follow-up`);
+  setText("expert-queue-count", number(pending));
+  $("expert-queue-toggle").setAttribute("aria-pressed", String(state.showExpertQueue));
+  setText("lead-list-heading", state.showExpertQueue ? "Expert follow-up" : "Lead roster");
+  setText("lead-list-kicker", state.showExpertQueue ? "PENDING ACROSS ALL DATES" : "VISITOR DETAILS");
   setText("intent-guide", number(guides)); setText("intent-expert", number(experts));
   const selected = state.events.find(event => event.slug === state.event);
   const leadStatus = state.event === "all" ? "Lead forms are configured per event."
     : selected?.leadCaptureEnabled === false ? "Lead capture is off for this event."
-      : selected?.leadCaptureEnabled === true ? `Capture at join · ${selected.leadFieldCount || 0} fields.`
+      : selected?.leadCaptureEnabled === true ? `${selected.leadCaptureTiming === "join" ? "At join" : "After play"} · ${selected.leadFieldCount || 0} fields.`
         : `Showing follow-up from ${selected?.name || state.event}.`;
   setText("lead-status", leadStatus);
   renderLeadRows(); renderLeadDetail();
@@ -512,6 +555,8 @@ async function loadReport() {
     }
     state.activity = normalizeActivity(payload.activity);
     state.leads = normalizeLeads(payload.leads);
+    state.expertQueue = normalizeLeads(payload.expertQueue)
+      .sort((a, b) => Date.parse(b.expertRequestedAt || b.createdAt) - Date.parse(a.expertRequestedAt || a.createdAt));
     state.reportSummary = safeObject(payload.summary);
     setText("data-badge", "EVENT DATA"); render();
   } catch (error) {
@@ -537,7 +582,7 @@ async function exportCsv(kind) {
     anchor.href = url; anchor.download = exportFilename(kind); document.body.append(anchor); anchor.click(); anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } catch (error) { showNotice("Export unavailable", error.message || "Try again after refreshing the report."); }
-  finally { button.textContent = prior; button.disabled = false; }
+  finally { button.textContent = prior; button.disabled = kind === "leads" ? !state.leads.length : !state.activity.length; }
 }
 async function init() {
   renderEventOptions(); showView(state.activeView);
@@ -548,6 +593,7 @@ async function init() {
     const session = await response.json();
     if (!session.user) { redirectToLogin(); return; }
     if (String(session.user.role).toLowerCase() !== "admin") { showNotice("Admin access required", "Ask an event administrator to open this private report."); setText("data-badge", "RESTRICTED"); return; }
+    state.csrfToken = String(session.csrfToken || "");
     try {
       const eventResponse = await fetch("/api/admin/events", { credentials: "same-origin", cache: "no-store" });
       if (eventResponse.ok) {
@@ -579,6 +625,12 @@ $("apply-range").addEventListener("click", () => {
 $("refresh-report").addEventListener("click", loadReport);
 $("export-activity").addEventListener("click", () => exportCsv("events"));
 $("export-leads").addEventListener("click", () => exportCsv("leads"));
+$("expert-queue-toggle").addEventListener("click", () => {
+  state.showExpertQueue = !state.showExpertQueue;
+  state.leadPage = 0;
+  closeLeadDetail();
+  render();
+});
 $("prompt-prev").addEventListener("click", () => { state.promptPage--; render(); });
 $("prompt-next").addEventListener("click", () => { state.promptPage++; render(); });
 $("vote-choice-prev").addEventListener("click", () => { state.voteChoicePage--; render(); });
@@ -588,12 +640,32 @@ $("lead-next").addEventListener("click", () => { state.leadPage++; render(); });
 $("lead-detail-close").addEventListener("click", closeLeadDetail);
 $("lead-detail-prev").addEventListener("click", () => { state.detailPage--; renderLeadDetail(); });
 $("lead-detail-next").addEventListener("click", () => { state.detailPage++; renderLeadDetail(); });
+$("expert-followup-button").addEventListener("click", async () => {
+  const button = $("expert-followup-button"), id = button.dataset.leadId;
+  const lead = findDisplayedLead(id);
+  if (!lead || !state.csrfToken) return;
+  const status = lead.expertStatus === "contacted" ? "pending" : "contacted";
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/admin/leads/${encodeURIComponent(id)}/expert-status`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
+      body: JSON.stringify({ status }),
+    });
+    if (response.status === 401) { redirectToLogin(); return; }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Follow-up update failed (${response.status})`);
+    closeLeadDetail();
+    await loadReport();
+  } catch (error) { showNotice("Could not update expert follow-up", error.message || "Refresh and try again."); }
+  finally { button.disabled = false; }
+});
 $("lead-detail-overlay").addEventListener("click", event => { if (event.target === $("lead-detail-overlay")) closeLeadDetail(); });
 document.addEventListener("keydown", event => {
   if (!$("lead-detail-overlay").hidden) {
     if (event.key === "Escape") { event.preventDefault(); closeLeadDetail(); }
     if (event.key === "Tab") {
-      const controls = [$("lead-detail-close"), $("lead-detail-prev"), $("lead-detail-next")].filter(button => !button.disabled);
+      const controls = [$("lead-detail-close"), $("expert-followup-button"), $("lead-detail-prev"), $("lead-detail-next")].filter(button => !button.disabled && !button.hidden);
       const first = controls[0], last = controls.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }

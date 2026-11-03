@@ -79,6 +79,87 @@ test('AI vision returns a proposal that the operator may override, while unconfi
   noKey.store.close();
 });
 
+test('a disconnected Twilio player cannot submit a winning frame or keep an in-flight verdict', async () => {
+  const app = arena();
+  const playerId = app.entries[0].player.id;
+  const red = frame([245, 15, 20]);
+  const judge = new JudgeService({ engine: app.engine, now: () => app.now,
+    vision: { enabled: () => false } });
+  app.engine.setTransport(app.event.slug, app.entries[0].token, 'twilio');
+  app.engine.setMediaConnected(app.event.slug, playerId, true);
+  assert.equal((await judge.submit({ slug: app.event.slug, playerId, buffer: red, receiptAt: app.now })).status, 'pending');
+  app.engine.setMediaConnected(app.event.slug, playerId, false);
+  app.now += 620;
+  const disconnected = await judge.submit({ slug: app.event.slug, playerId, buffer: red, receiptAt: app.now });
+  assert.equal(disconnected.status, 'ignored');
+  assert.equal(disconnected.reason, 'media_disconnected');
+  assert.deepEqual(app.engine.acceptJudgment(app.event.slug, {
+    playerId, matched: true, confidence: 1, source: 'rule', receiptAt: app.now,
+  }), { candidate: null });
+  assert.deepEqual(app.engine.store.getRuntime(app.event.id).candidates, []);
+  app.store.close();
+
+  const prompt = { id: 'O01', text: 'SHOW A CUP', category: 'Object', judgeMode: 'ai-assisted', detector: 'object:cup', enabled: true, seconds: 10 };
+  const delayed = arena(prompt);
+  const delayedId = delayed.entries[0].player.id;
+  delayed.engine.setTransport(delayed.event.slug, delayed.entries[0].token, 'twilio');
+  delayed.engine.setMediaConnected(delayed.event.slug, delayedId, true);
+  let resolveVerdict;
+  const waiting = new Promise(resolve => { resolveVerdict = resolve; });
+  const aiJudge = new JudgeService({ engine: delayed.engine, now: () => delayed.now,
+    vision: { enabled: () => true, judge: () => waiting } });
+  const submission = aiJudge.submit({ slug: delayed.event.slug, playerId: delayedId,
+    buffer: frame(), receiptAt: delayed.now });
+  delayed.engine.setMediaConnected(delayed.event.slug, delayedId, false);
+  resolveVerdict({ matched: true, confidence: 0.99, explanation: 'Cup clearly visible' });
+  assert.equal((await submission).status, 'ignored');
+  assert.deepEqual(delayed.engine.store.getRuntime(delayed.event.id).candidates, []);
+  delayed.store.close();
+});
+
+test('AI failure holds review for a visible operator decision, including a tie', async () => {
+  const prompt = { id: 'O01', text: 'SHOW A CUP', category: 'Object', judgeMode: 'ai-assisted', detector: 'object:cup', enabled: true, seconds: 10 };
+  const app = arena(prompt);
+  const judge = new JudgeService({ engine: app.engine, now: () => app.now,
+    vision: { enabled: () => true, judge: async () => { throw new Error('provider timed out'); } } });
+  const result = await judge.submit({ slug: app.event.slug, playerId: app.entries[0].player.id,
+    buffer: frame(), receiptAt: app.now });
+  assert.equal(result.status, 'manual');
+  assert.equal(result.errorCode, 'ai_unavailable');
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.judgeNotice.code, 'ai_unavailable');
+  assert.equal(app.engine.snapshot(app.event.slug).state.judgeNotice, undefined);
+  app.now += 10_100;
+  app.engine.tickAll();
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'review');
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.reviewEndsAt, null);
+  app.now += 7_000;
+  app.engine.tickAll();
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'review');
+  app.engine.command(app.event.slug, 'award', { winners: app.entries.map(entry => entry.player.id) }, { id: 'operator' });
+  assert.deepEqual(app.engine.snapshot(app.event.slug).state.winners, app.entries.map(entry => entry.player.id));
+  app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.judgeNotice, null);
+  app.store.close();
+});
+
+test('an unconfigured AI judge does not silently end an empty heat as no match', () => {
+  const prompt = { id: 'O01', text: 'SHOW A CUP', category: 'Object', judgeMode: 'ai-assisted', detector: 'object:cup', enabled: true, seconds: 10 };
+  const app = arena(prompt);
+  new JudgeService({ engine: app.engine, vision: { enabled: () => false } });
+  app.now += 10_100;
+  app.engine.tickAll();
+  const operator = app.engine.snapshot(app.event.slug, 'operator').state;
+  assert.equal(operator.phase, 'review');
+  assert.equal(operator.reviewEndsAt, null);
+  assert.equal(operator.judgeNotice.code, 'ai_unconfigured');
+  app.now += 7_000;
+  app.engine.tickAll();
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'review');
+  app.engine.command(app.event.slug, 'noMatch', {}, { id: 'operator' });
+  assert.deepEqual(app.engine.snapshot(app.event.slug).state.winners, []);
+  app.store.close();
+});
+
 test('bad JPEGs are refused before they reach a model', async () => {
   const app = arena();
   const judge = new JudgeService({ engine: app.engine, vision: { enabled: () => false } });

@@ -92,17 +92,23 @@ TwiML response instructs Twilio to send a ballot acknowledgment. The [Twilio
 setup steps](INFRA_SETUP.md#activate-twilio-video) cover those settings.
 
 The same stopped-writer update supports optional OpenAI, Segment, and SendGrid
-settings. Nonempty `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, and `SENDGRID_API_KEY`
-Actions secrets become ACA secret references; optional
-`OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, and `SENDGRID_REGION` Actions
-variables become candidate environment settings.
+settings. Nonempty `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`,
+and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` Actions secrets become ACA secret
+references; optional
+`OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, and `SENDGRID_REGION`
+Actions variables become candidate environment settings.
 The SendGrid API key and verified sender email must be supplied together.
-The retired `SEGMENT_IDENTIFY_LEADS` Actions variable is no longer forwarded;
-the app does not send lead identity to Segment. Invalid values and a partial SendGrid pair fail
-before the old writer stops. Unset values preserve the live configuration;
+The app does not send lead identity to Segment. Invalid values and a partial
+SendGrid pair fail before the old writer stops. Unset values preserve the live configuration;
 removing a GitHub secret does not remove an existing ACA reference. The
 [optional integration setup](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)
-includes post-cutover checks.
+includes signed SendGrid Event Webhook setup and post-cutover checks. The
+webhook key can be deployed separately from the API key and verified sender.
+After sending a staff test guide, check that its status moves from **accepted**
+to **delivered**; `202 Accepted` alone does not confirm delivery. A repeated
+request for the same event and email within 24 hours is recorded without
+another send. HTTP 503 and uncertain network outcomes are held for staff
+review without automatic retry.
 
 To dispatch a release already on `main`:
 

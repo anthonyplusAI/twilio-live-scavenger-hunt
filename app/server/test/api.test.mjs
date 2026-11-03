@@ -76,6 +76,7 @@ async function fixture(changes = {}, options = {}) {
 test('public HTML/API/SSE seal the clue through countdown, and concurrent clients get distinct slots', async () => {
   const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'capacity' });
   try {
+    app.engine.command(app.event.slug, 'queuePrompt', { promptId: 'C01' }, { id: 'operator' });
     const initial = await app.request(`/api/e/${app.event.slug}`);
     assert.equal(initial.response.status, 200);
     assert.equal(Object.hasOwn(initial.value.event, 'prompts'), false);
@@ -724,6 +725,10 @@ test('kick reports a Video disconnect failure while preserving the local removal
 test('join captures one private lead before play and follow-up reuses it', async () => {
   const app = await fixture({ startMode: 'manual' });
   try {
+    const configured = app.store.getEvent(app.event.slug);
+    app.store.saveEvent(configured.slug, { ...configured,
+      leadCapture: { ...configured.leadCapture, timing: 'join' },
+    }, configured.revision);
     const path = '/api/e/' + app.event.slug;
     const missing = await app.request(path + '/join', { method: 'POST',
       body: { alias: 'Visitor', displayConsent: true } });
@@ -897,5 +902,133 @@ test('a shared booth network can admit and count more than sixty visitors in a m
     })));
     assert.ok(ballots.every(result => result.response.status === 200));
     assert.equal(app.store.listVotes(app.event.id, vote.id).length, 80);
+  } finally { await app.close(); }
+});
+
+test('camera-first joins need no lead form, and a disconnected live camera cannot submit evidence', async () => {
+  const app = await fixture();
+  try {
+    const slug = app.event.slug;
+    const landing = await app.request(`/api/e/${slug}/activity`, {
+      method: 'POST', body: { type: 'landing_opened' },
+    });
+    const cookie = landing.response.headers.get('set-cookie').split(';')[0];
+    const joined = await app.request(`/api/e/${slug}/join`, {
+      method: 'POST', cookie, body: { alias: 'Camera first', displayConsent: true },
+    });
+    assert.equal(joined.response.status, 201);
+    assert.equal(app.store.listLeads(app.event.id).length, 0);
+    const player = app.store.getPlayer(joined.value.player.id);
+    const landingId = app.store.listActivity(app.event.id).find(row => row.type === 'landing_opened').properties.sessionId;
+    assert.equal(player.analyticsSessionId, landingId);
+    app.engine.setTransport(slug, joined.value.token, 'twilio');
+    const frame = await app.request(`/api/e/${slug}/frame`, {
+      method: 'POST', token: joined.value.token, body: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+    });
+    assert.equal(frame.response.status, 409);
+    assert.equal(frame.value.code, 'media_required');
+  } finally { await app.close(); }
+});
+
+test('an admin can require the saved lead form at join for a specific event', async () => {
+  const app = await fixture();
+  try {
+    const current = app.store.getEvent(app.event.slug);
+    app.store.saveEvent(current.slug, {
+      ...current, leadCapture: { ...current.leadCapture, timing: 'join' },
+    }, current.revision);
+    const rejected = await app.request(`/api/e/${current.slug}/join`, {
+      method: 'POST', body: { alias: 'Form required', displayConsent: true },
+    });
+    assert.equal(rejected.response.status, 400);
+    assert.equal(app.store.listPlayers(current.id).length, 0);
+    const accepted = await app.request(`/api/e/${current.slug}/join`, {
+      method: 'POST', body: { alias: 'Form provided', displayConsent: true,
+        lead: app.leadFor('Form provided') },
+    });
+    assert.equal(accepted.response.status, 201);
+    assert.equal(app.store.listLeads(current.id).length, 1);
+  } finally { await app.close(); }
+});
+
+test('a finished player can request optional follow-up after the next heat opens', async () => {
+  const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const slug = app.event.slug;
+    const path = `/api/e/${slug}`;
+    const join = async alias => {
+      const result = await app.request(`${path}/join`, {
+        method: 'POST', body: { alias, displayConsent: true },
+      });
+      assert.equal(result.response.status, 201);
+      return result.value;
+    };
+    const first = await join('After play');
+    const second = await join('Second player');
+    assert.equal(app.store.listLeads(app.event.id).length, 0);
+    assert.equal((await app.ready(first)).response.status, 200);
+    assert.equal((await app.ready(second)).response.status, 200);
+    app.engine.command(slug, 'start', {}, { id: 'operator' });
+    app.now += 3000;
+    app.engine.tickEvent(slug);
+    app.engine.command(slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+    app.engine.command(slug, 'nextHeat', {}, { id: 'operator' });
+    assert.equal(app.store.getPlayer(first.player.id).status, 'finished');
+
+    const expert = await app.request(`${path}/leads`, {
+      method: 'POST', token: first.token,
+      body: { intent: 'expert', ...app.leadFor('After play') },
+    });
+    assert.equal(expert.response.status, 201);
+    assert.equal(expert.value.deliveryStatus, 'operator-follow-up');
+    const guide = await app.request(`${path}/leads`, {
+      method: 'POST', token: first.token, body: { intent: 'guide' },
+    });
+    assert.equal(guide.response.status, 201);
+    assert.equal(guide.value.leadId, expert.value.leadId);
+    assert.equal(app.store.listLeads(app.event.id).length, 1);
+  } finally { await app.close(); }
+});
+
+test('spectator follow-up stays voluntary and expert requests have an admin action queue', async () => {
+  const app = await fixture();
+  try {
+    const slug = app.event.slug;
+    const visit = await app.request(`/api/e/${slug}/activity`, {
+      method: 'POST', body: { type: 'vote_page_opened' },
+    });
+    const cookie = visit.response.headers.get('set-cookie').split(';')[0];
+    const leadInput = { intent: 'expert', fieldValues: app.leadFor('Spectator').fieldValues,
+      marketingOptIn: false };
+    const request = await app.request(`/api/e/${slug}/spectator-leads`, {
+      method: 'POST', cookie, body: leadInput,
+    });
+    assert.equal(request.response.status, 201);
+    const again = await app.request(`/api/e/${slug}/spectator-leads`, {
+      method: 'POST', cookie, body: leadInput,
+    });
+    assert.equal(again.value.leadId, request.value.leadId);
+    assert.equal(app.store.listLeads(app.event.id).length, 1);
+    const admin = await app.login();
+    const report = await app.request(`/api/admin/report?event=${slug}`, { cookie: admin.cookie });
+    assert.equal(report.value.summary.pendingExpertRequests, 1);
+    assert.equal(report.value.expertQueue[0].id, request.value.leadId);
+    const contacted = await app.request(`/api/admin/leads/${request.value.leadId}/expert-status`, {
+      method: 'POST', cookie: admin.cookie, csrf: admin.csrf, body: { status: 'contacted' },
+    });
+    assert.equal(contacted.response.status, 200);
+    assert.equal(contacted.value.lead.expertStatus, 'contacted');
+    const after = await app.request(`/api/admin/report?event=${slug}`, { cookie: admin.cookie });
+    assert.equal(after.value.summary.pendingExpertRequests, 0);
+    assert.equal(after.value.expertQueue.length, 0);
+  } finally { await app.close(); }
+});
+
+test('SendGrid event callbacks reject requests until signed verification is configured', async () => {
+  const app = await fixture();
+  try {
+    const result = await app.request('/webhooks/sendgrid/events', { method: 'POST', body: [] });
+    assert.equal(result.response.status, 503);
+    assert.equal(result.value.code, 'webhook_unconfigured');
   } finally { await app.close(); }
 });

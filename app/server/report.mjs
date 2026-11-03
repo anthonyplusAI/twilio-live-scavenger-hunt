@@ -99,9 +99,15 @@ function summaryFor(activity, leads, followups) {
   const totalPlays = starts.reduce((sum, row) => sum + (Number(row.properties?.playerCount) || 0), 0);
   const heatsStarted = new Set(starts.map(row => `${row.eventId}:${row.properties?.heatId || row.id}`)).size;
   const voterIds = votes.map(row => row.properties?.voterId);
+  const joinSessionsWithBrowserId = joins.filter(row => row.properties?.sessionId);
   return {
     totalEvents: activity.length,
     totalParticipants: joins.length,
+    joinSessions: joins.length,
+    // A browser cookie identifies a visit, not a person. Legacy joins did not carry this ID.
+    uniqueVisitorSessions: joinSessionsWithBrowserId.length
+      ? countDistinct(joinSessionsWithBrowserId, ['sessionId']) : null,
+    unattributedJoinSessions: joins.length - joinSessionsWithBrowserId.length,
     uniquePlayers: countDistinct(joins, ['playerId', 'participantId']),
     totalPlays,
     heatsStarted,
@@ -118,6 +124,10 @@ function summaryFor(activity, leads, followups) {
     leads: leads.length,
     guideRequests: followups.guideRequests,
     expertRequests: followups.expertRequests,
+    pendingExpertRequests: followups.pendingExpertRequests,
+    guideAccepted: followups.guideAccepted,
+    guideDelivered: followups.guideDelivered,
+    guideDeliveryFailures: followups.guideDeliveryFailures,
     marketingOptIns: leads.filter(row => row.marketingOptIn === true).length,
     ctaClicks: cta.length || specificCta.length,
     twilioProductLinkClicks: productLinks.length,
@@ -135,14 +145,24 @@ export function buildReport(store, filters = {}) {
   const activity = store.listActivity(context.eventId).filter(row => insideRange(row.at, context)).map(publicActivity);
   const leadRecords = store.listLeads(context.eventId);
   const leads = leadRecords.filter(row => insideRange(row.createdAt, context));
+  // Pending staff work stays in the queue until resolved, regardless of the report date range.
+  const isPendingExpert = row => row.expertStatus === 'pending' && Boolean(row.expertRequestedAt);
   const requestCounts = rows => ({
     guideRequests: rows.filter(row => row.guideRequestedAt && insideRange(row.guideRequestedAt, context)).length,
     expertRequests: rows.filter(row => row.expertRequestedAt && insideRange(row.expertRequestedAt, context)).length,
+    pendingExpertRequests: rows.filter(isPendingExpert).length,
+    guideAccepted: rows.filter(row => row.guideRequestedAt && insideRange(row.guideRequestedAt, context) &&
+      ['accepted', 'processed', 'deferred'].includes(row.deliveryStatus)).length,
+    guideDelivered: rows.filter(row => row.guideRequestedAt && insideRange(row.guideRequestedAt, context) &&
+      row.deliveryStatus === 'delivered').length,
+    guideDeliveryFailures: rows.filter(row => row.guideRequestedAt && insideRange(row.guideRequestedAt, context) &&
+      ['bounced', 'dropped', 'failed', 'needs-review'].includes(row.deliveryStatus)).length,
   });
   const eventRows = context.allEvents.map(event => ({
     id: event.id, slug: event.slug, name: event.name,
     revision: event.revision, timeZone: event.timeZone || 'UTC',
     leadCaptureEnabled: Boolean(event.leadCapture?.enabled),
+    leadCaptureTiming: event.leadCapture?.timing || 'after-play',
     leadFieldCount: Array.isArray(event.leadCapture?.fields) ? event.leadCapture.fields.length : 0,
   }));
   const byEvent = context.selectedEvents.map(event => ({
@@ -151,7 +171,9 @@ export function buildReport(store, filters = {}) {
       requestCounts(leadRecords.filter(row => row.eventId === event.id))),
   }));
   const summary = { events: context.selectedEvents.length, ...summaryFor(activity, leads, requestCounts(leadRecords)), byEvent };
-  return { summary, activity, leads, events: eventRows };
+  const expertQueue = leadRecords.filter(isPendingExpert)
+    .sort((a, b) => b.expertRequestedAt.localeCompare(a.expertRequestedAt));
+  return { summary, activity, leads, expertQueue, events: eventRows };
 }
 
 function csvCell(value) {
@@ -202,7 +224,7 @@ export function exportCsv(store, filters = {}) {
     'created_at', 'event_id', 'event_slug', 'event_name', 'lead_id', 'intent',
     'participant_id', 'heat_id', 'name', 'email', 'phone', 'company',
     'marketing_opt_in', 'consent_version', 'delivery_status',
-    'guide_requested_at', 'expert_requested_at',
+    'guide_requested_at', 'expert_requested_at', 'expert_status',
     'field_snapshot_json', 'field_values_json', ...fieldIds.map(id => `field:${id}`),
   ];
   const rows = report.leads.map(lead => {
@@ -211,7 +233,7 @@ export function exportCsv(store, filters = {}) {
       lead.createdAt, lead.eventId, event.slug, event.name, lead.id, lead.intent,
       lead.participantId, lead.heatId, lead.name, lead.email, lead.phone, lead.company,
       lead.marketingOptIn ? 'yes' : 'no', lead.consentVersion, lead.deliveryStatus,
-      lead.guideRequestedAt, lead.expertRequestedAt,
+      lead.guideRequestedAt, lead.expertRequestedAt, lead.expertStatus,
       JSON.stringify(lead.fieldSnapshot || []), JSON.stringify(lead.fieldValues || {}),
       ...fieldIds.map(id => valueForField(lead, id)),
     ];

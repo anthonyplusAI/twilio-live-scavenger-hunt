@@ -7,7 +7,7 @@ import QRCode from 'qrcode';
 import { ValidationError } from './config.mjs';
 import { GoogleAuthService, safeOperatorNext } from './google-auth.mjs';
 import { buildReport, exportCsv } from './report.mjs';
-import { submitLead } from './leads.mjs';
+import { submitLead, submitSpectatorLead } from './leads.mjs';
 
 const PUBLIC_DIR = resolve(fileURLToPath(new URL('../public/', import.meta.url)));
 const HTML_ROUTES = { arena: 'arena.html', play: 'player.html', vote: 'vote.html', operator: 'operator.html', metrics: 'metrics.html' };
@@ -22,6 +22,7 @@ const statusFor = error => error.status || ({
   player_kicked: 403,
   duplicate_vote: 409, vote_closed: 409, media_required: 409, player_queued: 409,
   invalid_state: 409, replay_unavailable: 409, rate_limited: 429, media_unavailable: 503,
+  webhook_unconfigured: 503,
 }[error.code] || 400);
 
 function json(res, status, value, headers = {}) {
@@ -385,9 +386,13 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
   const publicAction = async ({ req, res, method, slug, tail, event, ip }) => {
     if (tail === 'join' && method === 'POST') {
       limiter.check(`join-booth:${slug}:${ip}`, 1800, 60_000);
-      limiter.check(`join-browser:${slug}:${voterCookie(req, res, secure)}`, 8, 60_000);
+      const visitor = voterCookie(req, res, secure);
+      limiter.check(`join-browser:${slug}:${visitor}`, 8, 60_000);
       const body = await readJson(req, 4_000);
-      return json(res, 201, engine.join(slug, body, { requireLead: true }));
+      return json(res, 201, engine.join(slug, body, {
+        requireLead: Boolean(event.leadCapture?.enabled && event.leadCapture?.timing === 'join'),
+        analyticsSessionId: integrations.hashVoter('session', visitor).slice(0, 20),
+      }));
     }
     if (tail === 'me' && method === 'GET') return json(res, 200, engine.me(slug, bearer(req)));
     if (tail === 'replay' && method === 'POST') return json(res, 200, engine.replay(slug, bearer(req)));
@@ -405,6 +410,8 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       const token = bearer(req);
       const player = engine.player(slug, token);
       limiter.check(`frame:${player.id}`, 5, 2000);
+      if (player.transport === 'twilio' && !player.mediaConnected)
+        throw new ValidationError('Reconnect your live camera before submitting a find.', 'media_required');
       if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('image/jpeg'))
         throw new ValidationError('Send one JPEG camera frame.', 'invalid_content_type');
       const buffer = await readBuffer(req, 150_000);
@@ -421,6 +428,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       return json(res, 200, engine.castVote(slug, {
         windowId: String(body.windowId || ''), choice: String(body.choice || ''),
         voterHash: integrations.hashVoter('web', voter), channel: 'web',
+        sessionId: integrations.hashVoter('session', voter).slice(0, 20),
       }));
     }
     if (tail === 'leads' && method === 'POST') {
@@ -429,6 +437,16 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       limiter.check(`lead:${player.id}`, 6, 60_000);
       const body = await readJson(req, 16_000);
       return json(res, 201, await submitLead({ store, engine, integrations, slug, token, input: body }));
+    }
+    if (tail === 'spectator-leads' && method === 'POST') {
+      limiter.check(`spectator-lead-booth:${slug}:${ip}`, 900, 60_000);
+      const visitor = voterCookie(req, res, secure);
+      limiter.check(`spectator-lead-browser:${slug}:${visitor}`, 5, 60_000);
+      const body = await readJson(req, 16_000);
+      return json(res, 201, await submitSpectatorLead({
+        store, engine, integrations, slug,
+        sessionId: integrations.hashVoter('session', visitor).slice(0, 20), input: body,
+      }));
     }
     if (tail === 'activity' && method === 'POST') {
       limiter.check(`activity-booth:${slug}:${ip}`, 12_000, 60_000);
@@ -450,6 +468,15 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
   };
 
   const privateAction = async ({ req, res, method, pathname, url, ip }) => {
+    if (pathname === '/webhooks/sendgrid/events' && method === 'POST') {
+      limiter.check(`sendgrid-webhook:${ip}`, 3000, 60_000);
+      const result = integrations.handleSendGridEvents({
+        rawBody: await readBuffer(req, 512_000),
+        signature: req.headers['x-twilio-email-event-webhook-signature'],
+        timestamp: req.headers['x-twilio-email-event-webhook-timestamp'],
+      });
+      return json(res, 200, result);
+    }
     if (pathname === '/webhooks/twilio/messaging' && method === 'POST') {
       limiter.check(`message-webhook:${ip}`, 1000, 60_000);
       const result = integrations.messagingWebhook({ path: req.url, signature: req.headers['x-twilio-signature'], params: await readForm(req) });
@@ -499,6 +526,21 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       store.deleteLead(id);
       store.audit(lead.eventId, session.user.id, 'lead:deleted', { leadId: id });
       return json(res, 200, { ok: true });
+    }
+    const expertStatusMatch = pathname.match(/^\/api\/admin\/leads\/([^/]+)\/expert-status$/);
+    if (expertStatusMatch && method === 'POST') {
+      const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+      limiter.check(`expert-status:${session.user.id}`, 120, 60_000);
+      const id = decodeURIComponent(expertStatusMatch[1]);
+      const body = await readJson(req, 2_000);
+      if (!['pending', 'contacted'].includes(body.status))
+        throw new ValidationError('Choose pending or contacted.', 'invalid_input');
+      const lead = store.getLead(id);
+      if (!lead || !lead.expertRequestedAt)
+        throw new ValidationError('Expert request not found.', 'not_found');
+      const updated = store.setExpertFollowupStatus(id, body.status);
+      store.audit(lead.eventId, session.user.id, 'lead:expert_status_changed', { leadId: id, status: body.status });
+      return json(res, 200, { lead: updated });
     }
     const adminMatch = pathname.match(/^\/api\/admin\/e\/([^/]+)(?:\/(.*))?$/);
     if (adminMatch) {
@@ -552,7 +594,10 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         const receipt = media.storeFrame(event.id, body.playerId, buffer);
         const receiptAt = Date.parse(receipt.receivedAt);
         const result = await judge.submit({ slug, playerId: body.playerId, buffer, receiptAt });
-        return json(res, 200, { candidate: result.candidate, status: result.status });
+        return json(res, 200, { candidate: result.candidate, status: result.status,
+          ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.reason ? { reason: result.reason } : {}) });
       }
       if (method === 'GET' && tail === 'preflight') {
         auth.require(req.headers.cookie);

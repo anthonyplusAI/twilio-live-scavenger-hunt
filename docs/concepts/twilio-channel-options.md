@@ -26,7 +26,7 @@ Enable SMS or WhatsApp **per event**, after sender setup is ready. A US local 10
 
 ### The CTA explains the build
 
-A short result interlude can map the three products to what visitors just experienced: **Video carried the live cameras. Messaging let the crowd steer the next category. Segment can mirror engagement events.** The build story offers “Get the build guide” or “Talk with a Twilio expert at this booth.” When lead capture is enabled, an admin chooses the contact fields required at join; those saved details support a later guide or expert request. The form does not offer a product-updates subscription. SendGrid can deliver the requested guide using a production authenticated sending domain. [SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send) · [sender identity](https://www.twilio.com/docs/sendgrid/for-developers/sending-email/sender-identity)
+A short result interlude can map the three products to what visitors just experienced: **Video carried the live cameras. Messaging let the crowd steer the next category. Segment can mirror engagement events.** The build story features GitHub starring by default and offers “Get the build guide” or “Talk with a Twilio expert at this booth” when configured. Lead capture is optional per event. By default, the admin-configured contact fields appear only after a voluntary follow-up request; an admin may instead select at-join capture and reuse those saved details later. The form does not offer a product-updates subscription. SendGrid can deliver the requested guide using a verified sender. [SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send) · [sender identity](https://www.twilio.com/docs/sendgrid/for-developers/sending-email/sender-identity)
 
 If the team later wants an AI voice or chat follow-up, Voice and Agent Connect can connect a developer-owned agent to Twilio channels through a separate postgame CTA. Agent Connect is middleware for conversation channels, not a Video vision judge. This is a future extension, not part of the game or first pilot. [Agent Connect overview](https://www.twilio.com/docs/conversations/agent-connect/overview)
 
@@ -40,7 +40,7 @@ One deployment supports many events by saving a versioned configuration under an
 | Presentation | Branding, language, CTA destination, wall layout, approved public copy. |
 | Video | Room naming/rotation, token issuer, audio off, camera fallback, bitrate profile, recording off/on, public-camera notice. |
 | Messaging | SMS/WhatsApp enabled switches, sender IDs, vote keywords and windows, inbound route, acknowledgement and requested-follow-up copy, sender approval, consent records, web fallback. |
-| Lead form | Join-time capture on/off, guide/expert offers, ordered fields and required flags. |
+| Lead form | Capture on/off, after-play timing by default or optional at-join timing, guide/expert offers, ordered fields and required flags. |
 | Segment/SendGrid | Optional Segment Write Key, guide email template, authenticated sender, and delivery webhook. |
 | Operations | Event schedule/time zone, operator roles, launch rehearsal, secret references, retention policy, pause/disable controls. |
 
@@ -57,7 +57,7 @@ The application event log is authoritative for live counters and winner decision
 | Play engagement | Heats started/completed, attempts per player, repeat players, prompts tried, and average time to verified match. |
 | Spectator engagement | Unique accepted ballots and total accepted ballots, split by web/SMS/WhatsApp. Cross-channel people count can overlap unless identities are voluntarily linked. |
 | Product interest | CTA opens, build-guide requests, expert conversations requested, and conversion from player/voter to CTA. |
-| Leads | Contact details captured at join and later build-guide or expert requests; the form does not offer marketing subscriptions. |
+| Leads | Contact details captured after a voluntary guide or expert request by default, or at join if an admin selects that timing; the form does not offer marketing subscriptions. |
 | Delivery | Requested messages/emails accepted, delivered, bounced, and clicked when tracking is enabled. |
 | Operations | Camera join failures, detector uncertainty, operator overrides/ties, message rejection, and median/p95 verification latency. |
 

@@ -66,6 +66,7 @@ export class JudgeService {
     this.now = now;
     this.samples = new Map();
     this.aiAttempts = new Map();
+    this.engine.aiVisionAvailable = this.vision.enabled();
   }
 
   preflight() {
@@ -78,10 +79,17 @@ export class JudgeService {
     const state = this.engine.store.getRuntime(event.id);
     if (!state || state.paused || !['hunt', 'review'].includes(state.phase) || !state.lockedPlayerIds.includes(playerId))
       return { status: 'ignored', candidate: null };
+    const player = this.engine.store.getPlayer(playerId);
+    if (!player || ['left', 'kicked'].includes(player.status) ||
+      (player.transport === 'twilio' && !player.mediaConnected))
+      return { status: 'ignored', candidate: null, reason: 'media_disconnected' };
     if (!state.goAt || receiptAt < Date.parse(state.goAt) || receiptAt > Date.parse(state.roundEndsAt) + 500)
       return { status: 'ignored', candidate: null };
     if (state.promptSnapshot?.judgeMode === 'operator' || state.promptSnapshot?.judgeMode === 'audience')
       return { status: 'manual', candidate: state.candidate };
+    if (state.promptSnapshot?.judgeMode === 'ai-assisted' && state.judgeNotice)
+      return { status: 'manual', candidate: state.candidate,
+        errorCode: state.judgeNotice.code, error: state.judgeNotice.message };
     const decoded = decodeEvidence(buffer);
     const key = `${event.id}:${state.heatId}:${playerId}`;
     const detector = state.promptSnapshot.detector || '';
@@ -98,32 +106,41 @@ export class JudgeService {
           playerId, matched: true, confidence: Math.max(0.8, result.confidence),
           explanation: `${color} was visible across ${positives.length} recent frames`, source: 'rule', receiptAt,
         });
-        return { status: 'verified', candidate: judged.candidate, confidence: result.confidence };
+        const accepted = this.engine.store.getRuntime(event.id)?.candidates.some(item => item.playerId === playerId);
+        return { status: accepted ? 'verified' : 'ignored', candidate: judged.candidate, confidence: result.confidence };
       }
       return { status: 'pending', candidate: state.candidate, coverage: result.coverage };
     }
-    if (state.promptSnapshot.judgeMode !== 'ai-assisted' || !this.vision.enabled())
+    if (state.promptSnapshot.judgeMode !== 'ai-assisted')
       return { status: 'manual', candidate: state.candidate };
+    if (!this.vision.enabled()) {
+      const notice = this.engine.reportJudgeUnavailable(slug, { code: 'ai_unconfigured', heatId: state.heatId });
+      return { status: 'manual', candidate: state.candidate, errorCode: notice?.code,
+        error: notice?.message };
+    }
     const lastAttempt = this.aiAttempts.get(key);
     if (lastAttempt && (lastAttempt.inFlight || receiptAt - lastAttempt.at < 1800))
       return { status: 'pending', candidate: state.candidate };
     this.aiAttempts.set(key, { at: receiptAt, inFlight: true });
+    let verdict;
     try {
-      const verdict = await this.vision.judge(buffer, state.promptSnapshot);
-      if (!verdict.matched || verdict.confidence < 0.72)
-        return { status: 'pending', candidate: this.engine.store.getRuntime(event.id)?.candidate || null, confidence: verdict.confidence };
-      const judged = this.engine.acceptJudgment(slug, {
-        playerId, matched: true, confidence: verdict.confidence,
-        explanation: verdict.explanation, source: 'ai', receiptAt,
-      });
-      return { status: 'verified', candidate: judged.candidate, confidence: verdict.confidence };
+      verdict = await this.vision.judge(buffer, state.promptSnapshot);
     } catch (error) {
+      const notice = this.engine.reportJudgeUnavailable(slug, { code: 'ai_unavailable', heatId: state.heatId });
       return { status: 'manual', candidate: this.engine.store.getRuntime(event.id)?.candidate || null,
-        error: 'AI review unavailable; operator can award the heat.' };
+        errorCode: notice?.code, error: notice?.message };
     } finally {
       this.aiAttempts.set(key, { at: receiptAt, inFlight: false });
       if (this.aiAttempts.size > 2000) this.aiAttempts.clear();
       if (this.samples.size > 2000) this.samples.clear();
     }
+    if (!verdict.matched || verdict.confidence < 0.72)
+      return { status: 'pending', candidate: this.engine.store.getRuntime(event.id)?.candidate || null, confidence: verdict.confidence };
+    const judged = this.engine.acceptJudgment(slug, {
+      playerId, matched: true, confidence: verdict.confidence,
+      explanation: verdict.explanation, source: 'ai', receiptAt,
+    });
+    const accepted = this.engine.store.getRuntime(event.id)?.candidates.some(item => item.playerId === playerId);
+    return { status: accepted ? 'verified' : 'ignored', candidate: judged.candidate, confidence: verdict.confidence };
   }
 }

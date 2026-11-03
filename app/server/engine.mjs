@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
-import { ValidationError } from './config.mjs';
+import { promptPriority, ValidationError } from './config.mjs';
 import { validateLead } from './leads.mjs';
 
 const toIso = milliseconds => new Date(milliseconds).toISOString();
@@ -19,8 +19,11 @@ function initialRuntime(eventId, now) {
     countdownEndsAt: null, roundEndsAt: null, reviewEndsAt: null,
     resultEndsAt: null, heatId: null, promptSnapshot: null, rulesSnapshot: null,
     lockedPlayerIds: [], queuedPromptId: null, preferredCategory: null,
+    preferredCategoryAutomatic: false,
     candidates: [], candidate: null, candidateDeadline: null, winners: [], resultRoster: [],
-    vote: null, usedPromptIds: [], heatsStarted: 0, overrideCount: 0,
+    judgeNotice: null,
+    vote: null, usedPromptIds: [], promptPlayCounts: {}, automaticPromptSelections: 0,
+    heatsStarted: 0, overrideCount: 0,
   };
 }
 
@@ -47,6 +50,7 @@ export class GameEngine extends EventEmitter {
     this.mediaMode = mediaMode;
     this.telemetry = telemetry;
     this.randomIndex = randomIndex;
+    this.aiVisionAvailable = null;
     this.interval = null;
     this.lastPresenceSweep = new Map();
   }
@@ -114,7 +118,8 @@ export class GameEngine extends EventEmitter {
       timeZone: event.timeZone, minPlayers: event.minPlayers, maxPlayers: event.maxPlayers,
       roundSeconds: event.roundSeconds, joinSeconds: event.joinSeconds,
       resultSeconds: event.resultSeconds, startMode: event.startMode,
-      leadCapture: clone(event.leadCapture), vote: {
+      leadCapture: { ...clone(event.leadCapture), timing: event.leadCapture?.timing || 'after-play' },
+      cta: clone(event.cta || { primary: 'github' }), vote: {
         ...clone(event.vote),
         eventCode: event.vote.eventCode || event.slug.replace(/-/g, '').slice(0, 20).toUpperCase(),
       },
@@ -140,7 +145,8 @@ export class GameEngine extends EventEmitter {
           mediaConnected: ['left', 'queued'].includes(current.status) ? false : current.mediaConnected };
       }).filter(Boolean)
       : liveRoster;
-    const readyCount = roster.filter(player => ['ready', 'locked', 'active', 'finished'].includes(player.status)).length;
+    const readyCount = roster.filter(player => player.mediaConnected &&
+      ['ready', 'locked', 'active', 'finished'].includes(player.status)).length;
     const result = {
       eventId: event.id, phase: state.phase, heat: state.heat, version: state.version,
       paused: state.paused, roster,
@@ -186,7 +192,8 @@ export class GameEngine extends EventEmitter {
           ...publicState, candidate: state.candidate, candidates: clone(state.candidates),
           queuedPromptId: state.queuedPromptId, preferredCategory: state.preferredCategory,
           heatsStarted: state.heatsStarted, overrideCount: state.overrideCount,
-          reviewEndsAt: state.reviewEndsAt, pauseRemaining: state.pauseRemaining, queue: queue.map(player => ({
+          reviewEndsAt: state.reviewEndsAt, judgeNotice: clone(state.judgeNotice || null),
+          pauseRemaining: state.pauseRemaining, queue: queue.map(player => ({
             id: player.id, alias: player.alias, heat: player.heat,
           })), recentHeats,
         }, serverTime: this.now(),
@@ -216,10 +223,11 @@ export class GameEngine extends EventEmitter {
     return { ...player, queuePosition: position || null };
   }
 
-  join(slug, { alias, displayConsent, lead } = {}, { requireLead = false } = {}) {
+  join(slug, { alias, displayConsent, lead } = {}, { requireLead = false, analyticsSessionId = null } = {}) {
     const name = String(alias ?? '').trim().replace(/\s+/g, ' ');
     if (!displayConsent) fail('Agree to appear on the booth display before joining.', 'consent_required');
     if (name.length < 2 || name.length > 20 || /[<>\x00-\x1f\x7f]/.test(name)) fail('Use a display name of 2–20 characters.');
+    if (analyticsSessionId != null && !/^[a-f0-9]{20}$/.test(analyticsSessionId)) fail('Invalid activity session.', 'invalid_activity');
     const token = randomBytes(32).toString('base64url');
     let capturedLead = null;
     const value = this._mutate(slug, context => {
@@ -232,6 +240,7 @@ export class GameEngine extends EventEmitter {
       const player = {
         id: randomUUID(), eventId: event.id, alias: name, heat: slot ? state.heat : state.heat + 1,
         slot, status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
+        analyticsSessionId,
         joinedAt: toIso(now), lastSeenAt: toIso(now),
       };
       if (event.leadCapture?.enabled && (requireLead || lead)) {
@@ -239,9 +248,9 @@ export class GameEngine extends EventEmitter {
       }
       this.store.insertPlayer(player, tokenHash(token));
       if (capturedLead) this.store.insertLead(capturedLead);
-      activity('player_joined', { playerId: player.id, heat: player.heat, queued: !slot });
-      if (!slot) activity('player_queued', { playerId: player.id, heat: player.heat });
-      if (capturedLead) activity('lead_captured', { playerId: player.id, heat: player.heat });
+      activity('player_joined', { playerId: player.id, heat: player.heat, queued: !slot, ...(analyticsSessionId ? { sessionId: analyticsSessionId } : {}) });
+      if (!slot) activity('player_queued', { playerId: player.id, heat: player.heat, ...(analyticsSessionId ? { sessionId: analyticsSessionId } : {}) });
+      if (capturedLead) activity('lead_captured', { playerId: player.id, heat: player.heat, ...(analyticsSessionId ? { sessionId: analyticsSessionId } : {}) });
       touch();
       return player;
     });
@@ -266,8 +275,9 @@ export class GameEngine extends EventEmitter {
         status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
         joinedAt: toIso(now), readyAt: null, lastSeenAt: toIso(now), leftAt: null,
       });
-      activity('player_joined', { playerId: next.id, heat: next.heat, queued: !slot });
-      if (!slot) activity('player_queued', { playerId: next.id, heat: next.heat });
+      const session = next.analyticsSessionId ? { sessionId: next.analyticsSessionId } : {};
+      activity('player_joined', { playerId: next.id, heat: next.heat, queued: !slot, ...session });
+      if (!slot) activity('player_queued', { playerId: next.id, heat: next.heat, ...session });
       touch();
       return next;
     });
@@ -285,7 +295,7 @@ export class GameEngine extends EventEmitter {
     if (!['twilio', 'rehearsal'].includes(transport)) fail('Unknown media transport.');
     const player = this._mutate(slug, ({ event, touch }) => {
       const current = this._authenticatePlayer(event.id, token);
-      const mediaConnected = transport === 'rehearsal' ? true : current.mediaConnected;
+      const mediaConnected = transport === 'rehearsal' ? true : current.transport === 'twilio' && current.mediaConnected;
       const next = this.store.updatePlayer(current.id, { transport, mediaConnected, lastSeenAt: toIso(this.now()) });
       if (next.transport !== current.transport || next.mediaConnected !== current.mediaConnected) touch();
       return next;
@@ -294,14 +304,48 @@ export class GameEngine extends EventEmitter {
   }
 
   setMediaConnected(slug, playerId, connected) {
-    return this._mutate(slug, ({ event, touch, activity }) => {
+    return this._mutate(slug, context => {
+      const { event, state, now, touch, activity } = context;
       const player = this.store.getPlayer(playerId);
       if (!player || player.eventId !== event.id || ['left', 'kicked'].includes(player.status)) return null;
       if (player.mediaConnected === Boolean(connected)) return player;
       const updated = this.store.updatePlayer(player.id, { mediaConnected: Boolean(connected), lastSeenAt: toIso(this.now()) });
+      if (state.phase === 'lobby' && player.status === 'ready') {
+        const ready = this._readyPlayers(event, state);
+        if (ready.length < event.minPlayers) state.readyDeadline = null;
+        else if (!state.readyDeadline && ['flexible', 'deadline'].includes(event.startMode))
+          state.readyDeadline = toIso(now + event.joinSeconds * 1000);
+        if (connected) this._maybeAutoStart(context);
+      }
       activity(connected ? 'media_connected' : 'media_disconnected', { playerId });
       touch();
       return updated;
+    });
+  }
+
+  _flagJudgeUnavailable(context, code) {
+    const { state, touch, activity } = context;
+    if (!['countdown', 'hunt', 'review'].includes(state.phase) || state.promptSnapshot?.judgeMode !== 'ai-assisted')
+      return state.judgeNotice || null;
+    if (state.judgeNotice?.heatId === state.heatId) return state.judgeNotice;
+    const errorCode = code === 'ai_unconfigured' ? 'ai_unconfigured' : 'ai_unavailable';
+    state.judgeNotice = {
+      code: errorCode, heatId: state.heatId, at: toIso(context.now),
+      message: errorCode === 'ai_unconfigured'
+        ? 'AI judging is not configured. Choose a winner, tie, or no match manually.'
+        : 'AI judging became unavailable. Choose a winner, tie, or no match manually.',
+    };
+    state.reviewEndsAt = null;
+    if (state.pauseRemaining) delete state.pauseRemaining.reviewEndsAt;
+    activity('judge_unavailable', { heatId: state.heatId, source: 'ai' });
+    touch();
+    return state.judgeNotice;
+  }
+
+  reportJudgeUnavailable(slug, { code = 'ai_unavailable', heatId = null } = {}) {
+    return this._mutate(slug, context => {
+      if (heatId && context.state.heatId !== heatId) return context.state.judgeNotice || null;
+      return this._flagJudgeUnavailable(context, code);
     });
   }
 
@@ -423,33 +467,66 @@ export class GameEngine extends EventEmitter {
 
   _readyPlayers(event, state) {
     return this.store.listPlayers(event.id, state.heat)
-      .filter(player => player.status === 'ready' && player.slot != null)
+      .filter(player => player.status === 'ready' && player.slot != null &&
+        (player.transport !== 'twilio' || player.mediaConnected))
       .sort((a, b) => a.slot - b.slot);
   }
 
-  _choosePrompt(event, state) {
+  _promptRotation(event, state) {
     const enabled = event.prompts.filter(prompt => prompt.enabled);
+    if (!state.promptPlayCounts || typeof state.promptPlayCounts !== 'object' || Array.isArray(state.promptPlayCounts)) {
+      state.promptPlayCounts = {};
+      for (const heat of this.store.listHeats(event.id)) {
+        if (heat.prompt?.id) state.promptPlayCounts[heat.prompt.id] = (Number(state.promptPlayCounts[heat.prompt.id]) || 0) + 1;
+      }
+    }
+    const standard = enabled.filter(prompt => promptPriority(prompt) === 'standard');
+    const low = enabled.filter(prompt => promptPriority(prompt) === 'low');
+    const priorAutomatic = Number.isSafeInteger(state.automaticPromptSelections) && state.automaticPromptSelections >= 0
+      ? state.automaticPromptSelections : 0;
+    const nextAutomatic = priorAutomatic + 1;
+    const lowDue = standard.length > 0 && low.length > 0 && nextAutomatic % 5 === 0 &&
+      standard.every(prompt => (Number(state.promptPlayCounts[prompt.id]) || 0) > 0);
+    return { enabled, standard, low, lowDue, nextAutomatic };
+  }
+
+  _choosePrompt(event, state) {
+    const { enabled, standard, low, lowDue, nextAutomatic } = this._promptRotation(event, state);
     if (!enabled.length) fail('Enable at least one prompt before starting.');
+    const plays = prompt => Number(state.promptPlayCounts[prompt.id]) || 0;
+    const leastPlayed = pool => {
+      const fewest = Math.min(...pool.map(plays));
+      const tied = pool.filter(prompt => plays(prompt) === fewest);
+      const withoutLast = tied.filter(prompt => prompt.id !== state.usedPromptIds?.at(-1));
+      const choices = withoutLast.length ? withoutLast : tied;
+      return choices[this.randomIndex(choices.length)];
+    };
     let selected = enabled.find(prompt => prompt.id === state.queuedPromptId);
     if (!selected) {
-      let unused = enabled.filter(prompt => !state.usedPromptIds.includes(prompt.id));
-      if (!unused.length) {
-        const lastPromptId = state.usedPromptIds.at(-1);
-        unused = enabled.filter(prompt => prompt.id !== lastPromptId);
-        if (!unused.length) unused = enabled;
-        state.usedPromptIds = [];
+      const category = enabled.filter(prompt => prompt.category === state.preferredCategory);
+      if (category.length && state.preferredCategoryAutomatic) {
+        const categoryLow = category.filter(prompt => promptPriority(prompt) === 'low');
+        const eligible = !standard.length || (lowDue && categoryLow.length)
+          ? categoryLow : category.filter(prompt => promptPriority(prompt) === 'standard');
+        if (eligible.length) {
+          selected = leastPlayed(eligible);
+          state.automaticPromptSelections = nextAutomatic;
+        }
+      } else if (category.length) selected = leastPlayed(category);
+      if (!selected) {
+        selected = leastPlayed(lowDue ? low : standard.length ? standard : low);
+        state.automaticPromptSelections = nextAutomatic;
       }
-      const category = unused.filter(prompt => prompt.category === state.preferredCategory);
-      const pool = category.length ? category : unused;
-      selected = pool[this.randomIndex(pool.length)];
     }
-    state.usedPromptIds = [...state.usedPromptIds.filter(id => id !== selected.id), selected.id].slice(-100);
+    state.promptPlayCounts[selected.id] = plays(selected) + 1;
+    state.usedPromptIds = [...(state.usedPromptIds || []).filter(id => id !== selected.id), selected.id].slice(-100);
     state.queuedPromptId = null;
     state.preferredCategory = null;
+    state.preferredCategoryAutomatic = false;
     return {
       id: selected.id, text: selected.text, category: selected.category,
       seconds: selected.seconds || event.roundSeconds,
-      judgeMode: selected.judgeMode, detector: selected.detector,
+      judgeMode: selected.judgeMode, detector: selected.detector, priority: promptPriority(selected),
       tier: selected.tier, accessNote: selected.accessNote,
     };
   }
@@ -486,9 +563,12 @@ export class GameEngine extends EventEmitter {
     state.candidates = [];
     state.candidate = null;
     state.candidateDeadline = null;
+    state.judgeNotice = null;
     state.winners = [];
     state.vote = null;
     state.heatsStarted += 1;
+    if (selected.judgeMode === 'ai-assisted' && this.aiVisionAvailable === false)
+      this._flagJudgeUnavailable(context, 'ai_unconfigured');
     this.store.upsertHeat({
       id: state.heatId, eventId: event.id, heat: state.heat, prompt: selected,
       rules: state.rulesSnapshot,
@@ -554,8 +634,10 @@ export class GameEngine extends EventEmitter {
   _enterReview(context) {
     const { event, state, now, touch, activity } = context;
     state.phase = 'review';
-    state.reviewEndsAt = state.rulesSnapshot.judgePolicy === 'auto-with-override' && state.promptSnapshot?.judgeMode !== 'operator'
-      ? toIso(now + 6000) : null;
+    if (state.promptSnapshot?.judgeMode === 'ai-assisted' && this.aiVisionAvailable === false)
+      this._flagJudgeUnavailable(context, 'ai_unconfigured');
+    state.reviewEndsAt = !state.judgeNotice && state.rulesSnapshot.judgePolicy === 'auto-with-override' && state.promptSnapshot?.judgeMode !== 'operator'
+      ? toIso(now + (state.promptSnapshot?.judgeMode === 'ai-assisted' ? 9000 : 6000)) : null;
     state.candidate = this._candidateFromMatches(state, state.rulesSnapshot.tieWindowMs);
     activity('judge_review_opened', { heatId: state.heatId, candidateCount: state.candidates.length });
     touch();
@@ -608,14 +690,19 @@ export class GameEngine extends EventEmitter {
     touch();
   }
 
-  _openVote(context, type) {
+  _openVote(context, type, { automatic = false } = {}) {
     const { event, state, now, touch, activity } = context;
     if (!event.vote.enabled) fail('Voting is disabled for this event.');
     if (state.vote?.status === 'open') fail('A ballot is already open.');
     if (type === 'category' && state.phase !== 'lobby') fail('Category voting opens between heats.');
     if (type === 'creative' && state.phase !== 'review') fail('Creative voting opens after a hunt.');
+    const rotation = type === 'category' && automatic ? this._promptRotation(event, state) : null;
+    const availableCategories = type === 'category'
+      ? event.vote.categories.filter(category => event.prompts.some(prompt => prompt.enabled && prompt.category === category &&
+        (!rotation?.standard.length || rotation.lowDue || promptPriority(prompt) === 'standard')))
+      : [];
     const options = type === 'category'
-      ? event.vote.categories.filter(category => event.prompts.some(prompt => prompt.enabled && prompt.category === category))
+      ? availableCategories
         .map((category, index) => ({ id: category, label: category, code: String(index + 1) }))
       : state.lockedPlayerIds.map((id, index) => {
         const player = this.store.getPlayer(id);
@@ -625,7 +712,7 @@ export class GameEngine extends EventEmitter {
     state.vote = {
       id: randomUUID(), type, status: 'open', openedAt: toIso(now),
       closesAt: toIso(now + (type === 'creative' ? event.vote.creativeWindowSeconds : event.vote.windowSeconds) * 1000),
-      options, result: null,
+      options, result: null, automatic: type === 'category' && automatic,
     };
     if (type === 'creative') state.reviewEndsAt = null;
     activity('vote_opened', { windowId: state.vote.id, windowType: type, heat: state.heat });
@@ -643,7 +730,10 @@ export class GameEngine extends EventEmitter {
     vote.status = 'closed';
     vote.closesAt = toIso(context.now);
     vote.result = vote.type === 'category' ? top[0] || null : top;
-    if (vote.type === 'category') state.preferredCategory = vote.result;
+    if (vote.type === 'category') {
+      state.preferredCategory = vote.result;
+      state.preferredCategoryAutomatic = Boolean(vote.automatic && vote.result);
+    }
     activity('vote_closed', { windowId: vote.id, windowType: vote.type, heat: state.heat,
       votes: Object.values(publicBallot.tallies).reduce((sum, value) => sum + value, 0) });
     touch();
@@ -656,7 +746,10 @@ export class GameEngine extends EventEmitter {
     const { event, state, now, touch, activity } = context;
     if (state.phase !== 'result') fail('Finalize this heat before opening the next one.');
     const oldHeat = state.heat;
-    const preserved = { usedPromptIds: state.usedPromptIds, heatsStarted: state.heatsStarted, overrideCount: state.overrideCount };
+    const preserved = { usedPromptIds: state.usedPromptIds, promptPlayCounts: state.promptPlayCounts,
+      queuedPromptId: state.queuedPromptId,
+      automaticPromptSelections: state.automaticPromptSelections,
+      heatsStarted: state.heatsStarted, overrideCount: state.overrideCount };
     Object.assign(state, initialRuntime(event.id, now), preserved, { heat: oldHeat + 1, version: state.version });
     const waiting = this.store.listQueuedPlayers(event.id);
     waiting.forEach((player, index) => {
@@ -665,8 +758,9 @@ export class GameEngine extends EventEmitter {
         status: index < event.maxPlayers ? 'joined' : 'queued' });
     });
     activity('next_heat_opened', { heat: state.heat, promoted: Math.min(waiting.length, event.maxPlayers) });
-    if (event.vote.enabled && event.vote.categories.length >= 2) {
-      try { this._openVote(context, 'category'); } catch { /* Single enabled category leaves a plain lobby. */ }
+    if (event.vote.enabled && event.vote.categories.length >= 2 && state.heatsStarted % 2 === 1) {
+      try { this._openVote(context, 'category', { automatic: true }); }
+      catch { /* Single eligible category leaves a plain lobby. */ }
     }
     touch();
   }
@@ -677,8 +771,10 @@ export class GameEngine extends EventEmitter {
       const { event, state, touch, activity } = context;
       const received = Number(receiptAt);
       if (!Number.isFinite(received) || !['rule', 'ai'].includes(source)) fail('Invalid evidence result.');
+      const player = this.store.getPlayer(playerId);
       if (!['hunt', 'review'].includes(state.phase) || !state.lockedPlayerIds.includes(playerId) ||
-        ['left', 'kicked'].includes(this.store.getPlayer(playerId)?.status)) return state.candidate;
+        !player || ['left', 'kicked'].includes(player.status) ||
+        (player.transport === 'twilio' && !player.mediaConnected)) return state.candidate;
       if (!state.goAt || received < fromIso(state.goAt) || received > fromIso(state.roundEndsAt) + 500) return state.candidate;
       if (state.candidates.some(item => item.playerId === playerId)) return state.candidate;
       const item = {
@@ -704,7 +800,7 @@ export class GameEngine extends EventEmitter {
     return { candidate };
   }
 
-  castVote(slug, { windowId, choice, voterHash, channel = 'web' } = {}) {
+  castVote(slug, { windowId, choice, voterHash, channel = 'web', sessionId = null } = {}) {
     this.tickEvent(slug);
     const answer = this._mutate(slug, context => {
       const { event, state, now, touch, activity } = context;
@@ -712,6 +808,7 @@ export class GameEngine extends EventEmitter {
       const vote = state.vote;
       if (!vote || vote.status !== 'open' || vote.id !== windowId || fromIso(vote.closesAt) <= now) fail('This ballot is closed.', 'vote_closed');
       if (typeof voterHash !== 'string' || !/^[a-f0-9]{32,128}$/i.test(voterHash)) fail('Voter session required.');
+      if (sessionId != null && !/^[a-f0-9]{20}$/.test(sessionId)) fail('Invalid activity session.', 'invalid_activity');
       const option = vote.options.find(item => item.id === choice || item.code.toUpperCase() === String(choice ?? '').trim().toUpperCase());
       if (!option) fail('Choose a valid ballot option.');
       const result = this.store.castVote({
@@ -722,6 +819,7 @@ export class GameEngine extends EventEmitter {
       activity('vote_accepted', {
         voterId: voterHash.slice(0, 20), windowId: vote.id, windowType: vote.type,
         channel, choice: option.id, choiceLabel: option.label,
+        ...(sessionId ? { sessionId } : {}),
       });
       touch();
       return true;
@@ -867,7 +965,8 @@ export class GameEngine extends EventEmitter {
           const next = initialRuntime(event.id, now);
           Object.assign(state, next, { heat: state.heat + 1, version: state.version,
             heatsStarted: state.heatsStarted, overrideCount: state.overrideCount,
-            usedPromptIds: state.usedPromptIds });
+            usedPromptIds: state.usedPromptIds, promptPlayCounts: state.promptPlayCounts,
+            automaticPromptSelections: state.automaticPromptSelections });
           activity('event_reset', { heat: state.heat });
           touch();
           break;
@@ -891,6 +990,7 @@ export class GameEngine extends EventEmitter {
             state.vote.closesAt = toIso(now);
           }
           state.preferredCategory = category;
+          state.preferredCategoryAutomatic = false;
           activity('category_selected', { category, heat: state.heat });
           touch();
           this._maybeAutoStart(context);
@@ -940,7 +1040,7 @@ export class GameEngine extends EventEmitter {
           const matchDue = passed(current.candidateDeadline) && current.candidates.length;
           if (matchDue) {
             const proposal = this._candidateFromMatches(current, current.rulesSnapshot.tieWindowMs);
-            const auto = current.rulesSnapshot.judgePolicy === 'auto-with-override' &&
+            const auto = !current.judgeNotice && current.rulesSnapshot.judgePolicy === 'auto-with-override' &&
               (proposal.source === 'rule' || proposal.confidence >= 0.93);
             if (auto) this._finalize(context, proposal.winners, proposal.source, proposal.explanation);
             else this._enterReview(context);
@@ -953,7 +1053,7 @@ export class GameEngine extends EventEmitter {
               catch { this._finalize(context, [], 'audience', 'Creative ballot unavailable'); }
             } else if (current.candidates.length) {
               const proposal = this._candidateFromMatches(current, current.rulesSnapshot.tieWindowMs);
-              const auto = current.rulesSnapshot.judgePolicy === 'auto-with-override' &&
+              const auto = !current.judgeNotice && current.rulesSnapshot.judgePolicy === 'auto-with-override' &&
                 (proposal.source === 'rule' || proposal.confidence >= 0.93);
               if (auto) this._finalize(context, proposal.winners, proposal.source, proposal.explanation);
               else this._enterReview(context);
@@ -966,6 +1066,7 @@ export class GameEngine extends EventEmitter {
         }
         if (current.phase === 'review') {
           if (current.vote?.status === 'open' && passed(current.vote.closesAt)) { this._closeVote(context); continue; }
+          if (current.judgeNotice && current.reviewEndsAt) { current.reviewEndsAt = null; touch(); break; }
           if (passed(current.reviewEndsAt)) {
             const proposal = current.candidate;
             if (proposal?.winners?.length && proposal.confidence >= 0.82)

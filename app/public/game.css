@@ -81,6 +81,7 @@
 .player-page .camera-waiting { position: absolute; z-index: 2; left: 50%; bottom: 20%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; white-space: nowrap; padding: 6px 8px; border: 1px solid #c4d2eb9e; border-radius: 6px; background: #07152ddc; color: white; font-size: 9px; font-weight: 800; letter-spacing: .04em; box-shadow: 0 6px 15px #0008; }
 .player-page .camera-waiting svg { width: 17px; height: 14px; }
 .player-page .preview video { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; background: #07142c; transform: scaleX(-1); }
+.player-page .preview.is-rear video { transform: none; }
 .player-page .preview .frame { position: absolute; z-index: 3; inset: 8px; border: 0; pointer-events: none; }
 .player-page .preview .frame::after { content: none; }
 .player-page .preview .frame i { position: absolute; width: 18px; height: 18px; border-color: #f5f8ffcc; border-style: solid; border-width: 0; }
@@ -91,6 +92,9 @@
 .player-page .preview-topline { position: absolute; z-index: 4; top: 12px; left: 12px; display: flex; align-items: center; gap: 5px; color: #fff; background: #07152dba; border: 1px solid #ffffff3d; border-radius: 5px; padding: 4px 5px; font-size: 8px; font-weight: 800; letter-spacing: .05em; }
 .player-page .preview-topline b { width: 5px; height: 5px; border-radius: 50%; background: var(--red); box-shadow: 0 0 7px var(--red); }
 .player-page .preview.has-camera .preview-topline b { background: #42e6a4; box-shadow: 0 0 7px #42e6a4; }
+.player-page .camera-flip { position: absolute; z-index: 5; right: 8px; bottom: 43px; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #ffffffaf; border-radius: 50%; background: #07152ddc; color: #fff; font-size: 25px; line-height: 1; box-shadow: 0 5px 16px #0008; }
+.player-page .camera-flip:hover { background: #ef223ae6; }
+.player-page .camera-flip:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .player-page .preview .slot { position: absolute; z-index: 4; right: 11px; bottom: 11px; color: white; background: #07152de5; border: 1px solid #ffffff55; border-radius: 5px; padding: 5px 6px; font-size: 9px; font-weight: 800; letter-spacing: .07em; }
 .player-page .screen, .player-page .lead-card { min-width: 0; max-width: 100%; }
 .player-page .join-card { width: 100%; max-height: 100%; }
@@ -106,7 +110,18 @@
 .player-page .join-spectate:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
 .player-page .join-spectate:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
 
-.player-page .preview-edit { align-self: center; margin-top: 8px; }
+.player-page .preview-edit { align-self: center; margin-top: 8px; padding: 2px 8px; border: 0; background: none; color: #c8defb; font-size: 11px; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
+.player-page .camera-recovery { display: grid; gap: 3px; margin: 9px 0 0; padding: 9px 11px; border: 1px solid #ff9aa879; border-radius: 9px; background: #7c1a2a3a; color: #f8dbe1; font-size: 11px; line-height: 1.3; }
+.player-page .camera-recovery strong { color: #fff; font-size: 12px; }
+.player-page .followup-card { width: 100%; max-height: 100%; }
+.player-page .followup-card .eyebrow { margin-bottom: 8px; }
+.player-page .followup-card .section-title { margin-bottom: 8px; font-size: clamp(29px, 7.5vw, 39px); }
+.player-page .followup-card .field { margin-bottom: 9px; }
+.player-page .followup-card .check { margin-block: 5px; }
+.player-page .followup-card .actions { padding-top: 4px; }
+.player-page .followup-card .lead-note { margin-top: 8px; }
+.player-page .followup-controls { display: flex; margin-top: 5px; }
+.player-page .followup-controls .lead-prev { margin: 0; }
 
 .player-page .screen .error:empty { display: none; }
 .player-page .text-link { text-align: left; }
@@ -262,6 +277,7 @@
 .player-page .brand span { overflow: hidden; text-overflow: ellipsis; }
 .player-page .theme-toggle { flex: none; }
 .player-page .screen[data-view="consent"] .card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+.player-page .screen[data-view="followup"] .card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 .player-page .back-link,
 .player-page .lead-prev { display: inline-flex; align-items: center; min-height: 36px; margin-block: 0 4px; }
 .player-page .primary:focus-visible,
@@ -288,6 +304,8 @@
      A focus-only layout shift moved Continue between pointer down and up. */
   .player-page .app:has(.screen[data-view="consent"]) main { overflow-y: auto; display: block; }
   .player-page .screen[data-view="consent"] { height: auto; min-height: 100%; justify-content: center; padding-block: 8px 16px; }
+  .player-page .app:has(.screen[data-view="followup"]) main { overflow-y: auto; display: block; }
+  .player-page .screen[data-view="followup"] { height: auto; min-height: 100%; justify-content: center; padding-block: 8px 16px; }
 }
 
 @media (max-width: 380px) {
@@ -308,6 +326,11 @@
   .player-page .screen[data-view="review"] .player-visual { height: min(25dvh, 165px); min-height: 0; }
   .player-page .screen[data-view="preview"] .preview,
   .player-page .screen[data-view="waiting"] .preview { width: min(18dvh, 118px); height: min(32dvh, 210px); }
+  .player-page .screen[data-view="preview"]:has(.camera-recovery) .preview { width: min(15dvh, 105px); height: min(26.66dvh, 187px); }
+  .player-page .screen[data-view="preview"]:has(.camera-recovery) .caption { margin-top: 5px; }
+  .player-page .screen[data-view="preview"]:has(.camera-recovery) .actions { gap: 6px; padding-top: 7px; }
+  .player-page .followup-card .section-title { font-size: 28px; }
+  .player-page .followup-card .field input { min-height: 44px; }
   .player-page .screen .primary,
   .player-page .screen .secondary { min-height: 44px; }
   .player-page .card:has(#consentForm) .back-link,

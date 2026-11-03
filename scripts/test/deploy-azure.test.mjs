@@ -104,7 +104,6 @@ test('invalid optional integration settings fail before the live revision is tou
       { settings: { OPENAI_API_KEY: `${key} bad` }, error: /OPENAI_API_KEY cannot contain whitespace/ },
       { settings: { OPENAI_VISION_MODEL: 'model with spaces' }, error: /OPENAI_VISION_MODEL cannot contain whitespace/ },
       { settings: { SEGMENT_WRITE_KEY: `${key}\nbad` }, error: /SEGMENT_WRITE_KEY cannot contain whitespace/ },
-      { settings: { SEGMENT_IDENTIFY_LEADS: 'yes' }, error: /SEGMENT_IDENTIFY_LEADS must be 0 or 1/ },
       { settings: { SENDGRID_API_KEY: key }, error: /SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set/ },
       { settings: { SENDGRID_FROM_EMAIL: 'booth@example.com' }, error: /SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set/ },
       { settings: { SENDGRID_API_KEY: key, SENDGRID_FROM_EMAIL: 'not-an-email' }, error: /SENDGRID_FROM_EMAIL must be a valid sender email address/ },
@@ -121,7 +120,7 @@ test('invalid optional integration settings fail before the live revision is tou
           ACA_RESOURCE_GROUP: 'rg-live-scavenger-hunt',
           FAKE_AZ_LOG: azLog,
           OPENAI_API_KEY: '', OPENAI_VISION_MODEL: '',
-          SEGMENT_WRITE_KEY: '', SEGMENT_IDENTIFY_LEADS: '',
+          SEGMENT_WRITE_KEY: '',
           SENDGRID_API_KEY: '', SENDGRID_FROM_EMAIL: '', SENDGRID_REGION: '',
           ...settings,
         },
@@ -195,7 +194,6 @@ exit 83
         OPENAI_API_KEY: '',
         OPENAI_VISION_MODEL: '',
         SEGMENT_WRITE_KEY: '',
-        SEGMENT_IDENTIFY_LEADS: '',
         SENDGRID_API_KEY: '',
         SENDGRID_FROM_EMAIL: '',
         SENDGRID_REGION: '',
@@ -336,7 +334,7 @@ test('optional integration keys are attached after the old writer stops without 
   assert.match(update, /SENDGRID_API_KEY=secretref:sendgrid-api-key-r1234567890a1/);
   assert.match(update, /SENDGRID_FROM_EMAIL=booth@example.com/);
   assert.match(update, /SENDGRID_REGION=eu/);
-  assert.equal(update.includes('SEGMENT_IDENTIFY_LEADS='), false, 'identify must stay off unless explicitly configured');
+  assert.equal(update.includes('SEGMENT_IDENTIFY_LEADS='), false, 'deployment does not configure retired Identify');
   for (const value of [openaiKey, segmentKey, sendgridKey])
     assert.equal(update.includes(value), false, 'API keys must never be plain revision environment values');
 });
@@ -373,16 +371,12 @@ test('each rollout gets distinct secret names so rollback keeps the old referenc
   assert.match(second.update, /--revision-suffix r872000001a2/);
 });
 
-test('explicit Segment Identify values and SendGrid region changes use the stopped-writer update', () => {
+test('SendGrid region and OpenAI model changes use the stopped-writer update', () => {
   const { calls, update } = runStoppedWriterUpdate({
-    SEGMENT_IDENTIFY_LEADS: '0',
     SENDGRID_REGION: 'global',
     OPENAI_VISION_MODEL: 'gpt-6-luna',
   });
-  assert.match(update, /SEGMENT_IDENTIFY_LEADS=0/);
   assert.match(update, /SENDGRID_REGION=global/);
   assert.match(update, /OPENAI_VISION_MODEL=gpt-6-luna/);
   assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false);
-  const enabled = runStoppedWriterUpdate({ SEGMENT_IDENTIFY_LEADS: '1' });
-  assert.match(enabled.update, /SEGMENT_IDENTIFY_LEADS=1/);
 });
