@@ -416,7 +416,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         throw new ValidationError('Send one JPEG camera frame.', 'invalid_content_type');
       const buffer = await readBuffer(req, 150_000);
       const receipt = media.storeFrame(event.id, player.id, buffer);
-      void judge.submit({ slug, playerId: player.id, buffer, receiptAt: Date.parse(receipt.receivedAt) })
+      void judge.submit({ slug, playerId: player.id, buffer, receiptAt: Date.parse(receipt.receivedAt), source: 'phone' })
         .catch(error => console.error(`Evidence review: ${error.message}`));
       return json(res, 200, { ok: true });
     }
@@ -593,7 +593,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         const buffer = Buffer.from(body.imageBase64, 'base64');
         const receipt = media.storeFrame(event.id, body.playerId, buffer);
         const receiptAt = Date.parse(receipt.receivedAt);
-        const result = await judge.submit({ slug, playerId: body.playerId, buffer, receiptAt });
+        const result = await judge.submit({ slug, playerId: body.playerId, buffer, receiptAt, source: 'wall' });
         return json(res, 200, { candidate: result.candidate, status: result.status,
           ...(result.errorCode ? { errorCode: result.errorCode } : {}),
           ...(result.error ? { error: result.error } : {}),

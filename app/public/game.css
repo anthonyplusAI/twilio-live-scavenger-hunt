@@ -80,8 +80,7 @@
 .player-page .preview-placeholder::after { content: ''; position: absolute; inset: 56% 0 0; background: linear-gradient(transparent, #06142c92); pointer-events: none; }
 .player-page .camera-waiting { position: absolute; z-index: 2; left: 50%; bottom: 20%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; white-space: nowrap; padding: 6px 8px; border: 1px solid #c4d2eb9e; border-radius: 6px; background: #07152ddc; color: white; font-size: 9px; font-weight: 800; letter-spacing: .04em; box-shadow: 0 6px 15px #0008; }
 .player-page .camera-waiting svg { width: 17px; height: 14px; }
-.player-page .preview video { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; background: #07142c; transform: scaleX(-1); }
-.player-page .preview.is-rear video { transform: none; }
+.player-page .preview video { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; background: #07142c; }
 .player-page .preview .frame { position: absolute; z-index: 3; inset: 8px; border: 0; pointer-events: none; }
 .player-page .preview .frame::after { content: none; }
 .player-page .preview .frame i { position: absolute; width: 18px; height: 18px; border-color: #f5f8ffcc; border-style: solid; border-width: 0; }

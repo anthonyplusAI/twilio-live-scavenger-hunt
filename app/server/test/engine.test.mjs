@@ -626,16 +626,120 @@ test('pause freezes the round clock and resume restores its remaining time', () 
   app.store.close();
 });
 
-test('joining a paused lobby keeps open slots available for the heat after resume', () => {
+test('joining a paused lobby lets players get ready but waits for the operator to resume', () => {
   const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
   app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
   const a = app.join('Ada'), b = app.join('Bea');
   assert.deepEqual([a.player.slot, b.player.slot], [1, 2]);
-  assert.throws(() => app.ready(a), error => error.code === 'invalid_state');
-  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
   app.ready(a); app.ready(b);
+  assert.equal(app.engine.snapshot(app.event.slug).state.readyCount, 2);
+  app.advance(10_000);
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'lobby');
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
   app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
   assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'countdown');
+  app.store.close();
+});
+
+test('a paused lobby freezes an existing join window and starts a new one only on resume', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 3, startMode: 'flexible', joinSeconds: 30 });
+  const a = app.join('Ada'), b = app.join('Bea');
+  app.ready(a); app.ready(b);
+  app.advance(10_000);
+  app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
+  assert.equal(app.engine.snapshot(app.event.slug).state.readyDeadline, null);
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, 20_000);
+  const c = app.join('Cy');
+  app.ready(c);
+  app.engine.heartbeat(app.event.slug, a.token);
+  app.engine.heartbeat(app.event.slug, b.token);
+  app.advance(21_000);
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'lobby');
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'countdown',
+    'a full roster starts immediately after resume');
+  app.store.close();
+
+  const waiting = setup({ minPlayers: 2, maxPlayers: 3, startMode: 'deadline', joinSeconds: 5 });
+  waiting.engine.command(waiting.event.slug, 'pause', {}, { id: 'operator' });
+  const d = waiting.join('Dee'), e = waiting.join('Eli');
+  waiting.ready(d); waiting.ready(e);
+  assert.equal(waiting.engine.snapshot(waiting.event.slug).state.readyDeadline, null);
+  assert.equal(waiting.engine.snapshot(waiting.event.slug, 'operator').state.pauseRemaining.readyDeadline, 5000);
+  waiting.advance(6000);
+  assert.equal(waiting.engine.snapshot(waiting.event.slug).state.phase, 'lobby');
+  waiting.engine.command(waiting.event.slug, 'resume', {}, { id: 'operator' });
+  assert.equal(Date.parse(waiting.engine.snapshot(waiting.event.slug).state.readyDeadline), waiting.now + 5000);
+  waiting.advance(4999);
+  assert.equal(waiting.engine.snapshot(waiting.event.slug).state.phase, 'lobby');
+  waiting.advance(1);
+  assert.equal(waiting.engine.snapshot(waiting.event.slug).state.phase, 'countdown');
+  waiting.store.close();
+});
+
+test('paused lobby readiness changes clear and restart the frozen join window', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 3, startMode: 'deadline', joinSeconds: 5 });
+  const a = app.join('Ada'), b = app.join('Bea');
+  app.engine.setTransport(app.event.slug, b.token, 'twilio');
+  app.engine.setMediaConnected(app.event.slug, b.player.id, true);
+  app.ready(a); app.ready(b);
+  app.advance(2000);
+  app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, 3000);
+  app.engine.setMediaConnected(app.event.slug, b.player.id, false);
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, undefined);
+  app.engine.setMediaConnected(app.event.slug, b.player.id, true);
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, 5000);
+  app.engine.setTransport(app.event.slug, b.token, 'rehearsal');
+  app.engine.setTransport(app.event.slug, b.token, 'twilio');
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, undefined);
+  app.engine.setMediaConnected(app.event.slug, b.player.id, true);
+  assert.equal(app.engine.snapshot(app.event.slug, 'operator').state.pauseRemaining.readyDeadline, 5000);
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
+  assert.equal(Date.parse(app.engine.snapshot(app.event.slug).state.readyDeadline), app.now + 5000);
+  app.store.close();
+});
+
+test('joining while a paused heat is underway stays queued for the next heat', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
+  const a = app.join('Ada'), b = app.join('Bea');
+  app.ready(a); app.ready(b);
+  app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+  app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
+  const c = app.join('Cy');
+  assert.equal(c.player.status, 'queued');
+  assert.equal(c.player.slot, null);
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'countdown');
+  app.store.close();
+});
+
+test('a category ballot opened while paused receives its full vote window on resume', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'capacity' });
+  app.engine.command(app.event.slug, 'pause', {}, { id: 'operator' });
+  const a = app.join('Ada'), b = app.join('Bea');
+  app.ready(a); app.ready(b);
+  app.engine.command(app.event.slug, 'openVote', { type: 'category' }, { id: 'operator' });
+  let state = app.engine.snapshot(app.event.slug, 'operator').state;
+  assert.equal(state.phase, 'lobby');
+  assert.equal(state.vote.status, 'open');
+  assert.equal(state.vote.closesAt, null);
+  assert.equal(state.pauseRemaining.vote, app.event.vote.windowSeconds * 1000);
+
+  app.advance(13_000);
+  assert.equal(app.engine.snapshot(app.event.slug).state.vote.status, 'open');
+  app.engine.heartbeat(app.event.slug, a.token);
+  app.engine.heartbeat(app.event.slug, b.token);
+  app.engine.command(app.event.slug, 'resume', {}, { id: 'operator' });
+  state = app.engine.snapshot(app.event.slug).state;
+  assert.equal(state.phase, 'lobby');
+  assert.equal(Date.parse(state.vote.closesAt), app.now + app.event.vote.windowSeconds * 1000);
+  app.advance(app.event.vote.windowSeconds * 1000 - 1);
+  assert.equal(app.engine.snapshot(app.event.slug).state.vote.status, 'open');
+  assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'lobby');
+  app.advance(1);
+  state = app.engine.snapshot(app.event.slug).state;
+  assert.equal(state.vote, null);
+  assert.equal(state.phase, 'countdown');
   app.store.close();
 });
 
