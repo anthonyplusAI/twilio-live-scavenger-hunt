@@ -54,6 +54,11 @@ let leadFieldPage = 0;
 let votePage = 0;
 let preflightPage = 0;
 let toastTimer = 0;
+let operators = [];
+let teamPage = 0;
+let teamMode = "create";
+let selectedOperatorId = null;
+let teamBusy = false;
 
 function isAdmin() { return String(session?.user?.role || "").toLowerCase() === "admin"; }
 function asDate(value) {
@@ -214,7 +219,7 @@ function connectStream() {
   };
 }
 function showView(view) {
-  if (!["run", "prompts", "event", "votes"].includes(view)) view = "run";
+  if (!["run", "prompts", "event", "votes", "team"].includes(view) || (view === "team" && !isAdmin())) view = "run";
   for (const element of document.querySelectorAll(".view")) element.classList.toggle("active", element.id === "view-" + view);
   for (const button of document.querySelectorAll(".nav[data-view]")) {
     const active = button.dataset.view === view;
@@ -222,6 +227,7 @@ function showView(view) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
+  if (view === "team") loadOperators().catch((error) => flash(error.message, true));
   if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
 }
 function showRunPanel(panel) {
@@ -285,6 +291,113 @@ function renderRole() {
   $("save-prompt-button").disabled = !isAdmin();
   const metrics = document.querySelector(".metrics-link");
   metrics.hidden = !isAdmin();
+  document.querySelector(".team-nav").hidden = !isAdmin();
+  $("team-my-password-button").hidden = session?.user?.authProvider === "google";
+}
+function operatorLabel(operator) { return String(operator?.email || operator?.username || "Operator"); }
+function isGoogleOperator(operator) { return String(operator?.authProvider || "password").toLowerCase() === "google"; }
+function teamPageSize() { return window.innerWidth <= 760 ? 4 : 5; }
+function renderTeam() {
+  const list = $("team-list");
+  const size = teamPageSize();
+  const pages = Math.max(1, Math.ceil(operators.length / size));
+  teamPage = Math.max(0, Math.min(teamPage, pages - 1));
+  $("team-count").textContent = String(operators.length);
+  list.replaceChildren();
+  if (!operators.length) {
+    const empty = document.createElement("div");
+    empty.className = "team-empty";
+    const title = document.createElement("strong");
+    title.textContent = "No operator accounts yet";
+    const note = document.createElement("small");
+    note.textContent = "Add a booth operator or enable Google sign-in.";
+    empty.append(title, note);
+    list.append(empty);
+  }
+  for (const operator of operators.slice(teamPage * size, (teamPage + 1) * size)) {
+    const label = operatorLabel(operator);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "team-row";
+    row.dataset.operatorId = String(operator.id);
+    const selected = teamMode === "manage" && String(selectedOperatorId) === String(operator.id);
+    row.setAttribute("aria-pressed", String(selected));
+    const avatar = document.createElement("span");
+    avatar.className = "team-avatar";
+    avatar.textContent = label.trim().slice(0, 1).toUpperCase() || "O";
+    const identity = document.createElement("span");
+    identity.className = "team-identity";
+    const name = document.createElement("strong");
+    name.textContent = label;
+    const detail = document.createElement("small");
+    detail.textContent = isGoogleOperator(operator) ? "Google · @twilio.com" : "Username and password";
+    identity.append(name, detail);
+    const marker = document.createElement("span");
+    marker.className = "team-row-arrow";
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = "↗";
+    row.append(avatar, identity, marker);
+    list.append(row);
+  }
+  $("team-page-label").textContent = operators.length
+    ? "Showing " + (teamPage * size + 1) + "–" + Math.min((teamPage + 1) * size, operators.length) + " of " + operators.length
+    : "0 operators";
+  $("team-prev").disabled = teamPage === 0;
+  $("team-next").disabled = teamPage >= pages - 1;
+
+  const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
+  if (teamMode === "manage" && !selected) teamMode = "create";
+  const google = teamMode === "manage" && isGoogleOperator(selected);
+  $("team-create-form").hidden = teamMode !== "create";
+  $("team-reset-form").hidden = teamMode !== "manage" || google;
+  $("team-google-detail").hidden = teamMode !== "manage" || !google;
+  $("team-self-form").hidden = teamMode !== "self";
+  if (teamMode === "manage") {
+    const label = operatorLabel(selected);
+    $("team-detail-kicker").textContent = google ? "Google account" : "Local account";
+    $("team-detail-title").textContent = google ? "Twilio teammate" : "Manage operator";
+    $("team-detail-copy").textContent = google ? "Signed in with a verified @twilio.com identity." : "Reset their password or remove booth access.";
+    if (google) $("team-google-name").textContent = label;
+    else {
+      $("team-selected-name").textContent = label;
+      $("team-selected-initial").textContent = label.trim().slice(0, 1).toUpperCase() || "O";
+    }
+  } else if (teamMode === "self") {
+    $("team-detail-kicker").textContent = "Your account";
+    $("team-detail-title").textContent = "Change my password";
+    $("team-detail-copy").textContent = "Enter your current password to protect this account.";
+  } else {
+    $("team-detail-kicker").textContent = "New account";
+    $("team-detail-title").textContent = "Add an operator";
+    $("team-detail-copy").textContent = "Create a username and password for booth staff.";
+  }
+}
+function showTeamMode(mode, operatorId = null) {
+  if (mode === "self" && session?.user?.authProvider === "google") return;
+  teamMode = mode;
+  selectedOperatorId = operatorId;
+  $("team-workspace").dataset.step = "detail";
+  renderTeam();
+  const focusId = mode === "self" ? "team-current-password" : mode === "create" ? "team-create-username" : "team-detail-title";
+  $(focusId).focus();
+}
+async function loadOperators() {
+  if (!isAdmin()) return;
+  const payload = await request("/api/admin/operators");
+  operators = Array.isArray(payload.operators) ? payload.operators.filter((item) => String(item.role || "operator").toLowerCase() === "operator") : [];
+  renderTeam();
+}
+async function loadAuthProviders() {
+  try {
+    const payload = await request("/api/auth/providers");
+    const enabled = Boolean(payload.google?.enabled);
+    $("team-google-status").classList.toggle("enabled", enabled);
+    $("team-google-status-copy").textContent = enabled
+      ? "Verified @twilio.com accounts can join automatically."
+      : "Configure a Google OAuth client to enable it.";
+  } catch {
+    $("team-google-status-copy").textContent = "Google sign-in status is unavailable.";
+  }
 }
 function renderEventPicker() {
   const select = $("event-select");
@@ -1282,8 +1395,99 @@ function renderPreflight() {
   $("preflight-next").disabled = preflightPage >= pages - 1;
 }
 
+function confirmTeamPassword(passwordId, confirmId) {
+  const password = $(passwordId);
+  const confirmation = $(confirmId);
+  const matches = password.value === confirmation.value;
+  confirmation.setCustomValidity(matches ? "" : "Passwords do not match.");
+  if (!matches) confirmation.reportValidity();
+  return matches;
+}
+async function createOperator(event) {
+  event.preventDefault();
+  if (teamBusy || !confirmTeamPassword("team-create-password", "team-create-confirm")) return;
+  const username = $("team-create-username").value.trim().toLowerCase();
+  const password = $("team-create-password").value;
+  teamBusy = true;
+  $("team-create-submit").disabled = true;
+  try {
+    const result = await request("/api/admin/operators", { method: "POST", body: { username, password } });
+    $("team-create-form").reset();
+    await loadOperators();
+    const id = result.operator?.id || operators.find((item) => item.username === username)?.id;
+    if (id != null) {
+      const index = operators.findIndex((item) => String(item.id) === String(id));
+      teamPage = Math.max(0, Math.floor(index / teamPageSize()));
+      showTeamMode("manage", id);
+    }
+    flash("Operator account created.");
+  } catch (error) { flash(error.message, true); }
+  finally { teamBusy = false; $("team-create-submit").disabled = false; }
+}
+async function resetOperatorPassword(event) {
+  event.preventDefault();
+  const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
+  if (teamBusy || !selected || isGoogleOperator(selected) || !confirmTeamPassword("team-reset-password", "team-reset-confirm")) return;
+  teamBusy = true;
+  $("team-reset-submit").disabled = true;
+  try {
+    await request("/api/admin/operators/" + encodeURIComponent(selected.id) + "/password", { method: "POST", body: { password: $("team-reset-password").value } });
+    $("team-reset-form").reset();
+    flash("Password changed. The operator must sign in again.");
+  } catch (error) { flash(error.message, true); }
+  finally { teamBusy = false; $("team-reset-submit").disabled = false; }
+}
+async function removeOperator() {
+  const selected = operators.find((item) => String(item.id) === String(selectedOperatorId));
+  if (teamBusy || !selected || isGoogleOperator(selected)) return;
+  if (!confirm("Remove " + operatorLabel(selected) + " from the booth team? Their active sessions will end.")) return;
+  teamBusy = true;
+  $("team-remove-button").disabled = true;
+  try {
+    await request("/api/admin/operators/" + encodeURIComponent(selected.id), { method: "DELETE" });
+    teamMode = "create";
+    selectedOperatorId = null;
+    $("team-workspace").dataset.step = "list";
+    await loadOperators();
+    flash("Operator access removed.");
+  } catch (error) { flash(error.message, true); }
+  finally { teamBusy = false; $("team-remove-button").disabled = false; }
+}
+async function changeMyPassword(event) {
+  event.preventDefault();
+  if (teamBusy || !confirmTeamPassword("team-new-password", "team-new-confirm")) return;
+  teamBusy = true;
+  $("team-self-submit").disabled = true;
+  try {
+    await request("/api/auth/password", { method: "POST", body: { currentPassword: $("team-current-password").value, newPassword: $("team-new-password").value } });
+    $("team-self-form").reset();
+    const next = location.pathname + location.search + "#team";
+    location.assign("/login?notice=password-changed&next=" + encodeURIComponent(next));
+  } catch (error) {
+    flash(error.message, true);
+    teamBusy = false;
+    $("team-self-submit").disabled = false;
+  }
+}
+
 function wireControls() {
   for (const button of document.querySelectorAll(".nav[data-view]")) button.addEventListener("click", () => { showView(button.dataset.view); if (button.dataset.view === "run") showRunPanel("live"); });
+  $("team-add-button").addEventListener("click", () => showTeamMode("create"));
+  $("team-my-password-button").addEventListener("click", () => showTeamMode("self"));
+  $("team-back-button").addEventListener("click", () => { $("team-workspace").dataset.step = "list"; $("team-add-button").focus(); });
+  $("team-list").addEventListener("click", (event) => {
+    const row = event.target.closest("button[data-operator-id]");
+    if (row) showTeamMode("manage", row.dataset.operatorId);
+  });
+  $("team-prev").addEventListener("click", () => { teamPage--; renderTeam(); });
+  $("team-next").addEventListener("click", () => { teamPage++; renderTeam(); });
+  $("team-create-form").addEventListener("submit", createOperator);
+  $("team-reset-form").addEventListener("submit", resetOperatorPassword);
+  $("team-self-form").addEventListener("submit", changeMyPassword);
+  $("team-remove-button").addEventListener("click", removeOperator);
+  for (const [passwordId, confirmId] of [["team-create-password", "team-create-confirm"], ["team-reset-password", "team-reset-confirm"], ["team-new-password", "team-new-confirm"]]) {
+    for (const id of [passwordId, confirmId]) $(id).addEventListener("input", () => $(confirmId).setCustomValidity(""));
+  }
   $("past-results-button").addEventListener("click", () => showRunPanel("past"));
   $("past-back-button").addEventListener("click", () => showRunPanel("live"));
   $("past-heat-select").addEventListener("change", (event) => selectPastHeat(event.target.value));
@@ -1433,7 +1637,7 @@ function wireControls() {
       redirectToLogin();
     } catch (error) { flash(error.message, true); }
   });
-  window.addEventListener("resize", () => { renderPromptList(); renderLeadFields(); renderVotes(); renderPreflight(); renderManagePlayers(); });
+  window.addEventListener("resize", () => { renderPromptList(); renderLeadFields(); renderVotes(); renderPreflight(); renderManagePlayers(); renderTeam(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshEvent().catch(() => {}); });
   window.addEventListener("beforeunload", () => stream?.close());
 }
@@ -1445,14 +1649,14 @@ async function boot() {
     if (!session?.user || !session.csrfToken) return redirectToLogin();
     csrfToken = session.csrfToken;
     await refreshEvent();
-    await Promise.allSettled([refreshEvents(), refreshPreflight()]);
+    await Promise.allSettled([refreshEvents(), refreshPreflight(), loadAuthProviders()]);
     $("vote-qr-image").src = publicApiPath + "/qr.svg?target=vote";
     $("vote-link").href = eventPath + "/vote";
     renderRole();
     connectStream();
     const hash = location.hash.slice(1);
     if (["leads", "systems", "rules", "basics"].includes(hash)) { showView("event"); setEventStep(hash === "leads" ? "leads" : hash); }
-    else showView(["run", "prompts", "event", "votes"].includes(hash) ? hash : "run");
+    else showView(["run", "prompts", "event", "votes", "team"].includes(hash) ? hash : "run");
     setInterval(() => {
       renderClock();
       if (runtime?.vote?.status === "open" && !runtime.paused) $("vote-countdown").textContent = String(remaining(runtime.vote.closesAt) ?? 0).padStart(2, "0");

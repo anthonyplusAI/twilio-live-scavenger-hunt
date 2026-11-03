@@ -176,9 +176,12 @@
   .player-page .lead-card .lead-note { font-size: 11px; line-height: 1.3; }
   .player-page .screen[data-view="build"] .stack-row b { min-width: 74px; }
   .player-page .screen[data-view="build"] .stack-row span { font-size: 11px; }
-  /* Keep the form usable when a virtual keyboard reduces the visual viewport. */
-  .player-page .app:has(input:focus) main { overflow-y: auto; display: block; }
-  .player-page .app:has(input:focus) .screen { height: auto; min-height: 100%; justify-content: flex-start; padding-block: 8px 16px; }
+  /* Keep forms in the same position while the keyboard opens and closes.
+     A focus-only layout shift moved Continue between pointer down and up. */
+  .player-page .app:has(.screen[data-view="consent"]) main,
+  .player-page .app:has(.screen[data-view="lead"]) main { overflow-y: auto; display: block; }
+  .player-page .screen[data-view="consent"],
+  .player-page .screen[data-view="lead"] { height: auto; min-height: 100%; justify-content: flex-start; padding-block: 8px 16px; }
 }
 
 @media (max-width: 380px) {

@@ -17,6 +17,27 @@ if [ -n "${LITESTREAM_REQUIRE_REPLICA:-}" ] &&
   echo 'LITESTREAM_REQUIRE_REPLICA must be 0 or 1 when set.' >&2
   exit 1
 fi
+# Validate OAuth settings before stopping the current writer. An unset pair
+# preserves the Container App's existing configuration; an explicit disable
+# clears the candidate revision's OAuth environment without deleting secrets.
+if [ -n "${GOOGLE_AUTH_DISABLE:-}" ] &&
+   [ "$GOOGLE_AUTH_DISABLE" != '0' ] && [ "$GOOGLE_AUTH_DISABLE" != '1' ]; then
+  echo 'GOOGLE_AUTH_DISABLE must be 0 or 1 when set.' >&2
+  exit 1
+fi
+GOOGLE_AUTH_UPDATE=0
+if [ "${GOOGLE_AUTH_DISABLE:-0}" != '1' ] &&
+   { [ -n "${GOOGLE_CLIENT_ID:-}" ] || [ -n "${GOOGLE_CLIENT_SECRET:-}" ]; }; then
+  if [ -z "${GOOGLE_CLIENT_ID:-}" ] || [ -z "${GOOGLE_CLIENT_SECRET:-}" ]; then
+    echo 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be set to update Google sign-in.' >&2
+    exit 1
+  fi
+  if [[ "$GOOGLE_CLIENT_ID" =~ [[:space:]] ]] || [[ "$GOOGLE_CLIENT_SECRET" =~ [[:space:]] ]]; then
+    echo 'Google OAuth credentials cannot contain whitespace.' >&2
+    exit 1
+  fi
+  GOOGLE_AUTH_UPDATE=1
+fi
 
 OLD_REVISION=''
 OLD_TARGET_PORT=''
@@ -142,7 +163,9 @@ on_exit() {
     '[.[] | select(.name == $expected)] | length' \
     <<< "$revisions")
   local -a replacements=()
-  mapfile -t replacements < <(jq -r \
+  while IFS= read -r candidate; do
+    replacements+=("$candidate")
+  done < <(jq -r \
     --arg old "$OLD_REVISION" \
     --arg expected "$EXPECTED_CANDIDATE" \
     --arg latest "$latest_revision" \
@@ -214,8 +237,14 @@ if ! [[ "$OLD_TARGET_PORT" =~ ^[0-9]+$ ]]; then
 fi
 REVISIONS_JSON=$(all_revisions_json)
 BASELINE_NAMES=$(jq -c '[.[].name]' <<< "$REVISIONS_JSON")
-mapfile -t ACTIVE_REVISIONS < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
-mapfile -t RUNNING_REVISIONS < <(jq -r '.[] | select((.properties.replicas | tonumber? // 0) > 0) | .name' <<< "$REVISIONS_JSON")
+ACTIVE_REVISIONS=()
+while IFS= read -r revision; do
+  ACTIVE_REVISIONS+=("$revision")
+done < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
+RUNNING_REVISIONS=()
+while IFS= read -r revision; do
+  RUNNING_REVISIONS+=("$revision")
+done < <(jq -r '.[] | select((.properties.replicas | tonumber? // 0) > 0) | .name' <<< "$REVISIONS_JSON")
 RUNNING_REPLICA_COUNT=$(jq '[.[].properties.replicas | tonumber? // 0] | add // 0' <<< "$REVISIONS_JSON")
 if [ "${#ACTIVE_REVISIONS[@]}" -ne 1 ] || [ "$RUNNING_REPLICA_COUNT" -gt 1 ]; then
   echo '::error::Expected exactly one active revision and at most one running replica. Restore the previous revision manually before retrying a stopped deployment.' >&2
@@ -306,9 +335,24 @@ if jq -e '[.[] | select(.properties.active == true or ((.properties.replicas | t
 fi
 BASELINE_NAMES=$(jq -c '[.[].name]' <<< "$REVISIONS_JSON")
 
-UPDATE_ARGS=()
+ENV_UPDATES=()
 if [ -n "${LITESTREAM_REQUIRE_REPLICA:-}" ]; then
-  UPDATE_ARGS=(--set-env-vars "LITESTREAM_REQUIRE_REPLICA=$LITESTREAM_REQUIRE_REPLICA")
+  ENV_UPDATES+=("LITESTREAM_REQUIRE_REPLICA=$LITESTREAM_REQUIRE_REPLICA")
+fi
+if [ "$GOOGLE_AUTH_UPDATE" -eq 1 ]; then
+  # App-level secret changes do not create revisions. Do this only after the
+  # old writer is stopped, then attach the secret to the candidate revision.
+  az containerapp secret set \
+    --name "$ACA_NAME" --resource-group "$ACA_RESOURCE_GROUP" \
+    --secrets "google-client-secret=$GOOGLE_CLIENT_SECRET" --output none
+  ENV_UPDATES+=("GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET=secretref:google-client-secret")
+fi
+UPDATE_ARGS=()
+if [ "${#ENV_UPDATES[@]}" -gt 0 ]; then
+  UPDATE_ARGS=(--set-env-vars "${ENV_UPDATES[@]}")
+fi
+if [ "${GOOGLE_AUTH_DISABLE:-0}" = '1' ]; then
+  UPDATE_ARGS+=(--remove-env-vars GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
 fi
 DEPLOY_SUFFIX="r${GITHUB_RUN_ID:-$(date -u +%s)}a${GITHUB_RUN_ATTEMPT:-1}"
 EXPECTED_CANDIDATE="${ACA_NAME}--${DEPLOY_SUFFIX}"
@@ -374,8 +418,14 @@ for attempt in $(seq 1 90); do
 done
 
 REVISIONS_JSON=$(all_revisions_json)
-mapfile -t RUNNING_REVISIONS < <(jq -r '.[] | select((.properties.replicas | tonumber? // 0) > 0) | .name' <<< "$REVISIONS_JSON")
-mapfile -t ACTIVE_REVISIONS < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
+RUNNING_REVISIONS=()
+while IFS= read -r revision; do
+  RUNNING_REVISIONS+=("$revision")
+done < <(jq -r '.[] | select((.properties.replicas | tonumber? // 0) > 0) | .name' <<< "$REVISIONS_JSON")
+ACTIVE_REVISIONS=()
+while IFS= read -r revision; do
+  ACTIVE_REVISIONS+=("$revision")
+done < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
 RUNNING_REPLICA_COUNT=$(jq '[.[].properties.replicas | tonumber? // 0] | add // 0' <<< "$REVISIONS_JSON")
 if [ "${#ACTIVE_REVISIONS[@]}" -ne 1 ] || [ "${ACTIVE_REVISIONS[0]}" != "$NEW_REVISION" ] ||
    [ "${#RUNNING_REVISIONS[@]}" -ne 1 ] || [ "${RUNNING_REVISIONS[0]}" != "$NEW_REVISION" ] ||
@@ -466,7 +516,10 @@ if [ "$FINAL_OK" -ne 1 ]; then
   exit 1
 fi
 REVISIONS_JSON=$(all_revisions_json)
-mapfile -t ACTIVE_REVISIONS < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
+ACTIVE_REVISIONS=()
+while IFS= read -r revision; do
+  ACTIVE_REVISIONS+=("$revision")
+done < <(jq -r '.[] | select(.properties.active == true) | .name' <<< "$REVISIONS_JSON")
 RUNNING_REPLICA_COUNT=$(jq '[.[].properties.replicas | tonumber? // 0] | add // 0' <<< "$REVISIONS_JSON")
 if [ "${#ACTIVE_REVISIONS[@]}" -ne 1 ] || [ "${ACTIVE_REVISIONS[0]}" != "$NEW_REVISION" ] ||
    [ "$RUNNING_REPLICA_COUNT" -ne 1 ]; then

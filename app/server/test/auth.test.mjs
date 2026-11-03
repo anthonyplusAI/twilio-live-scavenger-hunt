@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../db.mjs';
 import { AuthService, AuthError } from '../auth.mjs';
@@ -131,6 +132,105 @@ test('failed sign-ins are generic and rate limited by request IP', () => {
     assert.throws(() => auth.login('boothadmin', 'a-strong-admin-password', '203.0.113.8'), { status: 429, code: 'rate_limited' });
     assert.equal(auth.login('boothadmin', 'a-strong-admin-password', '203.0.113.9').user.role, 'admin');
   } finally { store.close(); }
+});
+
+test('admin account operations manage local operators and revoke changed sessions', () => {
+  const { store, auth } = makeAuth();
+  const adminPassword = testBootstrapPassword();
+  const firstPassword = testBootstrapPassword();
+  const secondPassword = testBootstrapPassword();
+  try {
+    const admin = auth.createUser('admin', adminPassword, 'admin');
+    const operator = auth.createOperator('floor.host', firstPassword);
+    assert.equal(operator.authProvider, 'password');
+    assert.deepEqual(auth.listOperators().map(user => user.username), ['floor.host']);
+    const firstSession = auth.login('floor.host', firstPassword);
+    const firstCookie = auth.cookie(firstSession.token).split(';')[0];
+    assert.equal(auth.session(firstCookie).user.id, operator.id);
+    auth.resetOperatorPassword(operator.id, secondPassword);
+    assert.equal(auth.session(firstCookie), null);
+    assert.throws(() => auth.login('floor.host', firstPassword), { code: 'invalid_credentials' });
+    const secondSession = auth.login('floor.host', secondPassword);
+    const secondCookie = auth.cookie(secondSession.token).split(';')[0];
+    assert.equal(auth.session(secondCookie).user.role, 'operator');
+    assert.throws(() => auth.resetOperatorPassword(admin.id, secondPassword), { code: 'not_found' });
+    assert.throws(() => auth.deleteOperator(admin.id), { code: 'not_found' });
+    auth.deleteOperator(operator.id);
+    assert.equal(auth.session(secondCookie), null);
+    assert.deepEqual(auth.listOperators(), []);
+    assert.equal(auth.login('admin', adminPassword).user.role, 'admin');
+  } finally { store.close(); }
+});
+
+test('changing a local password requires the current password and signs out every session', () => {
+  const { store, auth } = makeAuth();
+  const oldPassword = testBootstrapPassword();
+  const newPassword = testBootstrapPassword();
+  try {
+    const admin = auth.createUser('admin', oldPassword, 'admin');
+    const one = auth.login('admin', oldPassword);
+    const two = auth.login('admin', oldPassword);
+    const oneCookie = auth.cookie(one.token).split(';')[0];
+    const twoCookie = auth.cookie(two.token).split(';')[0];
+    assert.throws(() => auth.changePassword(admin.id, newPassword, oldPassword), { code: 'invalid_credentials' });
+    assert.equal(auth.session(oneCookie).user.id, admin.id);
+    auth.changePassword(admin.id, oldPassword, newPassword);
+    assert.equal(auth.session(oneCookie), null);
+    assert.equal(auth.session(twoCookie), null);
+    assert.throws(() => auth.login('admin', oldPassword), { code: 'invalid_credentials' });
+    assert.equal(auth.login('admin', newPassword).user.role, 'admin');
+  } finally { store.close(); }
+});
+
+test('Google identities are bound by subject, stay operators, and reject password actions', () => {
+  const { store, auth } = makeAuth();
+  try {
+    auth.createUser('admin', testBootstrapPassword(), 'admin');
+    const first = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'a@twilio.com' });
+    const second = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'renamed@twilio.com' });
+    assert.equal(first.user.id, second.user.id);
+    assert.equal(second.user.role, 'operator');
+    assert.equal(second.user.username, 'renamed@twilio.com');
+    assert.equal(second.user.authProvider, 'google');
+    assert.equal(auth.listOperators().length, 1);
+    const internalUsername = store.sql.prepare('SELECT username FROM users WHERE id=?').get(first.user.id).username;
+    assert.throws(() => auth.login(internalUsername, testBootstrapPassword()), { code: 'invalid_credentials' });
+    assert.throws(() => auth.resetOperatorPassword(first.user.id, testBootstrapPassword()), { code: 'provider_managed' });
+    assert.throws(() => auth.deleteOperator(first.user.id), { code: 'provider_managed' });
+    assert.throws(() => auth.changePassword(first.user.id, testBootstrapPassword(), testBootstrapPassword()), { code: 'provider_managed' });
+    assert.throws(() => auth.loginGoogleIdentity({ sub: 'other', email: 'a@example.com' }), { code: 'google_domain' });
+    const reservedUsername = 'google_' + createHash('sha256').update('collision-sub').digest('hex');
+    auth.createOperator(reservedUsername, testBootstrapPassword());
+    const collision = auth.loginGoogleIdentity({ sub: 'collision-sub', email: 'other@twilio.com' });
+    assert.equal(collision.user.username, 'other@twilio.com');
+    assert.notEqual(store.sql.prepare('SELECT username FROM users WHERE id=?').get(collision.user.id).username, reservedUsername);
+  } finally { store.close(); }
+});
+
+test('existing SQLite users migrate to the OAuth-capable schema without losing credentials', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'live-scavenger-hunt-migrate-'));
+  const filename = join(directory, 'legacy.sqlite');
+  const legacy = new DatabaseSync(filename);
+  legacy.exec('CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT NOT NULL)');
+  legacy.prepare('INSERT INTO users(id,username,role,password_hash,salt,created_at) VALUES(?,?,?,?,?,?)')
+    .run('legacy-id', 'legacyoperator', 'operator', 'a'.repeat(128), 'b'.repeat(32), new Date().toISOString());
+  legacy.close();
+  try {
+    const store = new Store(filename);
+    try {
+      const columns = store.sql.prepare('PRAGMA table_info(users)').all().map(column => column.name);
+      assert.ok(columns.includes('auth_provider'));
+      assert.ok(columns.includes('google_sub'));
+      assert.ok(columns.includes('email'));
+      assert.equal(store.sql.prepare("SELECT name FROM sqlite_master WHERE name='google_oauth_flows'").get().name, 'google_oauth_flows');
+      const preserved = store.sql.prepare('SELECT username,password_hash,auth_provider FROM users WHERE id=?').get('legacy-id');
+      assert.deepEqual({ ...preserved }, { username: 'legacyoperator', password_hash: 'a'.repeat(128), auth_provider: 'password' });
+      const auth = new AuthService({ store });
+      const password = testBootstrapPassword();
+      auth.createUser('oldadmin', password, 'admin');
+      assert.equal(auth.login('oldadmin', password).user.role, 'admin');
+    } finally { store.close(); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('create-user CLI targets LIVE_SCAVENGER_HUNT_DB and creates an operator', () => {

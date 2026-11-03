@@ -18,6 +18,7 @@
       <button type="button" class="nav" data-view="prompts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/></svg><span>Prompts</span></button>
       <button type="button" class="nav" data-view="event"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span>Event</span></button>
       <button type="button" class="nav" data-view="votes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 12l3 3 5-6"/></svg><span>Votes</span></button>
+      <button type="button" class="nav team-nav" data-view="team" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-2a5.5 5.5 0 0 1 11 0v2H3.5zm12-14a3 3 0 0 1 0 6m1 2a5 5 0 0 1 4 5v1"/></svg><span>Team</span></button>
       <a class="nav metrics-link" href="#" aria-label="Open event metrics and leads"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15v-4m4 4V7m4 8v-6m4 6v-11"/></svg><span>Metrics</span></a>
     </nav>
     <div class="rail-foot">LIVE SHOW CONTROL</div>
@@ -130,6 +131,43 @@
           </form>
         </div>
       </div></section>
+      <section id="view-team" class="view" aria-label="Operator accounts">
+        <div id="team-workspace" class="team-workspace" data-step="list">
+          <div class="surface team-roster">
+            <div class="team-heading"><div><span class="eyebrow">Global access</span><h1 class="display">Booth crew</h1><p>Local operators and signed-in Twilio teammates.</p></div><button id="team-add-button" class="btn primary" type="button">+ Add operator</button></div>
+            <div id="team-google-status" class="team-google-status"><span class="team-google-dot" aria-hidden="true"></span><div><strong>Google sign-in</strong><small id="team-google-status-copy">Checking configuration…</small></div></div>
+            <div class="team-list-head"><strong>Operators <span id="team-count">0</span></strong><button id="team-my-password-button" class="team-text-button" type="button">My password ↗</button></div>
+            <div id="team-list" class="team-list" aria-live="polite"></div>
+            <div class="team-pagination"><span id="team-page-label">0 operators</span><div><button id="team-prev" class="btn quiet" type="button" aria-label="Previous operators">‹</button><button id="team-next" class="btn quiet" type="button" aria-label="Next operators">›</button></div></div>
+          </div>
+          <div class="surface team-detail">
+            <div class="team-detail-head"><div><span id="team-detail-kicker" class="eyebrow">New account</span><h2 id="team-detail-title" class="display" tabindex="-1">Add an operator</h2><p id="team-detail-copy">Create a username and password for booth staff.</p></div><button id="team-back-button" class="btn outline" type="button">Crew list</button></div>
+            <form id="team-create-form" class="team-form" autocomplete="off">
+              <div class="field"><label for="team-create-username">Username</label><input id="team-create-username" class="input" type="text" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="3" maxlength="80" required placeholder="booth-operator"></div>
+              <div class="field"><label for="team-create-password">Password</label><input id="team-create-password" class="input" type="password" name="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="At least 12 characters"></div>
+              <div class="field"><label for="team-create-confirm">Confirm password</label><input id="team-create-confirm" class="input" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="Enter it again"></div>
+              <p class="team-help">Give each person their own account. Passwords are never shown again.</p>
+              <button id="team-create-submit" class="btn primary team-submit" type="submit">Create operator</button>
+            </form>
+            <form id="team-reset-form" class="team-form" autocomplete="off" hidden>
+              <div class="team-account-chip"><span id="team-selected-initial" aria-hidden="true">O</span><div><strong id="team-selected-name">Operator</strong><small>Username and password</small></div></div>
+              <div class="field"><label for="team-reset-password">New password</label><input id="team-reset-password" class="input" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="At least 12 characters"></div>
+              <div class="field"><label for="team-reset-confirm">Confirm new password</label><input id="team-reset-confirm" class="input" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="Enter it again"></div>
+              <p class="team-help">Changing this password ends the operator’s active sessions.</p>
+              <button id="team-reset-submit" class="btn primary team-submit" type="submit">Save new password</button>
+              <button id="team-remove-button" class="team-remove-button" type="button">Remove operator access</button>
+            </form>
+            <div id="team-google-detail" class="team-google-detail" hidden><div class="team-account-chip"><span aria-hidden="true">G</span><div><strong id="team-google-name">Twilio teammate</strong><small>Google account</small></div></div><p>This account signs in with a verified <strong>@twilio.com</strong> Google identity. Access is managed by the Google Workspace account.</p></div>
+            <form id="team-self-form" class="team-form" autocomplete="off" hidden>
+              <div class="field"><label for="team-current-password">Current password</label><input id="team-current-password" class="input" type="password" autocomplete="current-password" required></div>
+              <div class="field"><label for="team-new-password">New password</label><input id="team-new-password" class="input" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="At least 12 characters"></div>
+              <div class="field"><label for="team-new-confirm">Confirm new password</label><input id="team-new-confirm" class="input" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required placeholder="Enter it again"></div>
+              <p class="team-help">Your other signed-in sessions will end when you save.</p>
+              <button id="team-self-submit" class="btn primary team-submit" type="submit">Change my password</button>
+            </form>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </div>

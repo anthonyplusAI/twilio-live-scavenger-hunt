@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { ValidationError } from './config.mjs';
+import { GoogleAuthService, safeOperatorNext } from './google-auth.mjs';
 import { buildReport, exportCsv } from './report.mjs';
 import { submitLead } from './leads.mjs';
 
@@ -128,9 +129,18 @@ class Limiter {
 }
 
 export function createHttpServer({ store, engine, auth, media, judge, integrations,
-  publicBaseUrl = '', defaultSlug = 'live-scavenger-hunt' } = {}) {
+  publicBaseUrl = '', defaultSlug = 'live-scavenger-hunt', googleAuth = null } = {}) {
   const limiter = new Limiter();
   const secure = publicBaseUrl.startsWith('https://');
+  const oauth = googleAuth || new GoogleAuthService({ store, auth, publicBaseUrl });
+  const googleRedirect = (res, code, nextPath, cookies = []) => {
+    const destination = new URL('/login', 'https://booth.invalid');
+    destination.searchParams.set('error', code);
+    destination.searchParams.set('next', safeOperatorNext(nextPath, defaultSlug));
+    res.writeHead(302, { Location: destination.pathname + destination.search,
+      'Cache-Control': 'no-store', 'Set-Cookie': [oauth.clearFlowCookie(), ...cookies] });
+    res.end();
+  };
   const onPlayerRemoved = ({ event, player, status }) => {
     if (status === 'kicked') return; // The command route awaits this removal and reports its outcome.
     void media.disconnectPlayer(event, player).catch(error => {
@@ -214,6 +224,35 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         const session = auth.require(req.headers.cookie);
         return json(res, 200, session);
       }
+      if (pathname === '/api/auth/providers' && method === 'GET') {
+        return json(res, 200, { google: { enabled: oauth.enabled() } });
+      }
+      if (pathname === '/api/auth/google/start' && method === 'GET') {
+        limiter.check(`google-start:${ip}`, 60, 10 * 60_000);
+        const result = await oauth.start(url.searchParams.get('next'), defaultSlug);
+        res.writeHead(302, { Location: result.authorizationUrl,
+          'Cache-Control': 'no-store', 'Set-Cookie': result.cookie });
+        return res.end();
+      }
+      if (pathname === '/api/auth/google/callback' && method === 'GET') {
+        let nextPath = safeOperatorNext(null, defaultSlug);
+        try {
+          const flow = oauth.consumeFlow(url.searchParams.get('state'), req.headers.cookie);
+          nextPath = flow.next_path;
+          if (url.searchParams.has('error')) {
+            return googleRedirect(res, url.searchParams.get('error') === 'access_denied' ? 'google_cancelled' : 'google_failed', nextPath);
+          }
+          const result = await oauth.complete(flow, url.searchParams.get('code'));
+          res.writeHead(302, { Location: result.nextPath, 'Cache-Control': 'no-store',
+            'Set-Cookie': [oauth.clearFlowCookie(), auth.cookie(result.session.token, { secure })] });
+          return res.end();
+        } catch (error) {
+          if (error?.code === 'google_domain') return googleRedirect(res, 'google_domain', nextPath);
+          if (error?.code !== 'google_state' && error?.code !== 'google_unavailable')
+            console.error('Google sign-in failed:', error?.name || 'unknown');
+          return googleRedirect(res, error?.code === 'google_unavailable' ? 'google_unavailable' : 'google_failed', nextPath);
+        }
+      }
       if (pathname === '/api/auth/login' && method === 'POST') {
         limiter.check(`login:${ip}`, 30, 10 * 60_000);
         const body = await readJson(req, 8_000);
@@ -225,6 +264,46 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         auth.require(req.headers.cookie, 'operator', req.headers['x-csrf-token'] || '');
         auth.logout(req.headers.cookie);
         return json(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie({ secure }) });
+      }
+      if (pathname === '/api/auth/password' && method === 'POST') {
+        const session = auth.require(req.headers.cookie, 'operator', req.headers['x-csrf-token'] || '');
+        limiter.check(`password-change:${session.user.id}`, 8, 10 * 60_000);
+        const body = await readJson(req, 8_000);
+        auth.changePassword(session.user.id, body.currentPassword, body.newPassword);
+        store.audit(null, session.user.id, 'account:password_changed');
+        return json(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie({ secure }) });
+      }
+      if (pathname === '/api/admin/operators') {
+        if (method === 'GET') {
+          auth.require(req.headers.cookie, 'admin');
+          return json(res, 200, { operators: auth.listOperators() });
+        }
+        if (method === 'POST') {
+          const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+          limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
+          const body = await readJson(req, 8_000);
+          const operator = auth.createOperator(body.username, body.password);
+          store.audit(null, session.user.id, 'operator:created', { operatorId: operator.id, username: operator.username });
+          return json(res, 201, { operator });
+        }
+      }
+      const operatorPasswordMatch = pathname.match(/^\/api\/admin\/operators\/([0-9a-f-]{36})\/password$/i);
+      if (operatorPasswordMatch && method === 'POST') {
+        const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+        limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
+        const body = await readJson(req, 8_000);
+        const operator = auth.resetOperatorPassword(operatorPasswordMatch[1], body.password);
+        store.audit(null, session.user.id, 'operator:password_reset', { operatorId: operator.id });
+        return json(res, 200, { operator });
+      }
+      const operatorMatch = pathname.match(/^\/api\/admin\/operators\/([0-9a-f-]{36})$/i);
+      if (operatorMatch && method === 'DELETE') {
+        const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
+        limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
+        const operator = auth.deleteOperator(operatorMatch[1]);
+        store.audit(null, session.user.id, 'operator:deleted', { operatorId: operator.id, username: operator.username });
+        res.writeHead(204, { 'Cache-Control': 'no-store' });
+        return res.end();
       }
 
       const publicMatch = pathname.match(/^\/api\/e\/([^/]+)(?:\/(.*))?$/);

@@ -19,6 +19,7 @@
     "@azure/identity": "4.14.1",
     "@azure/storage-blob": "12.34.0",
     "@segment/analytics-node": "3.1.0",
+    "google-auth-library": "11.3.2",
     "jpeg-js": "0.4.4",
     "qrcode": "1.5.4",
     "twilio": "6.2.0",

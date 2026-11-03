@@ -19,6 +19,7 @@ Container Registry. GitHub does not store an Azure password or registry key.
 | Database | `/tmp/live-scavenger-hunt.sqlite` | SQLite stays on fast local disk with WAL, not a network share. |
 | Backup | Litestream → private Azure Blob, `1s` sync interval | Restores the database when a new container starts. Unreplicated writes can be lost after an abrupt failure; lag can grow during Blob errors. |
 | Initial media mode | `REHEARSAL_MODE=on` | The site can be checked before Twilio Video credentials are configured. |
+| Optional Google sign-in | `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` | Both are needed for verified `@twilio.com` Workspace operators. The secret is an ACA secret reference, never a plain environment value. |
 
 The image bundles the generated Twilio Video browser client and the prompt
 library used when an event is seeded. The startup supervisor acquires the
@@ -52,6 +53,19 @@ is the deployment smoke target.
    login, and metrics after the rollout. Confirm Blob replication after first
    deploy and complete the restore drill in [INFRA_SETUP.md](INFRA_SETUP.md).
 
+When both Google repository secrets are present, the deploy job checks the
+pair before stopping the old revision. After it verifies zero old replicas,
+it saves `GOOGLE_CLIENT_SECRET` as the ACA `google-client-secret` and creates
+the candidate with `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET=secretref:google-client-secret`. Google sign-in uses the
+stable public hostname for its exact callback, so test a complete Google
+login **after** public cutover; the revision-specific pre-cutover smoke checks
+only health and the arena. An unset pair preserves the live OAuth settings; a
+partial pair fails before downtime when Google is being enabled or refreshed. The explicit `GOOGLE_AUTH_DISABLE=1`
+repository variable removes both OAuth environment variables in the next safe
+rollout. The [OAuth setup steps](INFRA_SETUP.md#optional-google-sign-in-for-twilio-operators)
+include the registered redirect URI.
+
 To dispatch a release already on `main`:
 
 ```sh
@@ -73,6 +87,9 @@ Use the Azure Portal or a private shell to read the generated admin password
 from the `bootstrap-admin-password` Container App secret. The username is
 `admin`; the exact retrieval command is in [INFRA_SETUP.md](INFRA_SETUP.md).
 The password is intentionally absent from application and GitHub Actions logs.
+After sign-in, **Team** creates and resets local operator accounts. **My
+password** changes the existing admin password; editing the bootstrap secret
+does not reset an account already stored in SQLite.
 
 ## Configuration changes and recovery
 

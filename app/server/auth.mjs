@@ -16,7 +16,17 @@ const safeEqual = (left, right) => {
   const b = Buffer.from(String(right));
   return a.length === b.length && timingSafeEqual(a, b);
 };
-const publicUser = row => ({ id: row.id, username: row.username, role: row.role });
+const publicUser = row => ({
+  id: row.id,
+  username: row.auth_provider === 'google' ? row.email || row.username : row.username,
+  role: row.role,
+  authProvider: row.auth_provider || 'password',
+});
+const publicOperator = row => ({
+  ...publicUser(row),
+  email: row.auth_provider === 'google' ? row.email : null,
+  createdAt: row.created_at || row.createdAt,
+});
 
 export class AuthError extends Error {
   constructor(message, status = 401, code = 'unauthorized', retryAfterSeconds = null) {
@@ -48,6 +58,22 @@ export class AuthService {
     return scryptSync(String(password), Buffer.from(salt, 'hex'), SCRYPT_BYTES, SCRYPT_OPTIONS);
   }
 
+  _validatedPassword(password) {
+    if (typeof password !== 'string' || password.length < 12 || password.length > 1024) {
+      throw new AuthError('Password must be 12–1024 characters.', 400, 'invalid_password');
+    }
+    return password;
+  }
+
+  _passwordMatches(row, password) {
+    const salt = row?.salt || this.dummySalt;
+    let derived;
+    try { derived = this._hashPassword(String(password ?? ''), salt); }
+    catch { derived = this._hashPassword(String(password ?? ''), this.dummySalt); }
+    const stored = row?.password_hash ? Buffer.from(row.password_hash, 'hex') : this.dummyHash;
+    return stored.length === SCRYPT_BYTES && timingSafeEqual(derived, stored) && row?.auth_provider !== 'google';
+  }
+
   _insertUser(username, password, role) {
     const normalized = this._normalizedUsername(username);
     if (!/^[a-z][a-z0-9._-]{2,79}$/.test(normalized)) {
@@ -56,9 +82,7 @@ export class AuthService {
     if (!['admin', 'operator'].includes(role)) {
       throw new AuthError('Choose an admin or operator role.', 400, 'invalid_role');
     }
-    if (typeof password !== 'string' || password.length < 12 || password.length > 1024) {
-      throw new AuthError('Password must be 12–1024 characters.', 400, 'invalid_password');
-    }
+    this._validatedPassword(password);
     const salt = randomBytes(16).toString('hex');
     const passwordHash = this._hashPassword(password, salt).toString('hex');
     const user = { id: randomUUID(), username: normalized, role, createdAt: new Date().toISOString() };
@@ -76,6 +100,101 @@ export class AuthService {
 
   createUser(username, password, role = 'operator') {
     return this.store.transaction(() => this._insertUser(username, password, role));
+  }
+
+  createOperator(username, password) {
+    return publicOperator(this.createUser(username, password, 'operator'));
+  }
+
+  listOperators() {
+    return this.store.sql.prepare('SELECT id,username,role,auth_provider,google_sub,email,created_at FROM users WHERE role=? ORDER BY created_at DESC,username')
+      .all('operator').map(publicOperator);
+  }
+
+  resetOperatorPassword(id, password) {
+    this._validatedPassword(password);
+    return this.store.transaction(() => {
+      const row = this.store.sql.prepare('SELECT * FROM users WHERE id=? AND role=?').get(id, 'operator');
+      if (!row) throw new AuthError('Operator not found.', 404, 'not_found');
+      if (row.auth_provider === 'google') throw new AuthError('Google accounts use Google sign-in.', 409, 'provider_managed');
+      const salt = randomBytes(16).toString('hex');
+      const passwordHash = this._hashPassword(password, salt).toString('hex');
+      this.store.sql.prepare('UPDATE users SET password_hash=?,salt=? WHERE id=?').run(passwordHash, salt, id);
+      this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
+      return publicOperator(row);
+    });
+  }
+
+  deleteOperator(id) {
+    return this.store.transaction(() => {
+      const row = this.store.sql.prepare('SELECT * FROM users WHERE id=? AND role=?').get(id, 'operator');
+      if (!row) throw new AuthError('Operator not found.', 404, 'not_found');
+      if (row.auth_provider === 'google') throw new AuthError('Google accounts are managed through Google Workspace.', 409, 'provider_managed');
+      this.store.sql.prepare('DELETE FROM users WHERE id=?').run(id);
+      return publicOperator(row);
+    });
+  }
+
+  changePassword(userId, currentPassword, newPassword) {
+    this._validatedPassword(newPassword);
+    return this.store.transaction(() => {
+      const row = this.store.sql.prepare('SELECT * FROM users WHERE id=?').get(userId);
+      if (!row) throw new AuthError('Account not found.', 404, 'not_found');
+      if (row.auth_provider === 'google') throw new AuthError('Google accounts use Google sign-in.', 409, 'provider_managed');
+      if (typeof currentPassword !== 'string' || currentPassword.length > 1024 ||
+          !this._passwordMatches(row, currentPassword)) {
+        throw new AuthError('Current password is incorrect.', 403, 'invalid_credentials');
+      }
+      const salt = randomBytes(16).toString('hex');
+      const passwordHash = this._hashPassword(newPassword, salt).toString('hex');
+      this.store.sql.prepare('UPDATE users SET password_hash=?,salt=? WHERE id=?').run(passwordHash, salt, userId);
+      this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(userId);
+      return true;
+    });
+  }
+
+  _issueSession(row, now = Date.now()) {
+    this.store.sql.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date(now).toISOString());
+    const token = issueToken(32);
+    const csrfToken = issueToken(32);
+    this.store.sql.prepare('INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)')
+      .run(tokenHash(token), row.id, csrfToken, new Date(now + SESSION_SECONDS * 1000).toISOString(), new Date(now).toISOString());
+    return { user: publicUser(row), token, csrfToken };
+  }
+
+  loginGoogleIdentity({ sub, email }) {
+    if (typeof sub !== 'string' || sub.length < 1 || sub.length > 255 ||
+        typeof email !== 'string' || !/^[^@\s]+@twilio\.com$/i.test(email)) {
+      throw new AuthError('Google account is not eligible for operator access.', 403, 'google_domain');
+    }
+    const normalizedEmail = email.toLowerCase();
+    return this.store.transaction(() => {
+      let row = this.store.sql.prepare('SELECT * FROM users WHERE google_sub=?').get(sub);
+      if (row) {
+        if (row.role !== 'operator' || row.auth_provider !== 'google')
+          throw new AuthError('Google account cannot be used for this role.', 403, 'forbidden');
+        if (row.email !== normalizedEmail) {
+          this.store.sql.prepare('UPDATE users SET email=? WHERE id=?').run(normalizedEmail, row.id);
+          row = { ...row, email: normalizedEmail };
+        }
+      } else {
+        // A generated, unknown local secret keeps the existing NOT NULL columns
+        // backward compatible; password login always rejects Google identities.
+        const subjectHash = createHash('sha256').update(sub).digest('hex');
+        let username = 'google_' + subjectHash;
+        while (this.store.sql.prepare('SELECT id FROM users WHERE username=?').get(username)) {
+          username = `google_${subjectHash.slice(0, 48)}_${randomBytes(8).toString('hex')}`;
+        }
+        const salt = randomBytes(16).toString('hex');
+        const passwordHash = this._hashPassword(issueToken(64), salt).toString('hex');
+        row = { id: randomUUID(), username, role: 'operator', password_hash: passwordHash,
+          salt, created_at: new Date().toISOString(), auth_provider: 'google', google_sub: sub, email: normalizedEmail };
+        this.store.sql.prepare('INSERT INTO users(id,username,role,password_hash,salt,created_at,auth_provider,google_sub,email) VALUES(?,?,?,?,?,?,?,?,?)')
+          .run(row.id, row.username, row.role, row.password_hash, row.salt, row.created_at,
+            row.auth_provider, row.google_sub, row.email);
+      }
+      return this._issueSession(row);
+    });
   }
 
   bootstrap() {
@@ -149,23 +268,13 @@ export class AuthService {
     const row = normalized.length <= 80
       ? this.store.sql.prepare('SELECT * FROM users WHERE username=?').get(normalized)
       : null;
-    const salt = row?.salt || this.dummySalt;
-    let derived;
-    try { derived = this._hashPassword(String(password ?? ''), salt); }
-    catch { derived = this._hashPassword(String(password ?? ''), this.dummySalt); }
-    const stored = row?.password_hash ? Buffer.from(row.password_hash, 'hex') : this.dummyHash;
-    const valid = stored.length === SCRYPT_BYTES && timingSafeEqual(derived, stored);
+    const valid = this._passwordMatches(row, password);
     if (!row || !valid || typeof password !== 'string') {
       this._recordFailure(key, now);
       throw new AuthError('Invalid username or password.', 401, 'invalid_credentials');
     }
     this.failures.delete(key);
-    this.store.sql.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date(now).toISOString());
-    const token = issueToken(32);
-    const csrfToken = issueToken(32);
-    this.store.sql.prepare('INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)')
-      .run(tokenHash(token), row.id, csrfToken, new Date(now + SESSION_SECONDS * 1000).toISOString(), new Date(now).toISOString());
-    return { user: publicUser(row), token, csrfToken };
+    return this._issueSession(row, now);
   }
 
   _tokenFromCookie(cookieHeader) {
@@ -178,7 +287,7 @@ export class AuthService {
   session(cookieHeader) {
     const token = this._tokenFromCookie(cookieHeader);
     if (!token) return null;
-    const row = this.store.sql.prepare('SELECT users.id,users.username,users.role,sessions.csrf_token,sessions.expires_at ' +
+    const row = this.store.sql.prepare('SELECT users.id,users.username,users.role,users.auth_provider,users.email,sessions.csrf_token,sessions.expires_at ' +
       'FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=?').get(tokenHash(token));
     if (!row) return null;
     const expiresAt = Date.parse(row.expires_at);
