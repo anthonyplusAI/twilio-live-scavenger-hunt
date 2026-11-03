@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { Store } from '../db.mjs';
 import { AuthService, AuthError } from '../auth.mjs';
 
+const verifiedGoogle = { emailVerified: true, hostedDomain: 'twilio.com' };
+
 function makeAuth(publicBaseUrl = 'http://localhost:3000') {
   const store = new Store(':memory:');
   return { store, auth: new AuthService({ store, publicBaseUrl }) };
@@ -79,12 +81,67 @@ test('a configured bootstrap password creates the first admin without entering r
 });
 
 test('invalid configured bootstrap passwords fail before a user is created', () => {
-  for (const password of ['', 'too-short', 'x'.repeat(32), ` ${testBootstrapPassword()}`]) {
+  for (const password of ['', null, 42]) {
     const store = new Store(':memory:');
     try {
       const auth = new AuthService({ store, bootstrapPassword: password });
       assert.throws(() => auth.bootstrap(), { code: 'invalid_password' });
       assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0);
+    } finally { store.close(); }
+  }
+});
+
+test('local accounts accept any nonempty password, including a single character and a space', () => {
+  const { store, auth } = makeAuth();
+  try {
+    const admin = auth.createUser('admin', 'x', 'admin');
+    assert.equal(auth.login('admin', 'x').user.id, admin.id);
+    auth.changePassword(admin.id, 'x', ' ');
+    assert.equal(auth.login('admin', ' ').user.id, admin.id);
+    const operator = auth.createOperator('boothhost', 'z');
+    assert.equal(auth.login('boothhost', 'z').user.id, operator.id);
+    auth.resetOperatorPassword(operator.id, ' ');
+    assert.equal(auth.login('boothhost', ' ').user.id, operator.id);
+    assert.throws(() => auth.createOperator('emptyuser', ''), { code: 'invalid_password' });
+    assert.throws(() => auth.changePassword(admin.id, ' ', ''), { code: 'invalid_password' });
+    assert.throws(() => auth.resetOperatorPassword(operator.id, ''), { code: 'invalid_password' });
+  } finally { store.close(); }
+});
+
+test('long local passwords remain usable for login, username changes, and password changes', () => {
+  const { store, auth } = makeAuth();
+  const longPassword = 'p'.repeat(1500);
+  try {
+    const admin = auth.createUser('admin', longPassword, 'admin');
+    assert.equal(auth.login('admin', longPassword).user.id, admin.id);
+    assert.equal(auth.renameUsername(admin.id, longPassword, 'boothadmin').username, 'boothadmin');
+    auth.changePassword(admin.id, longPassword, 'q');
+    assert.equal(auth.login('boothadmin', 'q').user.id, admin.id);
+    const operator = auth.createOperator('floorhost', 'r');
+    auth.resetOperatorPassword(operator.id, longPassword);
+    assert.equal(auth.login('floorhost', longPassword).user.id, operator.id);
+  } finally { store.close(); }
+});
+
+test('technical password limit is measured in UTF-8 bytes for local account operations', () => {
+  const { store, auth } = makeAuth();
+  const accepted = 'p'.repeat(16_384);
+  const tooLarge = 'é'.repeat(8_193);
+  try {
+    const admin = auth.createUser('admin', accepted, 'admin');
+    assert.equal(auth.login('admin', accepted).user.id, admin.id);
+    assert.throws(() => auth.createOperator('oversize', tooLarge), { code: 'invalid_password' });
+    assert.throws(() => auth.changePassword(admin.id, accepted, tooLarge), { code: 'invalid_password' });
+  } finally { store.close(); }
+});
+
+test('configured bootstrap accepts a short password without composition rules', () => {
+  for (const password of ['a', '  ', 'x'.repeat(1025)]) {
+    const store = new Store(':memory:');
+    const auth = new AuthService({ store, bootstrapPassword: password });
+    try {
+      assert.equal(auth.bootstrap().created, true);
+      assert.equal(auth.login('admin', password).user.role, 'admin');
     } finally { store.close(); }
   }
 });
@@ -216,7 +273,7 @@ test('renaming the first admin validates the password, revokes sessions, and sur
   } finally { store.close(); }
 });
 
-test('admin renames local operators without changing their identity or allowing Google names', () => {
+test('admin renames local operators without changing their identity or Google admin names', () => {
   const { store, auth } = makeAuth();
   const adminPassword = testBootstrapPassword();
   const operatorPassword = testBootstrapPassword();
@@ -235,36 +292,78 @@ test('admin renames local operators without changing their identity or allowing 
     assert.throws(() => auth.login('floorhost', operatorPassword), { code: 'invalid_credentials' });
     assert.equal(auth.login('shift.lead', operatorPassword).user.id, operator.id);
     assert.throws(() => auth.renameOperatorUsername(admin.id, 'renamed-admin'), { code: 'not_found' });
-    const google = auth.loginGoogleIdentity({ sub: 'google-subject', email: 'person@twilio.com' });
+    const google = auth.loginGoogleIdentity({ sub: 'google-subject', email: 'person@twilio.com', ...verifiedGoogle });
     assert.throws(() => auth.renameOperatorUsername(google.user.id, 'renamed-google'),
-      { code: 'provider_managed' });
+      { code: 'not_found' });
     assert.throws(() => auth.renameUsername(google.user.id, 'anything', 'renamed-google'),
       { code: 'provider_managed' });
   } finally { store.close(); }
 });
 
-test('Google identities are bound by subject, stay operators, and reject password actions', () => {
+test('Google admin login requires verified email and Workspace claims at the auth boundary', () => {
+  const { store, auth } = makeAuth();
+  try {
+    const identity = { sub: 'verified-google-subject', email: 'person@twilio.com' };
+    for (const claims of [
+      {},
+      { emailVerified: false, hostedDomain: 'twilio.com' },
+      { emailVerified: true, hostedDomain: 'other.com' },
+    ]) {
+      assert.throws(() => auth.loginGoogleIdentity({ ...identity, ...claims }), { code: 'google_domain' });
+      assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0);
+    }
+    const login = auth.loginGoogleIdentity({ ...identity, emailVerified: true, hostedDomain: 'twilio.com' });
+    assert.equal(login.user.role, 'admin');
+  } finally { store.close(); }
+});
+
+test('Google identities are bound by subject, become admins, and reject local password actions', () => {
   const { store, auth } = makeAuth();
   try {
     auth.createUser('admin', testBootstrapPassword(), 'admin');
-    const first = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'a@twilio.com' });
-    const second = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'renamed@twilio.com' });
+    const first = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'a@twilio.com', ...verifiedGoogle });
+    const second = auth.loginGoogleIdentity({ sub: 'stable-google-subject', email: 'renamed@twilio.com', ...verifiedGoogle });
     assert.equal(first.user.id, second.user.id);
-    assert.equal(second.user.role, 'operator');
+    assert.equal(first.user.role, 'admin');
+    assert.equal(second.user.role, 'admin');
     assert.equal(second.user.username, 'renamed@twilio.com');
     assert.equal(second.user.authProvider, 'google');
-    assert.equal(auth.listOperators().length, 1);
+    assert.equal(auth.listOperators().length, 0);
     const internalUsername = store.sql.prepare('SELECT username FROM users WHERE id=?').get(first.user.id).username;
     assert.throws(() => auth.login(internalUsername, testBootstrapPassword()), { code: 'invalid_credentials' });
-    assert.throws(() => auth.resetOperatorPassword(first.user.id, testBootstrapPassword()), { code: 'provider_managed' });
-    assert.throws(() => auth.deleteOperator(first.user.id), { code: 'provider_managed' });
+    assert.throws(() => auth.resetOperatorPassword(first.user.id, testBootstrapPassword()), { code: 'not_found' });
+    assert.throws(() => auth.deleteOperator(first.user.id), { code: 'not_found' });
     assert.throws(() => auth.changePassword(first.user.id, testBootstrapPassword(), testBootstrapPassword()), { code: 'provider_managed' });
-    assert.throws(() => auth.loginGoogleIdentity({ sub: 'other', email: 'a@example.com' }), { code: 'google_domain' });
+    assert.throws(() => auth.loginGoogleIdentity({ sub: 'other', email: 'a@example.com', ...verifiedGoogle }), { code: 'google_domain' });
     const reservedUsername = 'google_' + createHash('sha256').update('collision-sub').digest('hex');
     auth.createOperator(reservedUsername, testBootstrapPassword());
-    const collision = auth.loginGoogleIdentity({ sub: 'collision-sub', email: 'other@twilio.com' });
+    const collision = auth.loginGoogleIdentity({ sub: 'collision-sub', email: 'other@twilio.com', ...verifiedGoogle });
     assert.equal(collision.user.username, 'other@twilio.com');
     assert.notEqual(store.sql.prepare('SELECT username FROM users WHERE id=?').get(collision.user.id).username, reservedUsername);
+  } finally { store.close(); }
+});
+
+test('existing Google operators are promoted only on a fresh eligible sign-in and old sessions end', () => {
+  const { store, auth } = makeAuth();
+  try {
+    const local = auth.createOperator('localhost', 'x');
+    const localLogin = auth.login('localhost', 'x');
+    const localCookie = auth.cookie(localLogin.token).split(';')[0];
+    const legacy = auth.loginGoogleIdentity({ sub: 'legacy-google-subject', email: 'legacy@twilio.com', ...verifiedGoogle });
+    store.sql.prepare('UPDATE users SET role=? WHERE id=?').run('operator', legacy.user.id);
+    const legacyCookie = auth.cookie(legacy.token).split(';')[0];
+    assert.equal(auth.session(legacyCookie).user.role, 'operator');
+    assert.throws(() => auth.loginGoogleIdentity({ sub: 'legacy-google-subject', email: 'legacy@example.com', ...verifiedGoogle }),
+      { code: 'google_domain' });
+    assert.equal(auth.session(legacyCookie).user.role, 'operator');
+    const upgraded = auth.loginGoogleIdentity({ sub: 'legacy-google-subject', email: 'legacy@twilio.com', ...verifiedGoogle });
+    assert.equal(upgraded.user.id, legacy.user.id);
+    assert.equal(upgraded.user.role, 'admin');
+    assert.equal(auth.session(legacyCookie), null);
+    assert.equal(auth.session(auth.cookie(upgraded.token).split(';')[0]).user.role, 'admin');
+    assert.equal(auth.session(localCookie).user.role, 'operator');
+    assert.equal(auth.listOperators().length, 1);
+    assert.equal(auth.listOperators()[0].id, local.id);
   } finally { store.close(); }
 });
 

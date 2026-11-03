@@ -263,6 +263,52 @@ test('self-service password rotation verifies the old password and clears every 
   } finally { await app.close(); }
 });
 
+test('passwords above the old HTTP limit work across create, reset, change, rename, and login', async () => {
+  const app = await fixture();
+  const first = 'p'.repeat(9_000);
+  const second = 'q'.repeat(9_000);
+  try {
+    const admin = await app.login();
+    const created = await app.request('/api/admin/operators', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: 'longpass', password: first } });
+    assert.equal(created.response.status, 201);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST',
+      body: { username: 'longpass', password: first } })).response.status, 200);
+    assert.equal((await app.request(`/api/admin/operators/${created.value.operator.id}/password`, {
+      method: 'POST', cookie: admin.cookie, csrf: admin.csrf, body: { password: second },
+    })).response.status, 200);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST',
+      body: { username: 'longpass', password: second } })).response.status, 200);
+    const changed = await app.request('/api/auth/password', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'correct-password-123', newPassword: first } });
+    assert.equal(changed.response.status, 200);
+    const relogged = await app.login('admin', first);
+    const renamed = await app.request('/api/auth/username', { method: 'POST', cookie: relogged.cookie,
+      csrf: relogged.csrf, body: { currentPassword: first, username: 'long.admin' } });
+    assert.equal(renamed.response.status, 200);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST',
+      body: { username: 'long.admin', password: first } })).response.status, 200);
+  } finally { await app.close(); }
+});
+
+test('password rotation accepts two maximum-size passwords after JSON escaping', async () => {
+  const app = await fixture();
+  const currentPassword = '\0'.repeat(16_384);
+  const newPassword = '\u0001'.repeat(16_384);
+  try {
+    const adminId = app.store.sql.prepare('SELECT id FROM users WHERE username=?').get('admin').id;
+    app.auth.changePassword(adminId, 'correct-password-123', currentPassword);
+    const admin = await app.login('admin', currentPassword);
+    const changed = await app.request('/api/auth/password', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword, newPassword } });
+    assert.equal(changed.response.status, 200);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST',
+      body: { username: 'admin', password: currentPassword } })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST',
+      body: { username: 'admin', password: newPassword } })).response.status, 200);
+  } finally { await app.close(); }
+});
+
 test('self-service username change verifies password and revokes every active session', async () => {
   const app = await fixture();
   try {
@@ -323,16 +369,17 @@ test('only admins can rename local operators and the old username stops working'
     } })).response.status, 200);
     assert.equal((await app.request(`/api/admin/operators/${admin.user.id}/username`, { method: 'POST',
       cookie: admin.cookie, csrf: admin.csrf, body: { username: 'new-admin' } })).response.status, 404);
-    const google = app.auth.loginGoogleIdentity({ sub: 'fixture-google', email: 'visitor@twilio.com' });
+    const google = app.auth.loginGoogleIdentity({ sub: 'fixture-google', email: 'visitor@twilio.com',
+      emailVerified: true, hostedDomain: 'twilio.com' });
     assert.equal((await app.request(`/api/admin/operators/${google.user.id}/username`, { method: 'POST',
-      cookie: admin.cookie, csrf: admin.csrf, body: { username: 'new-google' } })).response.status, 409);
+      cookie: admin.cookie, csrf: admin.csrf, body: { username: 'new-google' } })).response.status, 404);
     const audit = app.store.sql.prepare("SELECT details_json FROM audit WHERE action='operator:username_changed'").get();
     assert.ok(audit);
     assert.ok(!audit.details_json.includes('operator-password-123'));
   } finally { await app.close(); }
 });
 
-test('Google callback creates an operator session only with matching browser state and verified claims', async () => {
+test('Google callback creates an admin session only with matching browser state and verified claims', async () => {
   const fake = { options: null };
   const app = await fixture({}, { googleAuthFactory: ({ store, auth }) => new GoogleAuthService({
     store, auth, publicBaseUrl: 'http://127.0.0.1:12345', clientId: 'fixture-client', clientSecret: 'fixture-secret',
@@ -368,8 +415,10 @@ test('Google callback creates an operator session only with matching browser sta
     const sessionCookie = callback.headers.getSetCookie().find(cookie => cookie.startsWith('signal_stadium_session='))?.split(';')[0];
     assert.ok(sessionCookie);
     const session = await app.request('/api/auth/session', { cookie: sessionCookie });
-    assert.equal(session.value.user.role, 'operator');
+    assert.equal(session.value.user.role, 'admin');
     assert.equal(session.value.user.username, 'booth@twilio.com');
+    assert.equal((await app.request('/api/admin/operators', { cookie: sessionCookie })).response.status, 200);
+    assert.equal((await app.request('/api/admin/report?event=all', { cookie: sessionCookie })).response.status, 200);
     const replay = await fetch(`${app.base}/api/auth/google/callback?state=${state}&code=fixture`,
       { redirect: 'manual', headers: { Cookie: flowCookie } });
     assert.match(replay.headers.get('location'), /error=google_failed/);

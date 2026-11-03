@@ -8,6 +8,10 @@ const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_BLOCK_MS = 10 * 60 * 1000;
 const MAX_FAILURES = 8;
 const MAX_RATE_KEYS = 5000;
+const MAX_AUTH_INPUT_BYTES = 16_384;
+
+const validPasswordInput = password => typeof password === 'string' && password.length > 0 &&
+  Buffer.byteLength(password, 'utf8') <= MAX_AUTH_INPUT_BYTES;
 
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 const issueToken = bytes => randomBytes(bytes).toString('base64url');
@@ -67,9 +71,10 @@ export class AuthService {
   }
 
   _validatedPassword(password) {
-    if (typeof password !== 'string' || password.length < 12 || password.length > 1024) {
-      throw new AuthError('Password must be 12–1024 characters.', 400, 'invalid_password');
+    if (typeof password !== 'string' || password.length === 0) {
+      throw new AuthError('Password is required.', 400, 'invalid_password');
     }
+    if (!validPasswordInput(password)) throw new AuthError('Password is too large.', 400, 'invalid_password');
     return password;
   }
 
@@ -149,7 +154,7 @@ export class AuthService {
       const row = this.store.sql.prepare('SELECT * FROM users WHERE id=?').get(userId);
       if (!row) throw new AuthError('Account not found.', 404, 'not_found');
       if (row.auth_provider === 'google') throw new AuthError('Google account names are managed by Google.', 409, 'provider_managed');
-      if (typeof currentPassword !== 'string' || currentPassword.length > 1024 ||
+      if (!validPasswordInput(currentPassword) ||
           !this._passwordMatches(row, currentPassword)) {
         throw new AuthError('Current password is incorrect.', 403, 'invalid_credentials');
       }
@@ -182,7 +187,7 @@ export class AuthService {
       const row = this.store.sql.prepare('SELECT * FROM users WHERE id=?').get(userId);
       if (!row) throw new AuthError('Account not found.', 404, 'not_found');
       if (row.auth_provider === 'google') throw new AuthError('Google accounts use Google sign-in.', 409, 'provider_managed');
-      if (typeof currentPassword !== 'string' || currentPassword.length > 1024 ||
+      if (!validPasswordInput(currentPassword) ||
           !this._passwordMatches(row, currentPassword)) {
         throw new AuthError('Current password is incorrect.', 403, 'invalid_credentials');
       }
@@ -203,18 +208,23 @@ export class AuthService {
     return { user: publicUser(row), token, csrfToken };
   }
 
-  loginGoogleIdentity({ sub, email }) {
+  loginGoogleIdentity({ sub, email, emailVerified, hostedDomain }) {
     if (typeof sub !== 'string' || sub.length < 1 || sub.length > 255 ||
-        typeof email !== 'string' || !/^[^@\s]+@twilio\.com$/i.test(email)) {
-      throw new AuthError('Google account is not eligible for operator access.', 403, 'google_domain');
+        typeof email !== 'string' || !/^[^@\s]+@twilio\.com$/i.test(email) ||
+        ![true, 'true'].includes(emailVerified) || String(hostedDomain || '').toLowerCase() !== 'twilio.com') {
+      throw new AuthError('Google account is not eligible for admin access.', 403, 'google_domain');
     }
     const normalizedEmail = email.toLowerCase();
     return this.store.transaction(() => {
       let row = this.store.sql.prepare('SELECT * FROM users WHERE google_sub=?').get(sub);
       if (row) {
-        if (row.role !== 'operator' || row.auth_provider !== 'google')
+        if (!['operator', 'admin'].includes(row.role) || row.auth_provider !== 'google')
           throw new AuthError('Google account cannot be used for this role.', 403, 'forbidden');
-        if (row.email !== normalizedEmail) {
+        if (row.role === 'operator') {
+          this.store.sql.prepare('UPDATE users SET role=?,email=? WHERE id=?').run('admin', normalizedEmail, row.id);
+          this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(row.id);
+          row = { ...row, role: 'admin', email: normalizedEmail };
+        } else if (row.email !== normalizedEmail) {
           this.store.sql.prepare('UPDATE users SET email=? WHERE id=?').run(normalizedEmail, row.id);
           row = { ...row, email: normalizedEmail };
         }
@@ -228,7 +238,7 @@ export class AuthService {
         }
         const salt = randomBytes(16).toString('hex');
         const passwordHash = this._hashPassword(issueToken(64), salt).toString('hex');
-        row = { id: randomUUID(), username, role: 'operator', password_hash: passwordHash,
+        row = { id: randomUUID(), username, role: 'admin', password_hash: passwordHash,
           salt, created_at: new Date().toISOString(), auth_provider: 'google', google_sub: sub, email: normalizedEmail };
         this.store.sql.prepare('INSERT INTO users(id,username,role,password_hash,salt,created_at,auth_provider,google_sub,email) VALUES(?,?,?,?,?,?,?,?,?)')
           .run(row.id, row.username, row.role, row.password_hash, row.salt, row.created_at,
@@ -240,11 +250,7 @@ export class AuthService {
 
   bootstrap() {
     const configuredPassword = this.bootstrapPassword;
-    if (configuredPassword !== undefined &&
-      (typeof configuredPassword !== 'string' || configuredPassword.length < 24 || configuredPassword.length > 1024 ||
-        configuredPassword.trim() !== configuredPassword || new Set(configuredPassword).size < 8)) {
-      throw new AuthError('BOOTSTRAP_ADMIN_PASSWORD must be 24–1024 characters with at least 8 distinct characters and no surrounding whitespace.', 400, 'invalid_password');
-    }
+    if (configuredPassword !== undefined) this._validatedPassword(configuredPassword);
     let generated = null;
     const result = this.store.transaction(() => {
       this.store.sql.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString());
@@ -301,7 +307,7 @@ export class AuthService {
     const now = Date.now();
     const key = this._rateKey(requestIp);
     this._checkRate(key, now);
-    if (typeof password !== 'string' || password.length > 1024) {
+    if (!validPasswordInput(password)) {
       this._recordFailure(key, now);
       throw new AuthError('Invalid username or password.', 401, 'invalid_credentials');
     }

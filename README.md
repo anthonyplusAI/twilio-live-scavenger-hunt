@@ -50,7 +50,7 @@ Spectators can take part through a web ballot. With configured senders, SMS or W
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
-| **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts the operator role. |
+| **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts admin access. |
 | **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
 | **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
@@ -152,19 +152,19 @@ Hosted deployments can provide `BOOTSTRAP_ADMIN_PASSWORD` as a platform secret o
 
 ### Booth staff sign-in
 
-The first admin signs in as `admin`, then can use **Team → My username** to change that username after confirming the current password. The change signs out that account; use the new username at the next sign-in. Team also lets an admin create named local operators, change their usernames, reset passwords, or remove access. Renaming an operator ends their active sessions. **My password** changes the current local account's password. Google account names remain managed by Google. Operators can run heats but cannot edit event settings, see leads, or manage other accounts. Local accounts work without Google or Twilio credentials.
+The first admin signs in as `admin`, then can use **Team → My username** to change that username after confirming the current password. The change signs out that account; use the new username at the next sign-in. Team also lets an admin create named local operators, change their usernames, reset passwords, or remove access. Renaming an operator ends their active sessions. **My password** changes the current local account's password. Local passwords have no minimum length or character rule; any nonempty value up to a 16 KB request-safety ceiling works. Google account names and passwords remain managed by Google. Operators can run heats but cannot edit event settings, see leads or metrics, or manage other accounts. **Team** and **Metrics** appear only for admins. Local accounts work without Google or Twilio credentials.
 
-Google sign-in is optional and appears when an OAuth client ID and secret are configured. Any Google identity with a verified `@twilio.com` address **and** the `twilio.com` Workspace claim can enter as an operator; Google sign-in never grants admin. The server checks the signed ID token and tracks the stable Google subject rather than trusting the address alone. The [Azure setup guide](docs/INFRA_SETUP.md#optional-google-sign-in-for-twilio-operators) shows the exact callback URL and secret setup.
+Google sign-in is optional and appears when an OAuth client ID and secret are configured. Any Google identity with a verified `@twilio.com` address **and** the `twilio.com` Workspace claim receives admin access, including **Team**, **Metrics**, and leads. The server checks the signed ID token and tracks the stable Google subject rather than trusting the address alone. An existing Google operator gains admin access on their next verified sign-in. The [Azure setup guide](docs/INFRA_SETUP.md#optional-google-sign-in-for-twilio-admins) shows the exact callback URL and secret setup.
 
 <table>
   <tr><th>Staff sign-in</th><th>Admin · Team</th></tr>
   <tr>
-    <td><img src="docs/visuals/live-scavenger-hunt-login-google.png" alt="Local visual preview of the control-room sign-in screen with username and password fields and an optional Google button" width="680"></td>
-    <td><img src="docs/visuals/live-scavenger-hunt-team.png" alt="Local Team preview showing the admin username change form and a named booth operator" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-login-google.png" alt="Local visual preview of the control-room sign-in screen with username, password, and Google admin sign-in" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-team.png" alt="Local Team preview showing Google admin status and the form to add a booth operator" width="680"></td>
   </tr>
 </table>
 
-<p align="center"><em>Local visual previews. The Google button illustrates the configured option; the hosted deployment keeps it off until OAuth credentials are added.</em></p>
+<p align="center"><em>Local visual previews. The Google button appears when OAuth credentials are configured.</em></p>
 
 Run `npm run check` for the browser build, server tests, and README link check. The [runbook](docs/runbook.md) covers event setup, accounts, preflight, messaging registration, data care, and a full booth rehearsal.
 
@@ -186,7 +186,7 @@ flowchart LR
     S -. SMS or WhatsApp ballot .-> M[Twilio Messaging]
     M -->|signed webhook| A
     O[Booth operator and admin] <-->|settings, judging, reports| A
-    G[Google Workspace] -. optional verified operator sign-in .-> A
+    G[Google Workspace] -. optional verified admin sign-in .-> A
     A <--> D[(SQLite)]
     D -. hosted backup via Litestream .-> B[(Azure Blob)]
     A -. optional judging .-> AI[OpenAI]
@@ -198,7 +198,7 @@ The server owns the round clock, sealed clue, slot assignment, winner decision, 
 
 ## Azure deployment
 
-The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) is deployed on Azure Container Apps in rehearsal mode. Its public HTTPS URL supports phone camera permissions; Twilio Video credentials are still needed for live Rooms. Local operator passwords work now; Google sign-in activates when its OAuth client credentials are deployed.
+The [hosted arena](https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/e/live-scavenger-hunt/arena) is deployed on Azure Container Apps in rehearsal mode. Its public HTTPS URL supports phone camera permissions; Twilio Video credentials are still needed for live Rooms. Local passwords work without Google; Google sign-in appears when its OAuth client credentials are deployed.
 
 The Azure setup follows the Birdies & Eagles pattern: a dedicated resource group in `centralus`, private Container Registry, Container Apps environment, Log Analytics, and GitHub OIDC deploys. The app keeps SQLite on fast local container storage and uses Litestream to restore and replicate it to a private Azure Blob container. An Azure Blob lease allows only one replica to open the database, including during platform maintenance. A controlled rollout stops the previous game process before the replacement starts, so a release includes a brief planned pause. The Container App serves a public HTTPS URL and is configured for one replica.
 

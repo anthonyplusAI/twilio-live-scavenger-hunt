@@ -33,7 +33,7 @@ function providerFixture() {
   return { store, auth, google, provider };
 }
 
-test('Google OAuth binds state to the browser, uses PKCE, and signs in a verified Twilio operator once', async () => {
+test('Google OAuth binds state to the browser, uses PKCE, and signs in a verified Twilio admin once', async () => {
   const { store, auth, google, provider } = providerFixture();
   try {
     assert.equal(google.enabled(), true);
@@ -51,14 +51,14 @@ test('Google OAuth binds state to the browser, uses PKCE, and signs in a verifie
     assert.equal(flow.next_path, '/e/live-scavenger-hunt/operator#team');
     assert.throws(() => google.consumeFlow(state, start.cookie.split(';')[0]), { code: 'google_state' });
     const result = await google.complete(flow, 'authorization-code');
-    assert.equal(result.session.user.role, 'operator');
+    assert.equal(result.session.user.role, 'admin');
     assert.equal(result.session.user.username, 'person@twilio.com');
     assert.equal(result.session.user.authProvider, 'google');
     assert.equal(result.nextPath, flow.next_path);
     assert.equal(provider.tokenRequest.codeVerifier, 'private-verifier');
     assert.equal(provider.tokenRequest.redirect_uri, 'https://game.example.com/api/auth/google/callback');
     assert.equal(provider.verification.audience, 'test-client-id');
-    assert.equal(auth.session(auth.cookie(result.session.token).split(';')[0]).user.role, 'operator');
+    assert.equal(auth.session(auth.cookie(result.session.token).split(';')[0]).user.role, 'admin');
   } finally { store.close(); }
 });
 
