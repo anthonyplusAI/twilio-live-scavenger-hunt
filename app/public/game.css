@@ -4,6 +4,9 @@
 .player-page .bottom { overflow: hidden; }
 .player-page #modeLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-page .bottom a { flex: none; }
+.player-page .bottom .github-footer-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 5px 9px; border: 1px solid #ff7f8e8f; border-radius: 999px; background: #ef223a1c; color: #fff1f3; font-size: 10px; font-weight: 800; letter-spacing: .02em; line-height: 1; text-transform: none; transition: border-color .18s, background .18s, transform .18s; }
+.player-page .bottom .github-footer-link:hover { border-color: #ffabb5; background: #ef223a3a; transform: translateY(-1px); }
+.player-page .bottom .github-footer-link[hidden] { display: none; }
 .player-page .intro-title { font-size: clamp(38px, 9.5vw, 65px); line-height: .94; letter-spacing: -.06em; }
 .player-page .player-visual {
   width: min(100%, 256px);
@@ -235,6 +238,8 @@ html[data-theme="light"] .player-page .app::after { background: radial-gradient(
 html[data-theme="light"] .player-page .top,
 html[data-theme="light"] .player-page .bottom { border-color: #b8c4d8; }
 html[data-theme="light"] .player-page .bottom a { color: #1d436f; }
+html[data-theme="light"] .player-page .bottom .github-footer-link { border-color: #cc5066; background: #fff0f2; color: #8b1430; }
+html[data-theme="light"] .player-page .bottom .github-footer-link:hover { background: #ffe2e8; border-color: #ab1d37; }
 html[data-theme="light"] .player-page .eyebrow { color: #a4142c; }
 html[data-theme="light"] .player-page .sub { color: #394d69; }
 html[data-theme="light"] .player-page .caption,

@@ -111,6 +111,36 @@ test('summary counts play, votes, lead intent, and safe activity properties', ()
   } finally { store.close(); }
 });
 
+test('outbound product and repository clicks follow event and date filters', () => {
+  const store = new Store(':memory:');
+  try {
+    const west = eventInZone(store, 'West Expo', 'west-expo', 'UTC');
+    const east = eventInZone(store, 'East Expo', 'east-expo', 'UTC');
+    const record = (event, type, at, product) => store.recordActivity(event.id, type, { sessionId: 'visitor-session', ...(product ? { product } : {}) }, at);
+    record(west, 'twilio_product_link_opened', '2026-11-02T12:00:00.000Z', 'video');
+    record(west, 'twilio_product_link_opened', '2026-11-02T12:05:00.000Z', 'messaging');
+    record(west, 'github_cta_opened', '2026-11-02T12:10:00.000Z');
+    record(west, 'github_cta_opened', '2026-11-03T12:00:00.000Z');
+    record(east, 'twilio_product_link_opened', '2026-11-02T13:00:00.000Z', 'segment');
+    record(east, 'github_cta_opened', '2026-11-02T13:05:00.000Z');
+
+    const westDay = buildReport(store, { event: west.slug, from: '2026-11-02', to: '2026-11-02' });
+    assert.equal(westDay.summary.twilioProductLinkClicks, 2);
+    assert.deepEqual(westDay.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 1, segment: 0 });
+    assert.equal(westDay.summary.githubRepoClicks, 1);
+    assert.equal(westDay.summary.engagementActions, 3);
+    assert.equal(westDay.activity.find(row => row.type === 'twilio_product_link_opened').properties.product, 'video');
+
+    const bothDay = buildReport(store, { event: 'all', from: '2026-11-02', to: '2026-11-02' });
+    assert.equal(bothDay.summary.twilioProductLinkClicks, 3);
+    assert.deepEqual(bothDay.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 1, segment: 1 });
+    assert.equal(bothDay.summary.githubRepoClicks, 2);
+    assert.deepEqual(bothDay.summary.byEvent.map(row => [row.slug, row.twilioProductLinkClicks, row.githubRepoClicks]), [
+      ['west-expo', 2, 1], ['east-expo', 1, 1],
+    ]);
+  } finally { store.close(); }
+});
+
 test('CSV exports retain historical custom lead fields, escape formulas, and keep activity free of contact data', () => {
   const store = new Store(':memory:');
   try {

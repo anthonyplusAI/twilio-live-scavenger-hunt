@@ -649,12 +649,15 @@ export class GameEngine extends EventEmitter {
     const allowed = new Set([
       'landing_opened', 'join_page_viewed', 'camera_enabled', 'camera_failed',
       'result_viewed', 'cta_opened', 'guide_cta_opened', 'expert_cta_opened',
+      'twilio_product_link_opened', 'github_cta_opened',
       'lead_form_opened', 'player_help_opened', 'vote_page_opened',
       'arena_opened',
     ]);
-    if (!allowed.has(type)) fail('Unknown activity type.');
-    if (Object.keys(properties).some(key => key !== 'sessionId') ||
-      (properties.sessionId != null && !/^[a-f0-9]{20}$/.test(properties.sessionId))) fail('Invalid activity session.');
+    if (!allowed.has(type)) fail('Unknown activity type.', 'invalid_activity');
+    const productLink = type === 'twilio_product_link_opened';
+    if ((productLink && !['video', 'messaging', 'segment'].includes(properties.product)) ||
+      Object.keys(properties).some(key => key !== 'sessionId' && !(productLink && key === 'product')) ||
+      (properties.sessionId != null && !/^[a-f0-9]{20}$/.test(properties.sessionId))) fail('Invalid activity session.', 'invalid_activity');
     this._mutate(slug, ({ activity }) => activity(type, properties));
     return { ok: true };
   }

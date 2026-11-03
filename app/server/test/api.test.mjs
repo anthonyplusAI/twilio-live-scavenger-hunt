@@ -198,6 +198,12 @@ test('public activity has a server-derived session, vote dedupes, and leads stay
     const opened = await app.request(`${p}/activity`, { method: 'POST', body: { type: 'landing_opened' } });
     assert.equal(opened.response.status, 200);
     const visitorCookie = opened.response.headers.get('set-cookie').split(';')[0];
+    const productClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'twilio_product_link_opened', product: 'video' } });
+    const githubClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened' } });
+    assert.equal(productClick.response.status, 200);
+    assert.equal(githubClick.response.status, 200);
+    assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'twilio_product_link_opened', product: 'email' } })).response.status, 400);
+    assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', product: 'video' } })).response.status, 400);
     const player = await app.join('Visitor');
     const lead = await app.request(`${p}/leads`, { method: 'POST', token: player.token,
       body: { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'visitor@example.com', company: 'Example' }, marketingOptIn: false } });
@@ -217,6 +223,9 @@ test('public activity has a server-derived session, vote dedupes, and leads stay
     assert.equal(report.response.status, 200);
     assert.equal(report.value.leads.length, 1);
     assert.equal(report.value.summary.votes, 1);
+    assert.equal(report.value.summary.twilioProductLinkClicks, 1);
+    assert.deepEqual(report.value.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 0, segment: 0 });
+    assert.equal(report.value.summary.githubRepoClicks, 1);
     assert.ok(report.value.activity.find(row => row.type === 'landing_opened')?.properties.sessionId);
     const exportResult = await app.request(`/api/admin/export?kind=leads&event=${app.event.slug}`, { cookie: admin.cookie });
     assert.equal(exportResult.response.status, 200);

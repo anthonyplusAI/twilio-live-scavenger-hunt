@@ -8,6 +8,8 @@ const isResultDemo = ['win', 'lose', 'tie', 'no-match', 'build'].includes(demoMo
 const screen = document.getElementById('screen');
 const eventName = document.getElementById('eventName');
 const modeLabel = document.getElementById('modeLabel');
+const arenaFooterLink = document.getElementById('arenaFooterLink');
+const githubFooterLink = document.getElementById('githubFooterLink');
 const sessionDialog = document.getElementById('sessionDialog');
 for (const link of document.querySelectorAll('[data-arena-link]')) {
   link.href = arenaUrl;
@@ -62,8 +64,8 @@ const rosterPlayer = () => visibleRoster().find(entry => entry.id === app.player
 const hasSlot = () => Boolean(rosterPlayer()?.slot) && !['queued', 'left'].includes(app.player?.status);
 const phase = () => app.state?.phase || 'lobby';
 
-async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
-  const options = { method, headers: { ...headers }, credentials: 'same-origin' };
+async function request(path, { method = 'GET', body, auth = false, headers = {}, keepalive = false } = {}) {
+  const options = { method, headers: { ...headers }, credentials: 'same-origin', keepalive };
   if (auth && app.token) options.headers.Authorization = `Bearer ${app.token}`;
   if (body !== undefined) {
     if (body instanceof Blob) {
@@ -87,13 +89,14 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   return value;
 }
 
-function activity(type) {
+function activity(type, properties = {}) {
   if (isResultDemo) return;
   const onceKey = type === 'landing_opened' ? type : type === 'result_viewed' ? `${type}:${app.state?.heat}` : null;
   if (onceKey && app.activity.has(onceKey)) return;
   if (onceKey) app.activity.add(onceKey);
-  request('/activity', { method: 'POST', body: { type } }).catch(() => {});
+  request('/activity', { method: 'POST', body: { type, ...properties }, keepalive: true }).catch(() => {});
 }
+githubFooterLink.addEventListener('click', () => activity('github_cta_opened'));
 
 function applyState(payload) {
   if (!payload || !payload.state) return;
@@ -210,6 +213,7 @@ function resultMarkup(winners, heat) {
 const buildProducts = {
   video: {
     name: 'Twilio Video',
+    url: 'https://www.twilio.com/en-us/video',
     status: 'Built in · setup needed',
     detail: 'In live mode, phones publish to a Video Room and the arena subscribes. A separate judge checks finds. Events need credentials and HTTPS.',
     from: 'Your camera',
@@ -219,6 +223,7 @@ const buildProducts = {
   },
   messaging: {
     name: 'Twilio Messaging',
+    url: 'https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api',
     status: 'Optional integration',
     detail: 'Spectators can vote by SMS or WhatsApp. Incoming replies reach the game as ballots through a webhook.',
     from: 'Crowd reply',
@@ -228,6 +233,7 @@ const buildProducts = {
   },
   segment: {
     name: 'Twilio Segment',
+    url: 'https://www.twilio.com/en-us/segment',
     status: 'Optional integration',
     detail: 'Play and interaction events can flow to Segment. The game’s own event report works without it.',
     from: 'Game signals',
@@ -249,7 +255,8 @@ function buildMarkup(lead) {
   const expert = lead.enabled && lead.expertEnabled ? `<button type="button" class="build-expert ${guide ? '' : 'is-primary'}" data-action="expert">Request a Twilio expert <span aria-hidden="true">↗</span></button>` : '';
   const replay = isResultDemo ? '<button type="button" class="build-replay" data-action="demo-result">← Back to the result</button>' : '<button type="button" class="build-replay" data-action="replay">Play another heat</button>';
   const invitation = guide || expert ? '<p>Want to make a moment like this?</p>' : '<div class="build-booth-invite"><span class="build-booth-mark"><img src="/assets/twilio-bug-official.png" alt=""></span><span><strong>Build your own live moment.</strong><small>Talk to the Twilio team at the booth.</small></span></div>';
-  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p></div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${replay}</div></div>`;
+  const learnMore = `<a class="build-product-link" data-twilio-product="${app.buildProduct}" href="${product.url}" target="_blank" rel="noopener noreferrer" aria-label="Explore ${product.name} on Twilio (opens in a new tab)">Explore ${product.name} <span aria-hidden="true">↗</span></a>`;
+  return `<div class="build-story"><div class="build-intro"><p class="build-kicker">Behind your heat</p><h1>From your phone<br>to the whole room.</h1></div><div class="build-tabs" role="group" aria-label="Explore Twilio products">${tabs}</div><section class="build-panel" data-product="${app.buildProduct}" aria-label="${product.name} explanation">${flow}<div class="build-panel-copy"><div class="build-panel-heading"><h2>${product.name}</h2><span>${product.status}</span></div><p>${product.detail}</p>${learnMore}</div></section><div class="build-next ${guide || expert ? '' : 'is-booth-only'}">${invitation}${guide}${expert}${replay}</div></div>`;
 }
 
 function preview() {
@@ -301,7 +308,13 @@ function render(force = false) {
   const customEventName = String(app.event.name || '').trim();
   eventName.textContent = customEventName.toUpperCase() === 'LIVE SCAVENGER HUNT' ? '' : customEventName;
   eventName.hidden = !eventName.textContent;
-  modeLabel.textContent = isResultDemo ? 'Visual preview · no live camera' : app.event.mediaMode === 'twilio' ? 'Powered by Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal · camera snapshots' : 'Waiting for booth setup';
+  const postGame = ['result', 'complete', 'build', 'lead', 'thanks'].includes(view);
+  const fullModeLabel = isResultDemo ? 'Visual preview · no live camera' : app.event.mediaMode === 'twilio' ? 'Powered by Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal · camera snapshots' : 'Waiting for booth setup';
+  const shortModeLabel = isResultDemo ? 'Visual preview' : app.event.mediaMode === 'twilio' ? 'Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal' : 'Booth setup';
+  modeLabel.textContent = postGame ? shortModeLabel : fullModeLabel;
+  modeLabel.setAttribute('aria-label', fullModeLabel);
+  arenaFooterLink.hidden = postGame;
+  githubFooterLink.hidden = !postGame;
   $('leaveButton').hidden = isResultDemo || !['queued', 'waiting', 'countdown', 'hunt', 'review'].includes(view);
 
   if (view === 'intro') {
@@ -666,6 +679,11 @@ screen.addEventListener('change', event => {
   if (event.target.name === 'marketingOptIn') app.leadDraft.marketingOptIn = event.target.checked;
 });
 screen.addEventListener('click', async event => {
+  const productLink = event.target.closest('[data-twilio-product]');
+  if (productLink) {
+    activity('twilio_product_link_opened', { product: productLink.dataset.twilioProduct });
+    return;
+  }
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   try {

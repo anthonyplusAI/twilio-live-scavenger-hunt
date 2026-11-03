@@ -13,6 +13,8 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
   <strong>Optional audience voting</strong>
 </p>
 
+<p align="center"><a href="https://github.com/anthonyplusAI/twilio-live-scavenger-hunt"><strong>★ Star the project on GitHub</strong></a></p>
+
 ![Four-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-4-players.png)
 
 <p align="center"><em>Illustrated arena preview. In a configured live event, each portrait spot carries that player's phone camera.</em></p>
@@ -31,14 +33,14 @@ A visitor scans the arena QR code, picks a screen name, consents to appear on th
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, explore optional Messaging and Segment features, and voluntarily request a guide or a conversation with the booth team. Joining and voting never require a lead form.
+Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and voluntarily request a guide or a conversation with the booth team. A **Star on GitHub** link stays in the phone footer after the heat, while the arena remains focused on its scan-to-play QR. Joining and voting never require a lead form.
 
 | Booth moment | What the app does |
 | --- | --- |
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a shared clock, and a synchronized result reveal. |
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
-| **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, CTA activity, leads, player exits, and removals. |
+| **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
 | **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
 ## See the moment
@@ -53,8 +55,8 @@ These are **visual previews with illustrated stand-ins**, captured from the runn
   </tr>
   <tr><th>Phone · winner</th><th>Phone · not this round</th></tr>
   <tr>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Winner celebration on a player phone" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Phone clearly says not this round and names the winning player" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Winner celebration on a player phone, with a Star on GitHub link in the footer" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Phone clearly says not this round, names the winner, and shows the GitHub star link" width="300"></td>
   </tr>
 </table>
 
@@ -66,17 +68,19 @@ The wall also rearranges for traffic at the booth:
 
 The arena stays in show mode: only the Twilio identity and heat status remain at the top. Moving a pointer, touching the screen, or pressing Tab reveals Operator, theme, and media controls for staff; the strip hides again after five seconds of inactivity.
 
-After starting the app, open the read-only [four-player hunt](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=hunt&players=4), [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose), or [product story](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=build) preview. Use **Replay reveal** on a result screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, collect leads, or write metrics.
+After starting the app, open the read-only [four-player hunt](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=hunt&players=4), [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose), or [product story](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=build) preview. Use **Replay reveal** on a result screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, collect leads, or write metrics; their outbound links still open the linked sites.
 
 ## Twilio product story
 
 The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path.
 
+Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link remains visible after the result, including while visitors explore the build story or request a follow-up.
+
 <table>
   <tr><th>Dark display</th><th>Light display</th></tr>
   <tr>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story.png" alt="Dark phone product story showing a camera, Twilio Video connection, and arena wall" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story-light.png" alt="Light phone product story with the same Twilio Video visual explanation" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story.png" alt="Dark phone product story with a camera-to-arena diagram, Twilio Video learn-more link, and GitHub star link" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-product-story-light.png" alt="Light phone product story with the same Twilio Video and GitHub links" width="300"></td>
   </tr>
 </table>
 
@@ -122,7 +126,7 @@ Run `npm run check` for the browser build, server tests, and README link check. 
 
 ## Metrics and leads
 
-The admin-only Metrics view filters by event and date range, shows the engagement funnel, and exports filtered event or lead CSV. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
+The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio page clicks are also broken down by Video, Messaging, and Segment. These counts record link clicks, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
 
 The app stores event configuration, heat history, votes, metrics, and requested leads in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
 

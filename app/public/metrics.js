@@ -124,7 +124,7 @@ function uniquePeople(rows, keys = ["participantId", "playerId", "sessionId"]) {
   });
   return people.size;
 }
-const engagementTypes = new Set(["player_joined", "result_viewed", "cta_opened", "lead_form_opened", "lead_submitted", "vote_accepted"]);
+const engagementTypes = new Set(["player_joined", "result_viewed", "cta_opened", "guide_cta_opened", "expert_cta_opened", "twilio_product_link_opened", "github_cta_opened", "lead_form_opened", "lead_submitted", "vote_accepted"]);
 function buildSummary(records, leads) {
   const byType = type => records.filter(row => row.type === type);
   const landings = byType("landing_opened"), joins = byType("player_joined"), heatStarts = byType("heat_started"), heatEnds = byType("heat_completed");
@@ -170,9 +170,18 @@ function buildSummary(records, leads) {
   });
   const durations = verified.map(row => Number(row.properties.timeToMatchMs)).filter(value => Number.isFinite(value) && value >= 0);
   const uniqueVisitors = uniquePeople(landings), uniquePlayers = uniquePeople(joins);
+  const productLinkRows = byType("twilio_product_link_opened");
+  const twilioProductLinkClicks = productLinkRows.length;
+  const twilioProductLinkClicksByProduct = { video: 0, messaging: 0, segment: 0 };
+  productLinkRows.forEach(row => {
+    const product = row.properties.product;
+    if (Object.hasOwn(twilioProductLinkClicksByProduct, product)) twilioProductLinkClicksByProduct[product]++;
+  });
+  const githubRepoClicks = byType("github_cta_opened").length;
   return {
     totalEvents: records.length, uniqueVisitors, uniquePlayers,
     engagementActions: records.filter(row => engagementTypes.has(row.type)).length,
+    twilioProductLinkClicks, twilioProductLinkClicksByProduct, githubRepoClicks,
     playerEntries,
     heatsCompleted: new Set(heatEnds.map(row => `${row.eventId}:${row.properties.heatId || row.id}`)).size,
     averagePlayers: heatStarts.length ? playerEntries / heatStarts.length : 0,
@@ -194,6 +203,8 @@ function buildSummary(records, leads) {
       { label: "Joined", count: uniquePlayers },
       { label: "Saw result", count: uniquePeople(resultViews) },
       { label: "Opened CTA", count: uniquePeople(ctaOpens) },
+      { label: "Twilio pages", count: twilioProductLinkClicks, title: "Clicks on official Twilio product pages" },
+      { label: "GitHub repo", count: githubRepoClicks, title: "Clicks to open the GitHub repository; stars are not tracked" },
       { label: "Left lead", count: uniqueLeads },
     ],
   };
@@ -244,6 +255,7 @@ function renderFunnel(summary) {
   const max = Math.max(1, ...summary.funnel.map(row => row.count));
   for (const row of summary.funnel) {
     const element = make("div", "funnel-row"), track = make("div", "funnel-track"), fill = make("div", "funnel-fill");
+    if (row.title) element.title = row.title;
     fill.style.width = `${row.count / max * 100}%`;
     track.append(fill); element.append(make("span", "", row.label), track, make("strong", "", number(row.count))); host.append(element);
   }
@@ -254,6 +266,7 @@ function renderOverview(summary) {
   setText("kpi-players", number(summary.uniquePlayers));
   setText("kpi-actions", number(summary.engagementActions));
   setText("kpi-leads", number(state.leads.length));
+  for (const product of ["video", "messaging", "segment"]) setText(`product-${product}-clicks`, number(summary.twilioProductLinkClicksByProduct[product]));
   renderChart(summary); renderFunnel(summary);
 }
 function pageSize(kind) {

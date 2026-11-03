@@ -5,10 +5,13 @@ const SAFE_ACTIVITY_KEYS = new Set([
   'promptId', 'promptText', 'category', 'winners', 'isOverride', 'source',
   'timeToMatchMs', 'candidateCount', 'windowId', 'windowType', 'voterId',
   'channel', 'choice', 'choiceLabel', 'votes', 'promoted',
+  'product',
 ]);
+const PRODUCT_LINK_KEYS = ['video', 'messaging', 'segment'];
 const ENGAGEMENT_TYPES = new Set([
   'player_joined', 'result_viewed', 'cta_opened', 'guide_cta_opened',
-  'expert_cta_opened', 'lead_form_opened', 'lead_submitted', 'vote_accepted',
+  'expert_cta_opened', 'twilio_product_link_opened', 'github_cta_opened',
+  'lead_form_opened', 'lead_submitted', 'vote_accepted',
 ]);
 
 function validateDate(value, label) {
@@ -60,6 +63,7 @@ function safeProperties(raw) {
   const result = {};
   for (const [key, value] of Object.entries(raw)) {
     if (!SAFE_ACTIVITY_KEYS.has(key)) continue;
+    if (key === 'product' && !PRODUCT_LINK_KEYS.includes(value)) continue;
     if (typeof value === 'string') result[key] = value.slice(0, 200);
     else if (typeof value === 'boolean') result[key] = value;
     else if (typeof value === 'number' && Number.isFinite(value)) result[key] = value;
@@ -82,6 +86,8 @@ function summaryFor(activity, leads) {
   const byType = type => activity.filter(row => row.type === type);
   const joins = byType('player_joined'), starts = byType('heat_started'), ends = byType('heat_completed'), votes = byType('vote_accepted');
   const cta = byType('cta_opened'), specificCta = [...byType('guide_cta_opened'), ...byType('expert_cta_opened')];
+  const productLinks = byType('twilio_product_link_opened');
+  const twilioProductLinkClicksByProduct = Object.fromEntries(PRODUCT_LINK_KEYS.map(product => [product, productLinks.filter(row => row.properties?.product === product).length]));
   const totalPlays = starts.reduce((sum, row) => sum + (Number(row.properties?.playerCount) || 0), 0);
   const heatsStarted = new Set(starts.map(row => `${row.eventId}:${row.properties?.heatId || row.id}`)).size;
   const voterIds = votes.map(row => row.properties?.voterId);
@@ -106,6 +112,9 @@ function summaryFor(activity, leads) {
     expertRequests: leads.filter(row => row.intent === 'expert').length,
     marketingOptIns: leads.filter(row => row.marketingOptIn === true).length,
     ctaClicks: cta.length || specificCta.length,
+    twilioProductLinkClicks: productLinks.length,
+    twilioProductLinkClicksByProduct,
+    githubRepoClicks: byType('github_cta_opened').length,
     engagementActions: activity.filter(row => ENGAGEMENT_TYPES.has(row.type)).length,
     avgPlayersPerHeat: heatsStarted ? totalPlays / heatsStarted : 0,
   };

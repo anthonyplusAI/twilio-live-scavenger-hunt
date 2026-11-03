@@ -4,7 +4,7 @@ This is the contract for `app/`. All times are UTC ISO strings or epoch millisec
 
 ## Browser routes
 
-`/e/:slug/arena`, `/e/:slug/play`, `/e/:slug/vote`, `/e/:slug/operator`, `/e/:slug/metrics`, and `/login`. The operator and metrics pages may load publicly, but their data and actions require an authenticated session. `/` redirects to the seeded event arena. The arena accepts `?demo=hunt` with an optional `players` value from 2 to 6, plus `?demo=win|lose|tie|no-match`; the phone accepts `?demo=win|lose|tie|no-match|build`. These local visual previews do not join a heat, connect media, judge, collect leads, or write activity.
+`/e/:slug/arena`, `/e/:slug/play`, `/e/:slug/vote`, `/e/:slug/operator`, `/e/:slug/metrics`, and `/login`. The operator and metrics pages may load publicly, but their data and actions require an authenticated session. `/` redirects to the seeded event arena. The arena accepts `?demo=hunt` with an optional `players` value from 2 to 6, plus `?demo=win|lose|tie|no-match`; the phone accepts `?demo=win|lose|tie|no-match|build`. These local visual previews do not join a heat, connect media, judge, collect leads, or write activity. Their outbound product and GitHub links still navigate.
 
 ## Public state
 
@@ -27,7 +27,7 @@ This is the contract for `app/`. All times are UTC ISO strings or epoch millisec
 | `POST /api/e/:slug/frame` | Player bearer token, `image/jpeg` body, max 150 KB | `{ok:true}`; rehearsal frames and evidence only, rate-limited. |
 | `POST /api/e/:slug/votes` | `{windowId,choice}`; anonymous voter cookie | `{accepted:true,vote}` or `409` duplicate/closed. A vote never creates a lead. |
 | `POST /api/e/:slug/leads` | Player bearer token, `{intent:"guide"|"expert",fieldValues,marketingOptIn}` | `{leadId,deliveryStatus}`; validates event's current form and stores its field snapshot. |
-| `POST /api/e/:slug/activity` | `{type}` from an allowlist | `{ok:true}`. Contact fields are rejected. |
+| `POST /api/e/:slug/activity` | `{type}` from an allowlist. `twilio_product_link_opened` also requires `product:"video"|"messaging"|"segment"`; `github_cta_opened` uses `{type}` only. | `{ok:true}`. Contact fields are rejected. |
 
 After an operator removes a player, that token receives HTTP `403` with `code: "player_kicked"` on authenticated player routes. The phone turns off its camera and shows a removal screen. Missing, left, or expired player tokens receive `401`. The server also marks stale sessions left when heartbeats stop: about 25 seconds for waiting/queued players and 60 seconds during a heat.
 
@@ -54,6 +54,6 @@ The operator state also includes a five-heat `recentHeats` list with prompt, pla
 
 `kickPlayer` takes `payload: {playerId}` for a current-heat or queued player. It clears the slot, invalidates the token, records `player_kicked`, and removes that player from candidates and creative ballots. If the player had already won the displayed result, the stored winner list is corrected. Its response adds `mediaDisconnect: {status:"ok",mode,disconnected}` on a successful Twilio disconnect attempt or `{status:"failed"}` if the media operation fails; the player is removed from the game in either case.
 
-The private report summary includes `kickedPlayers`, `timedOutPlayers`, and `playerLeaves` alongside joins, plays, heats, votes, CTA activity, and leads. These are distinct activity counts within the requested event/date filter.
+The private report summary includes `kickedPlayers`, `timedOutPlayers`, `playerLeaves`, `twilioProductLinkClicks`, `twilioProductLinkClicksByProduct: {video,messaging,segment}`, and `githubRepoClicks` alongside joins, plays, heats, votes, CTA activity, and leads. These are distinct activity counts within the requested event/date filter. The outbound link fields count clicks, not verified destination page loads or GitHub stars; corresponding activity events appear in the filtered event log and export.
 
 Twilio signed webhooks live at `/webhooks/twilio/messaging` and `/webhooks/twilio/video`. They validate the exact public URL and `X-Twilio-Signature`, then deduplicate message/event IDs before changing state or metrics.

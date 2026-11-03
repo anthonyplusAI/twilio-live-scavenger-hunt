@@ -291,10 +291,12 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       const visitor = voterCookie(req, res, secure);
       limiter.check(`activity-browser:${slug}:${visitor}`, 120, 60_000);
       const body = await readJson(req, 1_000);
-      if (Object.keys(body).some(key => key !== 'type') || typeof body.type !== 'string')
+      if (typeof body.type !== 'string' ||
+        Object.keys(body).some(key => key !== 'type' && !(body.type === 'twilio_product_link_opened' && key === 'product')))
         throw new ValidationError('Send only an allowed activity type.', 'invalid_activity');
       return json(res, 200, engine.activity(slug, body.type, {
         sessionId: integrations.hashVoter('session', visitor).slice(0, 20),
+        ...(body.type === 'twilio_product_link_opened' ? { product: body.product } : {}),
       }));
     }
     throw new ValidationError('Route not found.', 'not_found');
