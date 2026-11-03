@@ -87,12 +87,12 @@ account's password; changing `bootstrap-admin-password` after first boot does
 not change the saved password or the admin username. Local operator accounts
 work without Google OAuth.
 
-## Optional Google sign-in for Twilio operators
+## Optional Google sign-in for Twilio admins
 
 Google sign-in is disabled until both OAuth credentials are configured. The
-server grants the **operator** role to any Google account whose signed ID token
+server grants the **admin** role to any Google account whose signed ID token
 has a verified `@twilio.com` email **and** `hd=twilio.com`, the Google Workspace
-domain claim. A Google user never becomes an app admin automatically. The
+domain claim. This gives the account access to Team, Metrics, and collected leads. The
 `hd` request parameter only helps choose an account; the server checks the
 returned claim. See [Google's OpenID Connect guidance](https://developers.google.com/identity/openid-connect/openid-connect).
 
@@ -147,7 +147,7 @@ Google entries manually when you create the OAuth client.
 | Variables | `ACR_NAME`, `ACA_NAME`, `ACA_RESOURCE_GROUP` | Image and rollout target. |
 | Variable | `LITESTREAM_REQUIRE_REPLICA` | Starts as `0`; set to `1` after the first backup has been verified. |
 | Secrets | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | OIDC identifiers for `azure/login`; no client secret. |
-| Optional secrets | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google operator sign-in; consumed by the deploy job only. |
+| Optional secrets | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google admin sign-in; consumed by the deploy job only. |
 | Optional variable | `GOOGLE_AUTH_DISABLE` | Set to `1` for an explicit controlled sign-in disable; `0` re-enables when both secrets exist. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC

@@ -19,7 +19,7 @@ Container Registry. GitHub does not store an Azure password or registry key.
 | Database | `/tmp/live-scavenger-hunt.sqlite` | SQLite stays on fast local disk with WAL, not a network share. |
 | Backup | Litestream → private Azure Blob, `1s` sync interval | Restores the database when a new container starts. Unreplicated writes can be lost after an abrupt failure; lag can grow during Blob errors. |
 | Initial media mode | `REHEARSAL_MODE=on` | The site can be checked before Twilio Video credentials are configured. |
-| Optional Google sign-in | `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` | Both are needed for verified `@twilio.com` Workspace operators. The secret is an ACA secret reference, never a plain environment value. |
+| Optional Google sign-in | `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` | Both are needed for verified `@twilio.com` Workspace admins. The secret is an ACA secret reference, never a plain environment value. |
 
 The image bundles the generated Twilio Video browser client and the prompt
 library used when an event is seeded. The startup supervisor acquires the
@@ -63,7 +63,7 @@ login **after** public cutover; the revision-specific pre-cutover smoke checks
 only health and the arena. An unset pair preserves the live OAuth settings; a
 partial pair fails before downtime when Google is being enabled or refreshed. The explicit `GOOGLE_AUTH_DISABLE=1`
 repository variable removes both OAuth environment variables in the next safe
-rollout. The [OAuth setup steps](INFRA_SETUP.md#optional-google-sign-in-for-twilio-operators)
+rollout. The [OAuth setup steps](INFRA_SETUP.md#optional-google-sign-in-for-twilio-admins)
 include the registered redirect URI.
 
 To dispatch a release already on `main`:

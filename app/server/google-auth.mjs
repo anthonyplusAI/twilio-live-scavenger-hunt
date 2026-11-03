@@ -122,7 +122,8 @@ export class GoogleAuthService {
         typeof payload.email !== 'string' || !/^[^@\s]+@twilio\.com$/i.test(payload.email)) {
       throw new AuthError('Use a verified @twilio.com Google Workspace account.', 403, 'google_domain');
     }
-    return { session: this.auth.loginGoogleIdentity({ sub: payload.sub, email: payload.email }),
+    return { session: this.auth.loginGoogleIdentity({ sub: payload.sub, email: payload.email,
+      emailVerified: payload.email_verified, hostedDomain: payload.hd }),
       nextPath: flow.next_path };
   }
 }

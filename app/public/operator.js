@@ -311,7 +311,7 @@ function renderTeam() {
     const title = document.createElement("strong");
     title.textContent = "No operator accounts yet";
     const note = document.createElement("small");
-    note.textContent = "Add a booth operator or enable Google sign-in.";
+    note.textContent = "Add a booth operator to give someone a local account.";
     empty.append(title, note);
     list.append(empty);
   }
@@ -418,7 +418,7 @@ async function loadAuthProviders() {
     const enabled = Boolean(payload.google?.enabled);
     $("team-google-status").classList.toggle("enabled", enabled);
     $("team-google-status-copy").textContent = enabled
-      ? "Verified @twilio.com accounts can join automatically."
+      ? "Verified @twilio.com accounts have admin access. Google manages their passwords."
       : "Configure a Google OAuth client to enable it.";
   } catch {
     $("team-google-status-copy").textContent = "Google sign-in status is unavailable.";

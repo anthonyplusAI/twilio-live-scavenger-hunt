@@ -256,7 +256,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       }
       if (pathname === '/api/auth/login' && method === 'POST') {
         limiter.check(`login:${ip}`, 30, 10 * 60_000);
-        const body = await readJson(req, 8_000);
+        const body = await readJson(req, BODY_LIMIT);
         const result = auth.login(body.username, body.password, ip);
         return json(res, 200, { user: result.user, csrfToken: result.csrfToken },
           { 'Set-Cookie': auth.cookie(result.token, { secure }) });
@@ -269,7 +269,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       if (pathname === '/api/auth/password' && method === 'POST') {
         const session = auth.require(req.headers.cookie, 'operator', req.headers['x-csrf-token'] || '');
         limiter.check(`password-change:${session.user.id}`, 8, 10 * 60_000);
-        const body = await readJson(req, 8_000);
+        const body = await readJson(req, BODY_LIMIT);
         auth.changePassword(session.user.id, body.currentPassword, body.newPassword);
         store.audit(null, session.user.id, 'account:password_changed');
         return json(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie({ secure }) });
@@ -277,7 +277,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       if (pathname === '/api/auth/username' && method === 'POST') {
         const session = auth.require(req.headers.cookie, 'operator', req.headers['x-csrf-token'] || '');
         limiter.check(`username-change:${session.user.id}`, 8, 10 * 60_000);
-        const body = await readJson(req, 8_000);
+        const body = await readJson(req, BODY_LIMIT);
         const user = auth.renameUsername(session.user.id, body.currentPassword, body.username);
         store.audit(null, session.user.id, 'account:username_changed', { username: user.username });
         return json(res, 200, { user }, { 'Set-Cookie': auth.clearCookie({ secure }) });
@@ -290,7 +290,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         if (method === 'POST') {
           const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
           limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
-          const body = await readJson(req, 8_000);
+          const body = await readJson(req, BODY_LIMIT);
           const operator = auth.createOperator(body.username, body.password);
           store.audit(null, session.user.id, 'operator:created', { operatorId: operator.id, username: operator.username });
           return json(res, 201, { operator });
@@ -300,7 +300,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       if (operatorPasswordMatch && method === 'POST') {
         const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
         limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
-        const body = await readJson(req, 8_000);
+        const body = await readJson(req, BODY_LIMIT);
         const operator = auth.resetOperatorPassword(operatorPasswordMatch[1], body.password);
         store.audit(null, session.user.id, 'operator:password_reset', { operatorId: operator.id });
         return json(res, 200, { operator });
@@ -309,7 +309,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       if (operatorUsernameMatch && method === 'POST') {
         const session = auth.require(req.headers.cookie, 'admin', req.headers['x-csrf-token'] || '');
         limiter.check(`operator-write:${session.user.id}`, 30, 60 * 60_000);
-        const body = await readJson(req, 8_000);
+        const body = await readJson(req, BODY_LIMIT);
         const operator = auth.renameOperatorUsername(operatorUsernameMatch[1], body.username);
         store.audit(null, session.user.id, 'operator:username_changed',
           { operatorId: operator.id, username: operator.username });
