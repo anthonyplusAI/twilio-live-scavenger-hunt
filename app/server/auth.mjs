@@ -54,6 +54,14 @@ export class AuthService {
     return String(username ?? '').trim().toLowerCase();
   }
 
+  _validatedUsername(username) {
+    const normalized = this._normalizedUsername(username);
+    if (typeof username !== 'string' || !/^[a-z][a-z0-9._-]{2,79}$/.test(normalized)) {
+      throw new AuthError('Use a username of 3–80 letters, numbers, dots, dashes, or underscores.', 400, 'invalid_username');
+    }
+    return normalized;
+  }
+
   _hashPassword(password, salt) {
     return scryptSync(String(password), Buffer.from(salt, 'hex'), SCRYPT_BYTES, SCRYPT_OPTIONS);
   }
@@ -75,10 +83,7 @@ export class AuthService {
   }
 
   _insertUser(username, password, role) {
-    const normalized = this._normalizedUsername(username);
-    if (!/^[a-z][a-z0-9._-]{2,79}$/.test(normalized)) {
-      throw new AuthError('Use a username of 3–80 letters, numbers, dots, dashes, or underscores.', 400, 'invalid_username');
-    }
+    const normalized = this._validatedUsername(username);
     if (!['admin', 'operator'].includes(role)) {
       throw new AuthError('Choose an admin or operator role.', 400, 'invalid_role');
     }
@@ -122,6 +127,42 @@ export class AuthService {
       this.store.sql.prepare('UPDATE users SET password_hash=?,salt=? WHERE id=?').run(passwordHash, salt, id);
       this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
       return publicOperator(row);
+    });
+  }
+
+  _renameLocalUser(row, username) {
+    const normalized = this._validatedUsername(username);
+    try {
+      this.store.sql.prepare('UPDATE users SET username=? WHERE id=?').run(normalized, row.id);
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE constraint failed')) {
+        throw new AuthError('Username already exists.', 409, 'username_exists');
+      }
+      throw error;
+    }
+    this.store.sql.prepare('DELETE FROM sessions WHERE user_id=?').run(row.id);
+    return { ...row, username: normalized };
+  }
+
+  renameUsername(userId, currentPassword, username) {
+    return this.store.transaction(() => {
+      const row = this.store.sql.prepare('SELECT * FROM users WHERE id=?').get(userId);
+      if (!row) throw new AuthError('Account not found.', 404, 'not_found');
+      if (row.auth_provider === 'google') throw new AuthError('Google account names are managed by Google.', 409, 'provider_managed');
+      if (typeof currentPassword !== 'string' || currentPassword.length > 1024 ||
+          !this._passwordMatches(row, currentPassword)) {
+        throw new AuthError('Current password is incorrect.', 403, 'invalid_credentials');
+      }
+      return publicUser(this._renameLocalUser(row, username));
+    });
+  }
+
+  renameOperatorUsername(id, username) {
+    return this.store.transaction(() => {
+      const row = this.store.sql.prepare('SELECT * FROM users WHERE id=? AND role=?').get(id, 'operator');
+      if (!row) throw new AuthError('Operator not found.', 404, 'not_found');
+      if (row.auth_provider === 'google') throw new AuthError('Google account names are managed by Google.', 409, 'provider_managed');
+      return publicOperator(this._renameLocalUser(row, username));
     });
   }
 

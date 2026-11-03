@@ -84,12 +84,13 @@ az containerapp logs show -g rg-live-scavenger-hunt -n live-scavenger-hunt --tai
 ```
 
 Use the Azure Portal or a private shell to read the generated admin password
-from the `bootstrap-admin-password` Container App secret. The username is
-`admin`; the exact retrieval command is in [INFRA_SETUP.md](INFRA_SETUP.md).
+from the `bootstrap-admin-password` Container App secret. The initial username
+is `admin`; the exact retrieval command is in [INFRA_SETUP.md](INFRA_SETUP.md).
 The password is intentionally absent from application and GitHub Actions logs.
-After sign-in, **Team** creates and resets local operator accounts. **My
-password** changes the existing admin password; editing the bootstrap secret
-does not reset an account already stored in SQLite.
+After sign-in, **Team** creates local operator accounts and changes their
+usernames or passwords. **My username** changes the admin login name and signs
+out that account. **My password** changes the admin password; editing the
+bootstrap secret does not reset an account already stored in SQLite.
 
 ## Configuration changes and recovery
 

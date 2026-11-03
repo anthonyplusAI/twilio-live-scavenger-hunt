@@ -112,6 +112,18 @@ test('old Signal Stadium links lead to the renamed event', async () => {
   } finally { await app.close(); }
 });
 
+test('the browser can load the official bug favicon from the public root', async () => {
+  const app = await fixture();
+  try {
+    const response = await fetch(`${app.base}/favicon.ico`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /image\/x-icon/);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.ok(bytes.length > 100);
+    assert.deepEqual([...bytes.subarray(0, 4)], [0, 0, 1, 0]);
+  } finally { await app.close(); }
+});
+
 test('arena GitHub QR and link redirect to the fixed repo and record their referral source', async () => {
   const app = await fixture();
   try {
@@ -248,6 +260,75 @@ test('self-service password rotation verifies the old password and clears every 
     assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
       username: 'admin', password: newPassword,
     } })).response.status, 200);
+  } finally { await app.close(); }
+});
+
+test('self-service username change verifies password and revokes every active session', async () => {
+  const app = await fixture();
+  try {
+    const admin = await app.login();
+    const secondSession = await app.login();
+    assert.equal((await app.request('/api/auth/username', { method: 'POST', cookie: admin.cookie,
+      body: { currentPassword: 'correct-password-123', username: 'booth.admin' } })).response.status, 403);
+    assert.equal((await app.request('/api/auth/username', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'wrong-password', username: 'booth.admin' } })).response.status, 403);
+    assert.equal((await app.request('/api/auth/username', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'correct-password-123', username: 'operator' } })).response.status, 409);
+    const changed = await app.request('/api/auth/username', { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { currentPassword: 'correct-password-123', username: ' BOOTH.ADMIN ' } });
+    assert.equal(changed.response.status, 200);
+    assert.equal(changed.value.user.id, admin.user.id);
+    assert.equal(changed.value.user.username, 'booth.admin');
+    assert.equal(changed.value.user.role, 'admin');
+    assert.match(changed.response.headers.get('set-cookie'), /Max-Age=0/);
+    assert.equal((await app.request('/api/auth/session', { cookie: admin.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: secondSession.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'admin', password: 'correct-password-123',
+    } })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'booth.admin', password: 'correct-password-123',
+    } })).response.status, 200);
+    const audit = app.store.sql.prepare("SELECT details_json FROM audit WHERE action='account:username_changed'").get();
+    assert.ok(audit);
+    assert.ok(!audit.details_json.includes('correct-password-123'));
+  } finally { await app.close(); }
+});
+
+test('only admins can rename local operators and the old username stops working', async () => {
+  const app = await fixture();
+  try {
+    const admin = await app.login();
+    const operator = await app.login('operator', 'operator-password-123');
+    const path = `/api/admin/operators/${operator.user.id}/username`;
+    assert.equal((await app.request(path, { method: 'POST', body: { username: 'stagehost' } })).response.status, 401);
+    assert.equal((await app.request(path, { method: 'POST', cookie: operator.cookie,
+      csrf: operator.csrf, body: { username: 'stagehost' } })).response.status, 403);
+    assert.equal((await app.request(path, { method: 'POST', cookie: admin.cookie,
+      body: { username: 'stagehost' } })).response.status, 403);
+    assert.equal((await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: 'admin' } })).response.status, 409);
+    const changed = await app.request(path, { method: 'POST', cookie: admin.cookie,
+      csrf: admin.csrf, body: { username: ' STAGEHOST ' } });
+    assert.equal(changed.response.status, 200);
+    assert.equal(changed.value.operator.id, operator.user.id);
+    assert.equal(changed.value.operator.username, 'stagehost');
+    assert.equal((await app.request('/api/auth/session', { cookie: operator.cookie })).response.status, 401);
+    assert.equal((await app.request('/api/auth/session', { cookie: admin.cookie })).response.status, 200);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'operator', password: 'operator-password-123',
+    } })).response.status, 401);
+    assert.equal((await app.request('/api/auth/login', { method: 'POST', body: {
+      username: 'stagehost', password: 'operator-password-123',
+    } })).response.status, 200);
+    assert.equal((await app.request(`/api/admin/operators/${admin.user.id}/username`, { method: 'POST',
+      cookie: admin.cookie, csrf: admin.csrf, body: { username: 'new-admin' } })).response.status, 404);
+    const google = app.auth.loginGoogleIdentity({ sub: 'fixture-google', email: 'visitor@twilio.com' });
+    assert.equal((await app.request(`/api/admin/operators/${google.user.id}/username`, { method: 'POST',
+      cookie: admin.cookie, csrf: admin.csrf, body: { username: 'new-google' } })).response.status, 409);
+    const audit = app.store.sql.prepare("SELECT details_json FROM audit WHERE action='operator:username_changed'").get();
+    assert.ok(audit);
+    assert.ok(!audit.details_json.includes('operator-password-123'));
   } finally { await app.close(); }
 });
 

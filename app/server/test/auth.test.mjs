@@ -182,6 +182,67 @@ test('changing a local password requires the current password and signs out ever
   } finally { store.close(); }
 });
 
+test('renaming the first admin validates the password, revokes sessions, and survives bootstrap', () => {
+  const store = new Store(':memory:');
+  const password = testBootstrapPassword();
+  const auth = new AuthService({ store, bootstrapPassword: password });
+  try {
+    const first = auth.bootstrap();
+    const adminId = first.user.id;
+    const one = auth.login('admin', password);
+    const two = auth.login('admin', password);
+    const oneCookie = auth.cookie(one.token).split(';')[0];
+    const twoCookie = auth.cookie(two.token).split(';')[0];
+    assert.throws(() => auth.renameUsername(adminId, 'incorrect', 'booth.admin'),
+      { code: 'invalid_credentials' });
+    assert.throws(() => auth.renameUsername(adminId, password, 'not a username'),
+      { code: 'invalid_username' });
+    assert.equal(auth.session(oneCookie).user.username, 'admin');
+    const newUsername = '  BOOTH.ADMIN  ';
+    const renamed = auth.renameUsername(adminId, password, newUsername);
+    assert.equal(renamed.username, 'booth.admin');
+    assert.equal(renamed.id, adminId);
+    assert.equal(renamed.role, 'admin');
+    assert.equal(auth.session(oneCookie), null);
+    assert.equal(auth.session(twoCookie), null);
+    assert.throws(() => auth.login('admin', password), { code: 'invalid_credentials' });
+    assert.equal(auth.login('booth.admin', password).user.id, adminId);
+    assert.equal(auth.bootstrap().created, false);
+    assert.equal(store.sql.prepare("SELECT COUNT(*) AS count FROM users WHERE role='admin'").get().count, 1);
+    auth.createOperator('taken', testBootstrapPassword());
+    assert.throws(() => auth.renameUsername(adminId, password, 'taken'),
+      { code: 'username_exists' });
+    assert.equal(store.sql.prepare('SELECT username FROM users WHERE id=?').get(adminId).username, 'booth.admin');
+  } finally { store.close(); }
+});
+
+test('admin renames local operators without changing their identity or allowing Google names', () => {
+  const { store, auth } = makeAuth();
+  const adminPassword = testBootstrapPassword();
+  const operatorPassword = testBootstrapPassword();
+  try {
+    const admin = auth.createUser('admin', adminPassword, 'admin');
+    const operator = auth.createOperator('floorhost', operatorPassword);
+    const originalSession = auth.login('floorhost', operatorPassword);
+    const originalCookie = auth.cookie(originalSession.token).split(';')[0];
+    assert.throws(() => auth.renameOperatorUsername(operator.id, 'admin'), { code: 'username_exists' });
+    assert.throws(() => auth.renameOperatorUsername(operator.id, 'not valid'), { code: 'invalid_username' });
+    const renamed = auth.renameOperatorUsername(operator.id, '  SHIFT.LEAD  ');
+    assert.equal(renamed.id, operator.id);
+    assert.equal(renamed.username, 'shift.lead');
+    assert.equal(renamed.role, 'operator');
+    assert.equal(auth.session(originalCookie), null);
+    assert.throws(() => auth.login('floorhost', operatorPassword), { code: 'invalid_credentials' });
+    assert.equal(auth.login('shift.lead', operatorPassword).user.id, operator.id);
+    assert.throws(() => auth.renameOperatorUsername(admin.id, 'renamed-admin'), { code: 'not_found' });
+    const google = auth.loginGoogleIdentity({ sub: 'google-subject', email: 'person@twilio.com' });
+    assert.throws(() => auth.renameOperatorUsername(google.user.id, 'renamed-google'),
+      { code: 'provider_managed' });
+    assert.throws(() => auth.renameUsername(google.user.id, 'anything', 'renamed-google'),
+      { code: 'provider_managed' });
+  } finally { store.close(); }
+});
+
 test('Google identities are bound by subject, stay operators, and reject password actions', () => {
   const { store, auth } = makeAuth();
   try {
