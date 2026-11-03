@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ValidationError } from './config.mjs';
+import { validateLead } from './leads.mjs';
 
 const toIso = milliseconds => new Date(milliseconds).toISOString();
 const fromIso = value => value == null ? null : Date.parse(value);
@@ -163,7 +164,7 @@ export class GameEngine extends EventEmitter {
     const state = this._runtime(event);
     const publicState = this._publicState(event, state);
     if (role === 'operator') {
-      const queue = this.store.listPlayers(event.id).filter(player => player.status === 'queued');
+      const queue = this.store.listQueuedPlayers(event.id);
       const people = this.store.listPlayers(event.id);
       const recentHeats = this.store.listHeats(event.id)
         .filter(heat => heat.phase === 'result')
@@ -206,34 +207,54 @@ export class GameEngine extends EventEmitter {
     return this._authenticatePlayer(event.id, token);
   }
 
-  join(slug, { alias, displayConsent } = {}) {
+  _withQueuePosition(player) {
+    if (player.status !== 'queued') return { ...player, queuePosition: null };
+    const position = this.store.listQueuedPlayers(player.eventId)
+      .findIndex(waiting => waiting.id === player.id) + 1;
+    return { ...player, queuePosition: position || null };
+  }
+
+  join(slug, { alias, displayConsent, lead } = {}, { requireLead = false } = {}) {
     const name = String(alias ?? '').trim().replace(/\s+/g, ' ');
     if (!displayConsent) fail('Agree to appear on the booth display before joining.', 'consent_required');
     if (name.length < 2 || name.length > 20 || /[<>\x00-\x1f\x7f]/.test(name)) fail('Use a display name of 2–20 characters.');
     const token = randomBytes(32).toString('base64url');
+    let capturedLead = null;
     const value = this._mutate(slug, context => {
       const { event, state, now, touch, activity } = context;
+      const inLobby = state.phase === 'lobby';
+      if (inLobby) this._fillOpenLobbySlots(context);
       const current = this.store.listPlayers(event.id, state.heat).filter(player => player.slot != null && player.status !== 'left');
       const available = Array.from({ length: event.maxPlayers }, (_, index) => index + 1).find(slot => !current.some(player => player.slot === slot));
-      const inLobby = state.phase === 'lobby';
       const slot = inLobby ? available ?? null : null;
       const player = {
         id: randomUUID(), eventId: event.id, alias: name, heat: slot ? state.heat : state.heat + 1,
         slot, status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
         joinedAt: toIso(now), lastSeenAt: toIso(now),
       };
+      if (event.leadCapture?.enabled && (requireLead || lead)) {
+        capturedLead = validateLead(event, player, { ...lead, intent: 'capture' }, state, new Date(now));
+      }
       this.store.insertPlayer(player, tokenHash(token));
+      if (capturedLead) this.store.insertLead(capturedLead);
       activity('player_joined', { playerId: player.id, heat: player.heat, queued: !slot });
       if (!slot) activity('player_queued', { playerId: player.id, heat: player.heat });
+      if (capturedLead) activity('lead_captured', { playerId: player.id, heat: player.heat });
       touch();
       return player;
     });
-    return { player: value, token, state: this.snapshot(slug).state };
+    if (capturedLead) {
+      try { this.telemetry?.identifyOptedInLead?.(capturedLead); }
+      catch { /* Lead analytics never blocks a player join. */ }
+    }
+    const state = this.snapshot(slug).state;
+    return { player: this._withQueuePosition(this.store.getPlayer(value.id)), token, state };
   }
 
   me(slug, token) {
     const player = this.player(slug, token);
-    return { player, state: this.snapshot(slug).state };
+    const state = this.snapshot(slug).state;
+    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
   }
 
   setTransport(slug, token, transport) {
@@ -268,8 +289,14 @@ export class GameEngine extends EventEmitter {
       if (state.phase !== 'lobby' || current.heat !== state.heat || current.slot == null) fail('This heat has locked. You are queued for the next heat.');
       if (state.paused) fail('The booth is paused.');
       if (!current.mediaConnected && current.transport !== 'rehearsal') fail('Connect your camera before marking ready.', 'media_required');
+      const readyBefore = this._readyPlayers(event, state).length;
       const updated = this.store.updatePlayer(current.id, { status: 'ready', readyAt: toIso(now), lastSeenAt: toIso(now) });
-      if (!state.readyDeadline && ['flexible', 'deadline'].includes(event.startMode)) state.readyDeadline = toIso(now + event.joinSeconds * 1000);
+      const readyAfter = this._readyPlayers(event, state).length;
+      if (['flexible', 'deadline'].includes(event.startMode)) {
+        if (readyAfter >= event.minPlayers && (readyBefore < event.minPlayers || !state.readyDeadline))
+          state.readyDeadline = toIso(now + event.joinSeconds * 1000);
+        else if (readyAfter < event.minPlayers) state.readyDeadline = null;
+      }
       activity('player_ready', { playerId: current.id, heat: state.heat });
       touch();
       this._maybeAutoStart(context);
@@ -285,9 +312,11 @@ export class GameEngine extends EventEmitter {
         this._closeVote(context);
       }
       if (state.phase !== 'lobby') return;
-      if (previous.startMode !== current.startMode || previous.joinSeconds !== current.joinSeconds) {
+      this._fillOpenLobbySlots(context);
+      if (previous.startMode !== current.startMode || previous.joinSeconds !== current.joinSeconds ||
+          previous.minPlayers !== current.minPlayers || previous.maxPlayers !== current.maxPlayers) {
         const readyCount = this._readyPlayers(context.event, state).length;
-        const deadline = readyCount && ['flexible', 'deadline'].includes(current.startMode)
+        const deadline = readyCount >= current.minPlayers && ['flexible', 'deadline'].includes(current.startMode)
           ? toIso(now + current.joinSeconds * 1000) : null;
         if (state.readyDeadline !== deadline) {
           state.readyDeadline = deadline;
@@ -303,7 +332,8 @@ export class GameEngine extends EventEmitter {
       const current = this._authenticatePlayer(event.id, token);
       return this.store.updatePlayer(current.id, { lastSeenAt: toIso(this.now()) });
     });
-    return { player, state: this.snapshot(slug).state };
+    const state = this.snapshot(slug).state;
+    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
   }
 
   leave(slug, token) {
@@ -315,9 +345,33 @@ export class GameEngine extends EventEmitter {
     return { state: this.snapshot(slug).state };
   }
 
+  _fillOpenLobbySlots(context) {
+    const { event, state, touch } = context;
+    if (state.phase !== 'lobby') return;
+    const occupied = new Set(this.store.listPlayers(event.id, state.heat)
+      .filter(player => player.slot != null && !['left', 'kicked'].includes(player.status))
+      .map(player => player.slot));
+    const openSlots = Array.from({ length: event.maxPlayers }, (_, index) => index + 1)
+      .filter(slot => !occupied.has(slot));
+    if (!openSlots.length) return;
+    const waiting = this.store.listQueuedPlayers(event.id);
+    openSlots.forEach((slot, index) => {
+      const player = waiting[index];
+      if (!player) return;
+      this.store.updatePlayer(player.id, {
+        heat: state.heat, slot, status: 'joined', readyAt: null,
+        mediaConnected: false, transport: null,
+      });
+      touch();
+    });
+  }
+
   _removePlayer(context, player, status, activityType) {
     const { state, now, touch, activity, removeMedia } = context;
     this.store.updatePlayer(player.id, { status, mediaConnected: false, leftAt: toIso(now), slot: null });
+    if (state.phase === 'lobby' && this._readyPlayers(context.event, state).length < context.event.minPlayers)
+      state.readyDeadline = null;
+    this._fillOpenLobbySlots(context);
     state.candidates = state.candidates.filter(item => item.playerId !== player.id);
     if (state.phase !== 'result' && state.candidate?.winners?.includes(player.id)) {
       if (state.candidate.source === 'operator') {
@@ -573,8 +627,7 @@ export class GameEngine extends EventEmitter {
     const oldHeat = state.heat;
     const preserved = { usedPromptIds: state.usedPromptIds, heatsStarted: state.heatsStarted, overrideCount: state.overrideCount };
     Object.assign(state, initialRuntime(event.id, now), preserved, { heat: oldHeat + 1, version: state.version });
-    const waiting = this.store.listPlayers(event.id).filter(player => player.status === 'queued')
-      .sort((a, b) => fromIso(a.joinedAt) - fromIso(b.joinedAt));
+    const waiting = this.store.listQueuedPlayers(event.id);
     waiting.forEach((player, index) => {
       this.store.updatePlayer(player.id, { heat: state.heat + (index >= event.maxPlayers ? 1 : 0),
         slot: index < event.maxPlayers ? index + 1 : null,
@@ -847,7 +900,7 @@ export class GameEngine extends EventEmitter {
           if (passed(current.readyDeadline)) {
             const ready = this._readyPlayers(currentEvent, current);
             if (ready.length >= currentEvent.minPlayers) this._maybeAutoStart(context);
-            else { current.readyDeadline = toIso(time + currentEvent.joinSeconds * 1000); touch(); }
+            else { current.readyDeadline = null; touch(); }
           }
           break;
         }

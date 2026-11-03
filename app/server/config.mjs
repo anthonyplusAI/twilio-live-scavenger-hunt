@@ -71,6 +71,8 @@ function normalizeLeadCapture(raw, previous) {
     return { id, label, type: choice(field?.type, LEAD_TYPES, 'lead field type'), required: Boolean(field?.required) };
   });
   const enabled = Boolean(value.enabled), guideEnabled = Boolean(value.guideEnabled), expertEnabled = Boolean(value.expertEnabled);
+  if (enabled && !normalized.some(field => field.type === 'email' || field.type === 'tel'))
+    fail('Add an email or phone field for lead capture.');
   if (enabled && guideEnabled && !normalized.some(field => field.type === 'email' && field.required))
     fail('The build guide needs a required email field.');
   if (enabled && expertEnabled && !normalized.some(field => field.type === 'email' || field.type === 'tel'))

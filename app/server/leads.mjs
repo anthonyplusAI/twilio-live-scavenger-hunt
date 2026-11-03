@@ -9,7 +9,9 @@ export function validateLead(event, player, input, state, now = new Date()) {
   const settings = event.leadCapture;
   if (!settings?.enabled) fail('Lead requests are turned off for this event.', 'lead_disabled');
   const intent = String(input?.intent || '');
-  if ((intent !== 'guide' || !settings.guideEnabled) && (intent !== 'expert' || !settings.expertEnabled))
+  if (!['capture', 'guide', 'expert'].includes(intent) ||
+      (intent === 'guide' && !settings.guideEnabled) ||
+      (intent === 'expert' && !settings.expertEnabled))
     fail('This follow-up option is unavailable.', 'lead_disabled');
   const supplied = input?.fieldValues;
   if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) fail('Enter the requested fields.');
@@ -43,15 +45,49 @@ export function validateLead(event, player, input, state, now = new Date()) {
     participantId: player.id, heatId: state.heatId || null,
     fieldValues, fieldSnapshot: structuredClone(settings.fields),
     name, email, phone, company, marketingOptIn,
-    consentVersion: 'signal-stadium-leads-v1',
-    deliveryStatus: intent === 'expert' ? 'operator-follow-up' : 'pending-configuration',
+    consentVersion: intent === 'capture' ? 'live-scavenger-hunt-join-v2' : 'signal-stadium-leads-v1',
+    deliveryStatus: intent === 'capture' ? 'not-requested' : intent === 'expert' ? 'operator-follow-up' : 'pending-configuration',
   };
 }
 
 export async function submitLead({ store, engine, integrations, slug, token, input }) {
   const event = engine.event(slug);
   const player = engine.player(slug, token);
+  const intent = String(input?.intent || '');
+  if (!['guide', 'expert'].includes(intent)) fail('Choose a follow-up option.');
+  if (!event.leadCapture?.enabled ||
+      (intent === 'guide' && !event.leadCapture.guideEnabled) ||
+      (intent === 'expert' && !event.leadCapture.expertEnabled))
+    fail('This follow-up option is unavailable.', 'lead_disabled');
   const runtime = store.getRuntime(event.id) || { heatId: null };
+  const captured = store.findCapturedLead(event.id, player.id);
+  if (captured) {
+    if (intent === 'guide' && !captured.email) fail('The build guide needs an email address.');
+    let activity = null, updated = captured;
+    store.transaction(() => {
+      const current = store.getLead(captured.id);
+      if (intent === 'guide' ? current.guideRequestedAt : current.expertRequestedAt) {
+        updated = current;
+        return;
+      }
+      updated = store.markLeadRequest(current.id, intent, new Date().toISOString(), runtime.heatId);
+      activity = store.recordActivity(event.id, 'lead_submitted', {
+        playerId: player.id, heatId: runtime.heatId, intent,
+        marketingOptIn: updated.marketingOptIn,
+      });
+    });
+    if (activity) integrations.track(activity);
+    if (!activity) return {
+      leadId: updated.id,
+      deliveryStatus: intent === 'expert' ? 'operator-follow-up' : updated.deliveryStatus,
+    };
+    if (intent === 'expert') return { leadId: updated.id, deliveryStatus: 'operator-follow-up' };
+    const status = await integrations.sendGuide({ ...updated, intent: 'guide' }, event);
+    store.updateLeadDelivery(updated.id, status);
+    return { leadId: updated.id, deliveryStatus: status };
+  }
+
+  // Sessions opened before the join form changed can still submit the old request form.
   const lead = validateLead(event, player, input, runtime);
   const stored = store.transaction(() => {
     const previous = store.findRecentLead(event.id, lead.intent, player.id, { email: lead.email, phone: lead.phone });

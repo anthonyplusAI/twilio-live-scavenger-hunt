@@ -11,7 +11,7 @@ const PRODUCT_LINK_KEYS = ['video', 'messaging', 'segment'];
 const ENGAGEMENT_TYPES = new Set([
   'player_joined', 'result_viewed', 'cta_opened', 'guide_cta_opened',
   'expert_cta_opened', 'twilio_product_link_opened', 'github_cta_opened',
-  'lead_form_opened', 'lead_submitted', 'vote_accepted',
+  'lead_form_opened', 'lead_captured', 'lead_submitted', 'vote_accepted',
 ]);
 
 function validateDate(value, label) {
@@ -82,7 +82,7 @@ function countDistinct(rows, keys) {
   });
   return found.size;
 }
-function summaryFor(activity, leads) {
+function summaryFor(activity, leads, followups) {
   const byType = type => activity.filter(row => row.type === type);
   const joins = byType('player_joined'), starts = byType('heat_started'), ends = byType('heat_completed'), votes = byType('vote_accepted');
   const cta = byType('cta_opened'), specificCta = [...byType('guide_cta_opened'), ...byType('expert_cta_opened')];
@@ -116,8 +116,8 @@ function summaryFor(activity, leads) {
     creativeVotes: votes.filter(row => row.properties?.windowType === 'creative').length,
     ballotVisitors: countDistinct(byType('vote_page_opened'), ['sessionId', 'participantId']),
     leads: leads.length,
-    guideRequests: leads.filter(row => row.intent === 'guide').length,
-    expertRequests: leads.filter(row => row.intent === 'expert').length,
+    guideRequests: followups.guideRequests,
+    expertRequests: followups.expertRequests,
     marketingOptIns: leads.filter(row => row.marketingOptIn === true).length,
     ctaClicks: cta.length || specificCta.length,
     twilioProductLinkClicks: productLinks.length,
@@ -133,7 +133,12 @@ function summaryFor(activity, leads) {
 export function buildReport(store, filters = {}) {
   const context = resolveFilters(store, filters);
   const activity = store.listActivity(context.eventId).filter(row => insideRange(row.at, context)).map(publicActivity);
-  const leads = store.listLeads(context.eventId).filter(row => insideRange(row.createdAt, context));
+  const leadRecords = store.listLeads(context.eventId);
+  const leads = leadRecords.filter(row => insideRange(row.createdAt, context));
+  const requestCounts = rows => ({
+    guideRequests: rows.filter(row => row.guideRequestedAt && insideRange(row.guideRequestedAt, context)).length,
+    expertRequests: rows.filter(row => row.expertRequestedAt && insideRange(row.expertRequestedAt, context)).length,
+  });
   const eventRows = context.allEvents.map(event => ({
     id: event.id, slug: event.slug, name: event.name,
     revision: event.revision, timeZone: event.timeZone || 'UTC',
@@ -142,9 +147,10 @@ export function buildReport(store, filters = {}) {
   }));
   const byEvent = context.selectedEvents.map(event => ({
     id: event.id, slug: event.slug, name: event.name, timeZone: event.timeZone || 'UTC',
-    ...summaryFor(activity.filter(row => row.eventId === event.id), leads.filter(row => row.eventId === event.id)),
+    ...summaryFor(activity.filter(row => row.eventId === event.id), leads.filter(row => row.eventId === event.id),
+      requestCounts(leadRecords.filter(row => row.eventId === event.id))),
   }));
-  const summary = { events: context.selectedEvents.length, ...summaryFor(activity, leads), byEvent };
+  const summary = { events: context.selectedEvents.length, ...summaryFor(activity, leads, requestCounts(leadRecords)), byEvent };
   return { summary, activity, leads, events: eventRows };
 }
 
@@ -196,6 +202,7 @@ export function exportCsv(store, filters = {}) {
     'created_at', 'event_id', 'event_slug', 'event_name', 'lead_id', 'intent',
     'participant_id', 'heat_id', 'name', 'email', 'phone', 'company',
     'marketing_opt_in', 'consent_version', 'delivery_status',
+    'guide_requested_at', 'expert_requested_at',
     'field_snapshot_json', 'field_values_json', ...fieldIds.map(id => `field:${id}`),
   ];
   const rows = report.leads.map(lead => {
@@ -204,6 +211,7 @@ export function exportCsv(store, filters = {}) {
       lead.createdAt, lead.eventId, event.slug, event.name, lead.id, lead.intent,
       lead.participantId, lead.heatId, lead.name, lead.email, lead.phone, lead.company,
       lead.marketingOptIn ? 'yes' : 'no', lead.consentVersion, lead.deliveryStatus,
+      lead.guideRequestedAt, lead.expertRequestedAt,
       JSON.stringify(lead.fieldSnapshot || []), JSON.stringify(lead.fieldValues || {}),
       ...fieldIds.map(id => valueForField(lead, id)),
     ];

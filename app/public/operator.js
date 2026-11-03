@@ -249,7 +249,7 @@ function setEventStep(step) {
   const sections = {
     basics: ["Game", "Booth and timing", "Set the event name, roster size, and round clock."],
     rules: ["Rules", "Heat rules", "Choose when a heat starts and how winners are decided."],
-    leads: ["Leads", "Lead capture", "Configure the optional form shown after a heat."],
+    leads: ["Leads", "Lead capture", "Choose what players share before their camera check."],
     systems: ["Systems", "Audience and delivery", "Set voting, messaging, data retention, and readiness."],
   };
   const [kicker, title, description] = sections[step] || sections.basics;
@@ -512,9 +512,8 @@ function updateMessagingPreview() {
 }
 function updateLeadControls() {
   const enabled = $("lead-enabled").checked;
-  const offers = $("lead-guide").checked || $("lead-expert").checked;
   $("lead-pane").classList.toggle("is-off", !enabled);
-  $("lead-visibility").textContent = !enabled ? "Player form off" : offers ? "Player form on" : "No follow-up offer";
+  $("lead-visibility").textContent = enabled ? "Join form on" : "Join form off";
 }
 function leadFieldPageSize() { return innerWidth <= 360 && innerHeight <= 600 ? 2 : 3; }
 function renderLeadFields() {
@@ -724,6 +723,7 @@ function validateEvent() {
     ids.add(field.id);
     labels.add(label.toLowerCase());
   }
+  if (lead.enabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add an email or phone field for join-time lead capture.";
   if (lead.enabled && lead.guideEnabled && !lead.fields.some((field) => field.type === "email" && field.required)) return "The build guide needs a required email field.";
   if (lead.enabled && lead.expertEnabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add email or phone for expert requests.";
   if (lead.enabled && lead.marketingOptIn && !lead.fields.some((field) => field.type === "email")) return "Add an email field for email updates.";

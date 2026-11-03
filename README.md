@@ -39,16 +39,18 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display, checks their phone camera, and joins the heat. The phone checks the 2–20 character name and display consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
+A visitor scans the arena's prominent **Scan to play** QR and enters a screen name. If the event enables lead capture, the same join flow asks for the admin-configured contact fields. When the visitor saves their spot, the player and lead are stored together **before** the camera check. They then allow camera access and go live. With capture switched off, joining asks only for a screen name and display consent. A visitor can choose **Watch and vote instead** without filling out the player form. The arena adjusts its portrait-card layout to the number of players, and the phone requests portrait capture; when a browser returns a landscape track, it makes a portrait stream for the preview and Twilio publishing if canvas capture is supported. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
+
+When all configured player spots are occupied, or a heat has locked, a new visitor enters the next-heat waitlist with their camera off. Their phone shows a private, exact place in line and a capacity-based estimate in heats; the app does not promise a minute countdown because booth pauses and judging can vary. The oldest waiting visitor takes the next open lobby spot when someone leaves, is removed, times out, or an admin increases capacity. New arrivals cannot jump ahead. At the next heat, the oldest queued visitors get the available spots and reconnect their cameras.
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and voluntarily request a guide or a conversation with the booth team. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot. Joining and voting never require a lead form.
+Spectators can take part through a web ballot without providing player details. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and optionally request a guide or a conversation with the booth team using the details saved at join. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot.
 
 | Booth moment | What the app does |
 | --- | --- |
 | **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
-| **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
+| **Keep the race fair** | The server seals the prompt until GO. In the Flexible and After wait modes, the join timer starts when the configured minimum is ready; more players can join until it expires. The waitlist fills vacated lobby spots in join order. An operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
 | **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts admin access. |
 | **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
@@ -73,6 +75,12 @@ These are **visual previews with illustrated stand-ins**, captured from the runn
 
 The motion plays in the browser: the arena spotlights a first find and acknowledges the other players; the winning phone gets a medal and a short confetti burst. The non-winner's phone clearly identifies the outcome and winner. Ties and no-match outcomes have their own result states. Motion reduces automatically when the device requests reduced motion.
 
+The lobby shows how many players are ready and whether it is waiting for the minimum or giving others time to join:
+
+![Local rehearsal arena lobby showing one ready player, the need for one more, and the scan-to-play QR](docs/visuals/live-scavenger-hunt-arena-lobby.png)
+
+<p align="center"><em>Local visual preview with illustrated player spots; no live camera feed is shown.</em></p>
+
 The wall also rearranges for traffic at the booth:
 
 ![Six-player Live Scavenger Hunt arena preview with a secondary GitHub star QR](docs/visuals/live-scavenger-hunt-arena-6-players.png)
@@ -86,21 +94,24 @@ After starting the app, open the read-only [four-player hunt](http://127.0.0.1:6
 The arena keeps the game QR large and gives the [source repository](https://github.com/anthonyplusAI/twilio-live-scavenger-hunt) a smaller star card with its own QR on booth displays. The player phone and spectator ballot keep **Star on GitHub** visible in their compact footers. Admin reports attribute GitHub referrals to the phone, ballot, wall QR, or wall link; they count outbound taps and scans, not confirmed visits or stars.
 
 <table>
-  <tr><th>Player phone · before joining</th><th>Player phone · consent check</th><th>Spectator phone · between ballots</th></tr>
+  <tr><th>Player phone · before joining</th><th>Player phone · join details</th><th>Spectator phone · between ballots</th></tr>
   <tr>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player join preview with an illustrated phone camera spot and Star on GitHub footer link" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player consent form showing an inline reminder to check display consent and the GitHub star footer" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player join form with screen name, configurable contact fields, and a GitHub star footer" width="300"></td>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-vote.png" alt="Spectator ballot preview waiting for the next vote, with a Star on GitHub footer link" width="300"></td>
   </tr>
 </table>
 
-<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the consent screen shows the missing-checkbox message; the spectator ballot is waiting for its next vote.</em></p>
+<p align="center"><em>Local visual previews. The player portrait is an illustration, not a live camera feed. The join form shows configured fields before the camera check; the spectator ballot is waiting for its next vote.</em></p>
+
+<p align="center"><img src="docs/visuals/live-scavenger-hunt-phone-waitlist.png" alt="Local rehearsal phone waitlist preview showing the player's private first place in line and an expected next-heat estimate" width="300"></p>
+<p align="center"><em>Local visual preview of the waitlist. The card shows a queue rank and an estimate in heats, not a live camera feed or a guaranteed time.</em></p>
 
 ## Twilio product story
 
 The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path.
 
-Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link is visible from joining through the result and product story, including the optional follow-up form.
+Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link is visible from joining through the result and product story. Guide and expert requests use the contact details already saved at join; they do not open another form.
 
 <table>
   <tr><th>Dark display</th><th>Light display</th></tr>
@@ -110,7 +121,7 @@ Each product panel links to its official Twilio page: [Video](https://www.twilio
   </tr>
 </table>
 
-<p align="center"><em>Read-only visual previews with lead capture off. When an event enables lead capture, its configured guide and expert request actions appear below the product story.</em></p>
+<p align="center"><em>Read-only visual previews with lead capture off. When an event enables lead capture, guide and expert request actions use the details collected during joining.</em></p>
 
 | Product | Role in the activation | Setup state |
 | --- | --- | --- |
@@ -123,7 +134,7 @@ Optional **OpenAI vision** can assess camera evidence for prompts that cannot be
 
 ## Player safety and booth control
 
-Players have a visible **Leave** action while queued or playing. Leaving releases their spot and turns off their camera. A phone left idle in the queue, lobby, paused heat, or operator review asks “Still here?” after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
+Players have a visible **Leave** action from the camera check onward, while queued, or while playing. Leaving releases their spot and turns off their camera. A reserved spot waiting at the camera check asks “Still here?” after one minute and releases the spot 30 seconds later. A phone left idle in the queue, lobby, paused heat, or operator review asks after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
 
 Staff can open **Manage players** in the operator view, choose a current or queued player, and confirm removal. Removal clears the slot, requests a Twilio Video disconnect when configured, invalidates that player session, and records a removal metric. The command reports whether the Video disconnect succeeded. This is session-level moderation: a person with a new browser session can scan again, so booth staff should monitor the arena.
 
@@ -170,9 +181,19 @@ Run `npm run check` for the browser build, server tests, and README link check. 
 
 ## Metrics and leads
 
-The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The phone keeps in-progress form fields during arena updates, and its keyboard Go action advances or sends the request. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
+The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. A lead is captured once at join before the camera step, appears in Metrics even if the visitor never requests a guide, and keeps a snapshot of the fields shown. Guide and expert request counts are tracked separately on that lead and use their request dates in the selected Metrics range. The lead total and roster use the capture date. The phone keeps in-progress join fields during arena updates and splits larger forms into short pages on compact screens; the keyboard Go action advances the form or saves the spot. Marketing updates require a separate, unchecked choice.
 
-The app stores event configuration, heat history, votes, metrics, and requested leads in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
+<table>
+  <tr><th>Admin · configurable join fields</th><th>Admin · captured leads</th></tr>
+  <tr>
+    <td><img src="docs/visuals/live-scavenger-hunt-operator-lead-fields.png" alt="Local operator visual preview editing the join form field order and required flags" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-metrics-leads.png" alt="Local metrics visual preview showing leads captured at join and separate guide and expert request counts" width="680"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Local visual previews with synthetic test contacts. They do not show live attendee data.</em></p>
+
+The app stores event configuration, heat history, votes, metrics, and captured leads and follow-up requests in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
 
 ## Architecture
 

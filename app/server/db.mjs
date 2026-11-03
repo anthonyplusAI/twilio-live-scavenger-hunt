@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at TEXT NOT NULL, intent TEXT NOT NULL, participant_id TEXT NOT NULL,
   heat_id TEXT, field_values_json TEXT NOT NULL, field_snapshot_json TEXT NOT NULL,
   name TEXT, email TEXT, phone TEXT, company TEXT, marketing_opt_in INTEGER NOT NULL,
-  consent_version TEXT NOT NULL, delivery_status TEXT NOT NULL DEFAULT 'pending'
+  consent_version TEXT NOT NULL, delivery_status TEXT NOT NULL DEFAULT 'pending',
+  guide_requested_at TEXT, expert_requested_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_leads_event_at ON leads(event_id, created_at);
 CREATE TABLE IF NOT EXISTS users (
@@ -111,6 +112,9 @@ export class Store {
     if (!userColumns.has('google_sub')) this.sql.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
     if (!userColumns.has('email')) this.sql.exec('ALTER TABLE users ADD COLUMN email TEXT');
     this.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+    const leadColumns = new Set(this.sql.prepare('PRAGMA table_info(leads)').all().map(column => column.name));
+    if (!leadColumns.has('guide_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN guide_requested_at TEXT');
+    if (!leadColumns.has('expert_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN expert_requested_at TEXT');
   }
 
   transaction(callback) {
@@ -279,6 +283,11 @@ export class Store {
     return rows.map(row => this.playerFromRow(row));
   }
 
+  listQueuedPlayers(eventId) {
+    return this.sql.prepare("SELECT * FROM players WHERE event_id=? AND status='queued' ORDER BY joined_at, rowid")
+      .all(eventId).map(row => this.playerFromRow(row));
+  }
+
   upsertHeat(heat) {
     this.sql.prepare(`INSERT INTO heats(id,event_id,heat,prompt_json,rules_json,phase,started_at,go_at,ended_at,winners_json,candidate_json)
       VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET phase=excluded.phase,go_at=excluded.go_at,
@@ -374,6 +383,8 @@ export class Store {
       name: row.name || '', email: row.email || '', phone: row.phone || '', company: row.company || '',
       marketingOptIn: Boolean(row.marketing_opt_in), consentVersion: row.consent_version,
       deliveryStatus: row.delivery_status,
+      guideRequestedAt: row.guide_requested_at || (row.intent === 'guide' ? row.created_at : null),
+      expertRequestedAt: row.expert_requested_at || (row.intent === 'expert' ? row.created_at : null),
     };
   }
 
@@ -387,6 +398,23 @@ export class Store {
   getLead(id) {
     const row = this.sql.prepare('SELECT * FROM leads WHERE id=?').get(id);
     return row ? this.leadFromRow(row) : null;
+  }
+
+  findCapturedLead(eventId, participantId) {
+    const row = this.sql.prepare("SELECT * FROM leads WHERE event_id=? AND participant_id=? AND intent='capture' ORDER BY created_at DESC LIMIT 1")
+      .get(eventId, participantId);
+    return row ? this.leadFromRow(row) : null;
+  }
+
+  markLeadRequest(id, intent, at, heatId = null) {
+    if (intent === 'guide') {
+      this.sql.prepare("UPDATE leads SET guide_requested_at=?, heat_id=COALESCE(heat_id,?), delivery_status='sending' WHERE id=? AND guide_requested_at IS NULL")
+        .run(at, heatId, id);
+    } else if (intent === 'expert') {
+      this.sql.prepare("UPDATE leads SET expert_requested_at=?, heat_id=COALESCE(heat_id,?), delivery_status=CASE WHEN guide_requested_at IS NULL THEN 'operator-follow-up' ELSE delivery_status END WHERE id=? AND expert_requested_at IS NULL")
+        .run(at, heatId, id);
+    } else throw new Error('Unknown lead request.');
+    return this.getLead(id);
   }
 
   findRecentLead(eventId, intent, participantId, contact, seconds = 60) {
