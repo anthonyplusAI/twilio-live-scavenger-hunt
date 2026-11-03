@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000d25">
+<title>Signal Stadium / Control room</title>
+<style>
+:root{color-scheme:dark;--ink:#000d25;--night:#060f25;--panel:#0c1932;--lift:#152542;--line:#2b3e5e;--line2:#526a8b;--white:#f3f4f7;--muted:#a0acc0;--dim:#71829e;--red:#ef223a;--ice:#b5e7ff;font-family:"Twilio Sans Text","Avenir Next",Avenir,system-ui,sans-serif}
+*{box-sizing:border-box}html,body{height:100%;width:100%;margin:0;overflow:hidden}body{background:var(--ink);color:var(--white)}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.42}button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+.app{height:100dvh;display:grid;grid-template-columns:82px minmax(0,1fr);overflow:hidden}.rail{background:#060e23;border-right:1px solid #263653;display:flex;flex-direction:column;align-items:center;padding:19px 8px 14px;gap:30px}.bug img{width:38px;height:38px;display:block}.rail-nav{width:100%;display:flex;flex-direction:column;gap:7px}.nav{height:68px;width:100%;border:1px solid transparent;border-radius:12px;background:transparent;color:#8f9eb7;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}.nav:hover{background:#1a2b49;color:white}.nav.active{background:#1b2d4c;color:white;border-color:#40587a;box-shadow:inset 3px 0 var(--red)}.nav svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.nav span{font-size:10px;font-weight:700}.rail-foot{margin-top:auto;writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.2em;font-size:10px;font-weight:700;color:#657693}
+.workbench{min-width:0;min-height:0;display:grid;grid-template-rows:68px minmax(0,1fr)}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 22px;border-bottom:1px solid #253550;background:#07112a}.top-left,.top-actions{display:flex;align-items:center;gap:17px;min-width:0}.showmark{display:flex;align-items:center;gap:10px;white-space:nowrap;font-family:"Twilio Sans Display","Arial Black",system-ui,sans-serif;font-size:14px;font-weight:800;letter-spacing:.04em}.showmark i{width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 0 5px #ef223a22}.top-rule{height:28px;width:1px;background:#3d4e6c}.top-event{display:flex;flex-direction:column;min-width:0}.top-event strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.top-event small{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}.save-state{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}.save-state.saved:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ice);margin-right:7px;vertical-align:1px}.save-state.error{color:#ffb3bf}.wall-link{color:white;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;border:1px solid var(--line2);border-radius:9px;padding:9px 12px}.wall-link:hover{background:#203453}
+.canvas{min-height:0;overflow:hidden;padding:16px}.view{display:none;height:100%;min-height:0}.view.active{display:block;animation:appear .26s ease-out both}@keyframes appear{from{opacity:.6;transform:translateY(4px)}to{opacity:1;transform:none}}
+.eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:var(--muted)}.display{font-family:"Twilio Sans Display","Arial Black",system-ui,sans-serif;font-weight:800;letter-spacing:-.035em}.muted{color:var(--muted)}
+.btn{height:41px;min-width:0;border:1px solid transparent;border-radius:10px;padding:0 13px;background:#1a2b48;color:white;font-size:12px;font-weight:700;white-space:nowrap;transition:background .16s,transform .16s}.btn:hover:not(:disabled){background:#304869}.btn:active:not(:disabled){transform:translateY(1px)}.btn.primary{background:var(--red)}.btn.primary:hover:not(:disabled){background:#d71931}.btn.outline{background:transparent;border-color:#647c9e}.btn.quiet{background:transparent;color:#b2c1d4}.select,.input{width:100%;min-width:0;height:42px;border:1px solid #435879;border-radius:9px;background:#14243f;color:var(--white);padding:0 11px;outline:0}.input::placeholder{color:#72849e}.select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='8'%3E%3Cpath d='m1 1 5.5 5L12 1' fill='none' stroke='%23bdc8d8' stroke-width='1.6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:29px}
+.run-layout{height:100%;min-height:0;display:grid;grid-template-columns:minmax(0,1.22fr) minmax(340px,.78fr);gap:14px}.stage{min-height:0;min-width:0;position:relative;overflow:hidden;isolation:isolate;border:1px solid #3a5072;border-radius:20px;background:radial-gradient(circle at 50% 40%,#1c3455 0%,#0e203d 39%,#08172f 68%,#061229 100%);padding:24px;display:flex;flex-direction:column}.stage:before{content:"";position:absolute;z-index:-1;inset:-20%;background:repeating-radial-gradient(circle at 50% 50%,transparent 0 70px,#80a0c71a 71px 72px,transparent 73px 140px)}.stage:after{content:"";position:absolute;bottom:0;left:0;right:0;height:6px;background:repeating-linear-gradient(90deg,var(--red) 0 30px,transparent 30px 35px,#536e98 35px 46px,transparent 46px 52px)}.stage-top{display:flex;justify-content:space-between;gap:10px}.stage-top strong{display:block;margin-top:7px;font-size:clamp(23px,2.3vw,33px);line-height:1}.on-air{align-self:start;border:1px solid #ef223a88;background:#ef223a22;color:#ffe1e5;border-radius:50px;padding:7px 10px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;gap:8px;align-items:center}.on-air i{width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 0 4px #ef223a22}.on-air.quiet{border-color:#526889;background:#1b2e4b;color:var(--muted)}.on-air.quiet i{background:#92a8c6;box-shadow:0 0 0 4px #92a8c622}
+.stage-center{flex:1;min-height:0;display:grid;place-items:center}.dial{--progress:1;width:min(39vw,45vh,420px);aspect-ratio:1;border-radius:50%;padding:3px;display:grid;place-items:center;position:relative;background:conic-gradient(from -90deg,var(--red) calc(var(--progress)*1turn),#2e4666 0);box-shadow:0 0 80px #ef223a10}.dial:before{content:"";position:absolute;inset:-18px;border:1px solid #96b1d025;border-radius:50%}.dial:after{content:"";position:absolute;inset:-36px;border:1px dashed #96b1d020;border-radius:50%}.dial-inner{width:100%;height:100%;border-radius:50%;border:10px solid #0e203b;background:radial-gradient(circle,#132947,#08172f 75%);display:flex;flex-direction:column;align-items:center;justify-content:center}.dial-label,.dial-unit{font-size:10px;font-weight:700;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}.dial-time{font-family:"Twilio Sans Display","Arial Black",system-ui,sans-serif;font-size:clamp(80px,10vw,160px);font-weight:800;letter-spacing:-.1em;line-height:.93;margin:8px 16px 2px 0;font-variant-numeric:tabular-nums}
+.stage-bottom{flex:none;border-top:1px solid #8aa5c444;padding-top:14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(185px,.55fr);align-items:end;gap:14px}.stage-clue strong{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:clamp(22px,2.7vw,36px);line-height:1.05;margin-top:6px}.stage-clue small{display:block;color:var(--muted);font-size:11px;margin-top:5px}.queue-control{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.queue-control label{grid-column:1/-1}.queue-control .btn{padding:0 12px}.metrics{position:absolute;left:24px;right:24px;top:94px;display:flex;gap:17px;pointer-events:none}.metric{color:var(--muted);font-size:10px}.metric b{color:white;font-size:14px;font-variant-numeric:tabular-nums;margin-right:4px}
+.run-ops{min-height:0;display:grid;grid-template-rows:minmax(0,.42fr) minmax(0,.58fr);gap:14px}.ops{min-height:0;overflow:hidden;border:1px solid #2e4262;border-radius:20px;background:var(--panel);padding:19px;display:flex;flex-direction:column}.ops-head{display:flex;justify-content:space-between;gap:10px;align-items:start}.ops h2{margin:5px 0 0;font-size:clamp(22px,2.2vw,29px);line-height:1}.count{font-family:"Twilio Sans Display","Arial Black",system-ui,sans-serif;font-size:37px;font-weight:800;line-height:1}.count span{color:var(--dim);font-size:15px}.ready-track{display:grid;gap:7px;margin:auto 0 13px}.ready-slot{height:clamp(41px,6vh,62px);border:1px solid #3b506e;border-radius:10px;background:#14243e;color:#6f83a1;display:grid;place-items:center;font-size:12px;font-weight:700;position:relative}.ready-slot.ready{background:#2a3e5c;border-color:#7892b6;color:white}.ready-slot.ready:after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--red);bottom:6px}.ready-controls{display:grid;grid-template-columns:40px 40px minmax(0,1fr);gap:6px}.ready-controls .btn{padding:0;font-size:22px}.ready-controls .primary{font-size:12px}.ready-foot{margin-top:9px;display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px}.judge-note{margin:6px 0 12px;color:var(--muted);font-size:11px}.candidate-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,minmax(0,1fr));gap:6px}.candidate{min-height:0;border:1px solid #3c5070;border-radius:9px;background:#14243f;color:#d9e1eb;font-size:11px;font-weight:700}.candidate:hover:not(:disabled){background:#2d4467}.candidate[aria-pressed=true]{border-color:var(--red);background:#5b263d;color:white}.candidate.awarded:after{content:" ★";color:#ffdfe4}.candidate.proposed:after{content:" ◇";color:var(--ice)}.judge-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}.judge-tail{display:flex;justify-content:space-between;margin-top:4px}.judge-tail .btn{height:27px;font-size:10px;padding:0 7px}
+.workspace{height:100%;min-height:0;display:grid;gap:14px}.prompts-workspace{grid-template-columns:minmax(330px,.87fr) minmax(0,1.13fr)}.event-workspace{grid-template-columns:minmax(280px,.53fr) minmax(0,1.47fr)}.surface{min-height:0;overflow:hidden;border:1px solid #2e4262;border-radius:20px;background:var(--panel);padding:21px}.surface-head{display:flex;justify-content:space-between;align-items:start;gap:10px}.surface-head h1,.surface-head h2{margin:7px 0 0;font-size:clamp(23px,2.4vw,34px);line-height:1}.surface-head p{color:var(--muted);font-size:11px;margin:6px 0 0}
+.deck,.editor,.event-settings{display:flex;flex-direction:column}.deck-toolbar{display:flex;align-items:center;gap:8px;margin:18px 0 11px}.deck-toolbar .select{flex:1}.prompt-list{flex:1;min-height:0;display:grid;grid-template-rows:repeat(5,minmax(0,1fr));gap:7px}.prompt-row{min-height:0;min-width:0;width:100%;display:flex;align-items:center;gap:11px;text-align:left;padding:0 13px;border:1px solid #374b6b;border-radius:10px;background:#13233d;color:white}.prompt-row:hover{background:#223756}.prompt-row.active{background:#263c5c;border-color:#a4b8d0;box-shadow:inset 3px 0 var(--red)}.prompt-index{color:#8094b1;font:11px ui-monospace,monospace}.prompt-copy{flex:1;min-width:0}.prompt-copy strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prompt-copy small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.prompt-dot{width:6px;height:6px;border-radius:50%;background:#62718b;flex:none}.prompt-dot.enabled{background:var(--red);box-shadow:0 0 0 4px #ef223a1a}.pagination{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:8px}.pagination .btn{height:29px;padding:0 10px;font-size:16px}
+.editor-banner{padding-bottom:16px;border-bottom:1px solid #334768}.editor-banner h2{margin:6px 0 0;font-size:clamp(23px,2.2vw,32px);line-height:1}.form{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px;padding-top:18px}.field{min-width:0;display:flex;flex-direction:column;gap:7px}.field label,.field-label{font-size:11px;color:#c2cddd;font-weight:700}.prompt-text-label{display:flex;justify-content:space-between;gap:10px}.prompt-text-label span{color:var(--dim);font-variant-numeric:tabular-nums}.field .input,.field .select{height:47px}.field .input.long{height:55px;font-size:17px;font-weight:700}.field-grid{display:grid;grid-template-columns:1fr 1fr .72fr;gap:10px}.hint{font-size:10px;color:var(--dim)}.enabled-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #314666;border-radius:10px;background:#13233c;padding:12px 14px}.enabled-row strong{font-size:12px}.enabled-row small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.switch{position:relative;display:block;width:42px;height:24px;flex:none}.switch input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}.switch span{display:block;width:100%;height:100%;border-radius:50px;background:#4a5e7c;transition:background .17s}.switch span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:white;transition:transform .17s}.switch input:checked+span{background:var(--red)}.switch input:checked+span:after{transform:translateX(18px)}.switch input:focus-visible+span{outline:2px solid var(--ice);outline-offset:2px}.editor-actions{display:flex;gap:7px;margin-top:auto}.editor-actions .quiet{margin-left:auto}
+.event-identity{display:flex;flex-direction:column;position:relative;background:radial-gradient(circle at 80% 20%,#36547d50,transparent 49%),var(--panel)}.event-identity:after{content:"";position:absolute;width:280px;height:280px;border:1px solid #8fb1d133;border-radius:50%;right:-100px;bottom:-125px;box-shadow:0 0 0 50px #8fb1d10a,0 0 0 100px #8fb1d107;pointer-events:none}.event-identity h1{position:relative;z-index:1;max-width:340px;font-size:clamp(38px,4vw,62px);line-height:.96;margin:18px 0 0}.event-identity p{position:relative;z-index:1;max-width:280px;color:var(--muted);font-size:12px;line-height:1.5}.event-picker{position:relative;z-index:1;margin-top:auto;display:grid;gap:8px}.event-picker-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.event-settings .surface-head{margin-bottom:14px}.event-form{flex:1;min-height:0;display:flex;flex-direction:column;gap:13px}.settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.settings-grid .field:first-child{grid-column:1/-1}.settings-grid .input{font-variant-numeric:tabular-nums}.setting-label{display:flex;justify-content:space-between;gap:9px;color:#c2cddd;font-size:11px;font-weight:700;margin-bottom:7px}.setting-label small{font-weight:400;color:var(--dim)}.start-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.start-option{position:relative;min-width:0}.start-option input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}.start-option span{display:block;min-height:72px;height:100%;border:1px solid #405575;border-radius:10px;background:#13233c;padding:10px}.start-option b{display:block;font-size:11px}.start-option em{display:block;font-style:normal;font-size:10px;color:var(--muted);line-height:1.25;margin-top:5px}.start-option input:checked+span{border-color:var(--red);box-shadow:inset 0 3px var(--red);background:#2c2b45}.start-option input:focus-visible+span{outline:2px solid var(--ice);outline-offset:2px}.policy-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,.75fr);gap:10px;align-items:end}.auto-row{height:47px}.auto-row small{white-space:nowrap}.event-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto}.event-actions .muted{font-size:11px}
+.event-step-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:-4px 0 4px}.event-step-tabs button{height:35px;border:1px solid #405575;border-radius:8px;background:#13233c;color:var(--muted);font-size:11px;font-weight:700}.event-step-tabs button.active{border-color:var(--red);background:#2b2943;color:white;box-shadow:inset 0 2px var(--red)}.event-step-tabs button:focus-visible{outline:2px solid var(--ice);outline-offset:2px}.event-pane{display:none;min-height:0}.event-form[data-step="basics"] [data-event-pane="basics"]{display:grid}.event-form[data-step="rules"] [data-event-pane="rules"]{display:flex}.event-form[data-step="leads"] [data-event-pane="leads"]{display:grid}.rules-pane{flex-direction:column;justify-content:center;gap:18px}.lead-pane{grid-template-columns:1fr 1fr;grid-template-areas:"master fields" "ctas fields" "note marketing";align-content:start;gap:12px 15px}.lead-master{grid-area:master}.lead-ctas{grid-area:ctas;display:grid;grid-template-columns:1fr 1fr;gap:8px}.lead-fields{grid-area:fields;display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start}.lead-fields .field:last-child{grid-column:1/-1}.lead-fields .select{height:41px}.lead-fields .field label{font-size:11px}.lead-marketing{grid-area:marketing}.lead-note{grid-area:note;margin:0;color:var(--muted);font-size:10px;line-height:1.35}.lead-pane.is-off .lead-ctas,.lead-pane.is-off .lead-fields,.lead-pane.is-off .lead-marketing{opacity:.42}.lead-pane .enabled-row{padding:10px}.lead-pane .enabled-row small{line-height:1.25}.compact-tabs{display:none}.toast{position:fixed;z-index:9;top:80px;left:50%;transform:translate(-50%,-10px);background:var(--white);color:#06142b;border-radius:9px;padding:10px 14px;box-shadow:0 18px 40px #0008;font-size:12px;font-weight:700;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;max-width:calc(100vw - 30px);text-align:center}.toast.show{opacity:1;transform:translate(-50%,0)}.toast.error{background:#ffe0e5;color:#5d0c18}
+@media(max-width:1100px){.stage-bottom{grid-template-columns:1fr;gap:9px}.queue-control{max-width:330px}.stage{padding:18px}.surface{padding:17px}.stage-clue strong{font-size:26px}.event-workspace{grid-template-columns:minmax(245px,.5fr) minmax(0,1.5fr)}.start-option span{min-height:82px}}
+@media(max-width:760px){.app{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 64px}.rail{grid-row:2;grid-column:1;flex-direction:row;justify-content:center;padding:5px 9px calc(5px + env(safe-area-inset-bottom));border-right:0;border-top:1px solid #2b3e5b;gap:0}.bug,.rail-foot{display:none}.rail-nav{width:100%;max-width:520px;flex-direction:row;gap:5px}.nav{height:50px;width:33.33%;flex-direction:row;gap:6px}.nav.active{box-shadow:inset 0 3px var(--red)}.nav span{font-size:11px}.workbench{grid-row:1;grid-column:1;grid-template-rows:57px minmax(0,1fr)}.topbar{padding:0 12px;gap:7px}.showmark{font-size:11px;gap:7px}.showmark i{width:6px;height:6px}.top-rule,.top-event small,.save-state{display:none}.top-left,.top-actions{gap:8px}.top-event strong{font-size:10px;max-width:85px}.wall-link{font-size:10px;padding:7px 8px}.canvas{padding:8px}.run-layout{grid-template-columns:1fr;grid-template-rows:minmax(0,.39fr) minmax(0,.61fr);gap:8px}.stage{border-radius:15px;padding:11px 13px}.stage-top strong{font-size:19px;margin-top:3px}.on-air{font-size:8px;padding:5px 7px}.metrics{top:66px;left:13px;right:130px;gap:9px}.metric{font-size:8px;white-space:nowrap}.metric b{font-size:11px}.stage-center{position:absolute;top:37px;right:16px;width:112px;height:112px}.dial{width:98px}.dial:before{inset:-7px}.dial:after{display:none}.dial-inner{border-width:5px}.dial-label{display:none}.dial-time{font-size:47px;margin:1px 5px 0 0}.dial-unit{font-size:7px}.stage-bottom{display:block;width:100%;margin-top:auto;padding-top:7px}.stage-clue{padding-right:125px;min-height:39px}.stage-clue .eyebrow{font-size:8px}.stage-clue strong{font-size:17px;margin-top:3px}.stage-clue small{display:none}.queue-control{max-width:none;grid-template-columns:minmax(0,1fr) auto;margin-top:5px;gap:5px}.queue-control label{display:none}.queue-control .select,.queue-control .btn{height:31px;font-size:10px;border-radius:7px}.run-ops{grid-template-rows:minmax(0,.43fr) minmax(0,.57fr);gap:8px}.ops{border-radius:15px;padding:11px}.eyebrow{font-size:8px}.ops h2{font-size:19px;margin-top:3px}.count{font-size:26px}.count span{font-size:12px}.ready-track{gap:5px;margin:auto 0 7px}.ready-slot{height:31px;border-radius:7px;font-size:10px}.ready-slot.ready:after{width:3px;height:3px;bottom:3px}.ready-controls{grid-template-columns:32px 32px minmax(0,1fr);gap:5px}.ready-controls .btn{height:32px;font-size:18px;border-radius:7px}.ready-controls .primary{font-size:10px}.ready-foot{margin-top:5px;font-size:8px}.judge-note{font-size:9px;margin:4px 0 6px}.candidate-grid{gap:5px}.candidate{font-size:9px;border-radius:7px}.judge-actions{margin-top:6px;gap:5px}.judge-actions .btn{height:33px;font-size:10px;padding:0 5px;border-radius:7px}.judge-tail{margin-top:2px}.judge-tail .btn{height:23px;font-size:9px}.workspace{gap:8px}.prompts-workspace{grid-template-columns:1fr;grid-template-rows:minmax(0,.43fr) minmax(0,.57fr)}.event-workspace{grid-template-columns:1fr;grid-template-rows:120px minmax(0,1fr)}.surface{border-radius:15px;padding:11px}.surface-head h1,.surface-head h2{font-size:21px;margin-top:4px}.surface-head p{font-size:9px;margin-top:3px}.surface-head .btn{height:32px;font-size:10px;padding:0 9px}.deck-toolbar{margin:6px 0 6px;gap:6px}.deck-toolbar .select{height:32px;font-size:10px}.deck-toolbar .eyebrow{font-size:8px}.prompt-list{grid-template-rows:repeat(3,minmax(0,1fr));gap:4px}.prompt-row{padding:0 8px;gap:7px;border-radius:7px}.prompt-copy strong{font-size:10px}.prompt-copy small{display:none}.prompt-index{font-size:9px}.pagination{margin-top:3px;font-size:9px}.pagination .btn{height:24px}.editor-banner{padding-bottom:6px}.editor-banner h2{font-size:20px;margin-top:3px}.form{gap:7px;padding-top:8px}.field{gap:3px}.field label,.field-label{font-size:9px}.field .input,.field .select{height:34px;font-size:10px;border-radius:7px;padding:0 7px}.field .input.long{height:38px;font-size:12px}.field-grid{gap:5px;grid-template-columns:1fr 1fr .67fr}.hint{display:none}.enabled-row{min-height:35px;padding:5px 8px;border-radius:7px}.enabled-row strong{font-size:10px}.enabled-row small{display:none}.switch{width:36px;height:20px}.switch span:after{width:14px;height:14px}.switch input:checked+span:after{transform:translateX(16px)}.editor-actions{gap:5px}.editor-actions .btn{height:32px;font-size:9px;padding:0 6px;border-radius:7px}.event-identity h1{font-size:23px;max-width:none;margin:5px 0 0}.event-identity p{display:none}.event-identity:after{width:160px;height:160px;right:-50px;bottom:-100px}.event-picker{gap:4px}.event-picker .field-label{display:none}.event-picker-row .select,.event-picker-row .btn{height:32px;font-size:10px;border-radius:7px}.event-settings .surface-head{margin-bottom:6px}.event-form{gap:7px}.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.settings-grid .field:first-child{grid-column:1/-1}.settings-grid .input{height:32px}.setting-label{font-size:10px;margin-bottom:4px}.setting-label small{display:none}.start-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.start-option span{min-height:40px;padding:5px 7px;border-radius:7px}.start-option b{font-size:10px}.start-option em{font-size:8px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.policy-row{grid-template-columns:1fr;gap:5px}.policy-row .select{height:32px}.auto-row{height:34px}.event-actions .muted{font-size:9px}.event-actions .btn{height:32px;font-size:10px;padding:0 8px}.toast{top:65px}}
+@media(max-height:700px) and (min-width:761px){.workbench{grid-template-rows:56px minmax(0,1fr)}.canvas{padding:9px}.stage,.surface,.ops{padding:13px}.dial{width:min(34vw,38vh,310px)}.dial-time{font-size:clamp(70px,9vw,120px)}.prompt-list{grid-template-rows:repeat(4,minmax(0,1fr))}.ready-slot{height:36px}.judge-note{margin-bottom:5px}.event-form,.form{gap:8px}.start-option span{min-height:58px}}
+@media(max-height:700px) and (max-width:760px){.app{grid-template-rows:minmax(0,1fr) 53px}.rail{padding:2px 8px}.nav{height:43px}.workbench{grid-template-rows:47px minmax(0,1fr)}.run-layout{grid-template-rows:minmax(0,.35fr) minmax(0,.65fr)}.stage-center{top:25px}.stage-bottom{padding-top:3px}.run-ops{grid-template-rows:minmax(0,.43fr) minmax(0,.57fr)}.ready-foot,.judge-note{display:none}.prompts-workspace{grid-template-rows:minmax(0,.38fr) minmax(0,.62fr)}.prompt-list{grid-template-rows:repeat(2,minmax(0,1fr))}.event-workspace{grid-template-rows:92px minmax(0,1fr)}.event-identity h1{font-size:18px}.event-form{gap:4px}.start-option span{min-height:31px;padding:3px 5px}.auto-row{height:29px}}
+@media(max-height:700px) and (max-width:760px){.event-workspace{grid-template-rows:61px minmax(0,1fr)}.event-identity .eyebrow,.event-identity h1,.event-settings .surface-head p,.event-actions .muted{display:none}.event-picker{margin-top:0;height:100%;justify-content:center}.event-settings .surface-head{margin-bottom:3px}}
+@media(max-width:360px) and (max-height:600px){.top-event{display:none}.run-layout{grid-template-rows:minmax(0,.34fr) minmax(0,.66fr)}.stage{padding:8px 10px}.stage-top strong{font-size:17px}.on-air{font-size:7px;padding:4px 5px}.stage-center{top:29px;right:8px;width:78px;height:78px}.dial{width:68px}.dial-time{font-size:31px;margin:0 3px 0 0}.dial-unit{font-size:6px}.metrics{top:58px;left:10px;right:90px;gap:5px}.metric{font-size:7px}.metric b{font-size:9px;margin-right:2px}.stage-bottom{padding-top:3px}.stage-clue{padding-right:80px;min-height:17px}.stage-clue .eyebrow{display:none}.stage-clue strong{font-size:14px;margin-top:0}.queue-control{margin-top:3px}.queue-control .select,.queue-control .btn{height:25px;font-size:8px}.ops{padding:8px}.ops h2{font-size:16px}.count{font-size:20px}.ready-track{margin:2px 0 5px}.ready-slot{height:25px}.ready-controls .btn{height:27px}.candidate-grid{margin-top:3px}.candidate{font-size:8px}.judge-actions{margin-top:4px}.judge-actions .btn{height:26px;font-size:8px}.judge-tail .btn{height:18px;font-size:8px}}
+@media(max-width:360px) and (max-height:600px){.compact-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;height:27px;flex:none}.compact-tabs button{border:1px solid #405575;background:#13233c;color:var(--muted);border-radius:7px;font-size:10px;font-weight:700}.compact-tabs button.active{background:#2b2943;color:white;border-color:var(--red)}#view-prompts.active{display:flex;flex-direction:column;gap:5px}.prompts-workspace{flex:1;height:auto;min-height:0;display:block}.prompts-workspace .surface{height:100%}.prompts-workspace[data-step="deck"] .editor,.prompts-workspace[data-step="edit"] .deck{display:none}.prompts-workspace[data-step="deck"] .prompt-list{grid-template-rows:repeat(5,minmax(0,1fr))}.event-settings .surface-head{margin-bottom:4px}.event-form[data-step="basics"] .start-group,.event-form[data-step="basics"] .policy-row,.event-form[data-step="rules"] .settings-grid{display:none}.event-actions{margin-top:auto}.event-step-tabs{margin:0 0 5px}.event-workspace{grid-template-rows:55px minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+.event-form[data-step="basics"] .start-group,.event-form[data-step="basics"] .policy-row,.event-form[data-step="rules"] .settings-grid,.event-form[data-step="leads"] .settings-grid,.event-form[data-step="leads"] .start-group,.event-form[data-step="leads"] .policy-row{display:none}
+.lead-email-note span{height:41px;display:flex;align-items:center;padding:0 11px;border:1px solid #435879;border-radius:9px;background:#14243f;color:var(--muted);font-size:11px}
+@media(max-width:760px){.nav{width:25%}.event-step-tabs{margin:0 0 2px}.event-step-tabs button{height:28px;font-size:10px}.rules-pane{gap:8px;justify-content:start}.lead-pane{grid-template-columns:1fr;grid-template-areas:"master" "ctas" "fields" "marketing" "note";gap:6px;align-content:start}.lead-fields{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.lead-fields .field:last-child{grid-column:auto}.lead-pane .enabled-row{padding:5px 7px;min-height:33px}.lead-pane .enabled-row strong{font-size:9px}.lead-pane .enabled-row small{display:none}.lead-fields .field label{font-size:9px}.lead-fields .select,.lead-email-note span{height:31px;font-size:9px;padding:0 5px}.lead-email-note span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.lead-note{font-size:8px;line-height:1.2}}
+@media(max-width:360px) and (max-height:600px){.event-step-tabs{margin:0 0 3px}.event-step-tabs button{height:25px;font-size:9px}.lead-pane{gap:4px}.lead-ctas{gap:4px}.lead-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.lead-fields .field:last-child{grid-column:auto}.lead-pane .enabled-row{min-height:26px;padding:3px 5px}.lead-pane .enabled-row strong{font-size:8px}.lead-pane .switch{width:30px;height:17px}.lead-pane .switch span:after{width:11px;height:11px}.lead-pane .switch input:checked+span:after{transform:translateX(13px)}.lead-fields .field label{font-size:8px}.lead-fields .select,.lead-email-note span{height:25px;font-size:8px}.lead-note{font-size:7px}.rules-pane{gap:5px}}
+@media(max-width:360px) and (max-height:600px){.event-step-tabs button{height:28px;font-size:10px}.lead-pane{gap:6px}.lead-pane .enabled-row{min-height:32px;padding:5px 6px}.lead-pane .enabled-row strong{font-size:10px}.lead-fields .field label{font-size:10px}.lead-fields .select,.lead-email-note span{height:30px;font-size:10px}.lead-note{font-size:9px}}
+.event-form[data-step="leads"] #lead-pane{display:flex}
+.lead-pane{min-height:0;flex-direction:column;gap:9px}.lead-step-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:none}.lead-step-tabs button{height:32px;border:1px solid #405575;border-radius:8px;background:#13233c;color:var(--muted);font-size:11px;font-weight:700}.lead-step-tabs button.active{border-color:var(--red);background:#2b2943;color:white;box-shadow:inset 0 2px var(--red)}.lead-step-tabs span{margin-left:5px;color:#c8d5e5}.lead-step{display:none;min-height:0;flex:1}.lead-pane[data-lead-step="capture"] .lead-capture-step{display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"master master" "ctas ctas" "marketing preview" "note note";align-content:start;gap:10px}.lead-pane[data-lead-step="fields"] .lead-fields-step{display:flex;flex-direction:column;gap:8px}.lead-capture-step .lead-master{grid-area:master}.lead-capture-step .lead-ctas{grid-area:ctas}.lead-capture-step .lead-marketing{grid-area:marketing}.lead-capture-step .lead-note{grid-area:note}.lead-preview{grid-area:preview;display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #405575;border-radius:10px;background:#13233c;padding:10px 12px}.lead-preview strong,.lead-fields-head strong{display:block;font-size:12px;color:var(--white)}.lead-preview small,.lead-fields-head small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.lead-preview .btn{height:31px;font-size:10px}.lead-pane.is-off .lead-ctas,.lead-pane.is-off .lead-marketing{opacity:1}.lead-pane.is-off #lead-visibility{color:#b8c8dc}.lead-fields-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none}.lead-limit{font-size:9px;letter-spacing:.13em;font-weight:700;color:var(--dim);white-space:nowrap}.lead-field-list{min-height:0;flex:1;display:grid;grid-template-rows:repeat(3,68px);align-content:start;gap:6px}.lead-field-row{min-width:0;min-height:0;display:grid;grid-template-columns:27px minmax(0,1fr) 74px 26px;gap:8px;align-items:center;border:1px solid #354b6d;border-radius:9px;background:#13243e;padding:7px 9px}.lead-field-order{height:100%;display:flex;flex-direction:column;justify-content:center;gap:3px}.lead-field-order button,.lead-remove{height:23px;width:25px;border:1px solid #4c6384;border-radius:5px;background:#1b304e;color:#dbe7f3;font-size:14px;line-height:1}.lead-field-order button:disabled{opacity:.25}.lead-remove{border-color:#7e5968;color:#ffd9df}.lead-field-main{min-width:0;display:grid;gap:2px}.lead-field-main input{height:28px;font-size:12px;font-weight:700}.lead-field-main small{font-size:9px;color:var(--dim)}.lead-required{display:flex;align-items:center;gap:4px;color:#c8d4e4;font-size:10px;font-weight:700;white-space:nowrap}.lead-required input{accent-color:var(--red);width:15px;height:15px;margin:0}.lead-required .short{display:none}.lead-fields-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;flex:none}.lead-fields-toolbar .select,.lead-fields-toolbar .btn{height:34px;font-size:10px}.lead-fields-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;font-size:10px;color:var(--muted)}.lead-fields-footer>div{display:flex;gap:3px}.lead-fields-footer .btn{height:25px;padding:0 10px;font-size:15px}.lead-fields-note{margin:0;color:var(--muted);font-size:10px;line-height:1.25;flex:none}.lead-field-empty{display:grid;place-content:center;min-height:70px;border:1px dashed #405575;border-radius:9px;color:var(--muted);font-size:11px;text-align:center;grid-row:1/-1}
+@media(max-width:760px){.lead-pane{gap:5px}.lead-step-tabs button{height:28px;font-size:10px}.lead-pane[data-lead-step="capture"] .lead-capture-step{grid-template-columns:1fr;grid-template-areas:"master" "ctas" "marketing" "preview" "note";gap:6px}.lead-capture-step .lead-ctas{gap:5px}.lead-preview{padding:5px 7px}.lead-preview strong,.lead-fields-head strong{font-size:10px}.lead-preview small,.lead-fields-head small{font-size:9px}.lead-preview .btn{height:28px;font-size:9px}.lead-note{font-size:9px;line-height:1.2}.lead-pane[data-lead-step="fields"] .lead-fields-step{gap:5px}.lead-field-list{grid-template-rows:repeat(3,59px);gap:4px}.lead-field-row{grid-template-columns:23px minmax(0,1fr) 45px 22px;gap:4px;padding:4px 5px}.lead-field-order button,.lead-remove{width:22px;height:20px;font-size:12px}.lead-field-main input{height:27px;font-size:10px}.lead-field-main small{font-size:8px}.lead-required{font-size:9px;gap:2px}.lead-required input{width:13px;height:13px}.lead-required .full{display:none}.lead-required .short{display:inline}.lead-fields-toolbar .select,.lead-fields-toolbar .btn{height:29px;font-size:9px}.lead-fields-footer{font-size:9px}.lead-fields-footer .btn{height:21px;font-size:13px}.lead-fields-note{font-size:9px;line-height:1.15}}
+@media(max-width:360px) and (max-height:600px){.lead-pane{gap:4px}.lead-step-tabs button{height:26px}.lead-pane[data-lead-step="capture"] .lead-capture-step{gap:5px}.lead-capture-step .enabled-row{min-height:31px}.lead-preview{min-height:33px}.lead-preview small{font-size:8px}.lead-preview .btn{height:25px;padding:0 7px;font-size:8px}.lead-note{font-size:8px}.lead-field-list{grid-template-rows:repeat(2,54px)}.lead-field-row{grid-template-columns:21px minmax(0,1fr) 43px 21px;gap:3px;padding:3px 4px}.lead-field-order button,.lead-remove{width:20px;height:19px}.lead-field-main input{height:25px;font-size:10px}.lead-field-main small{font-size:8px}.lead-fields-head small{display:none}.lead-fields-toolbar .select,.lead-fields-toolbar .btn{height:27px}.lead-fields-note{font-size:8px}}
+@media(max-width:760px){#lead-marketing-note{display:block;font-size:8px;line-height:1.1;margin-top:2px}.lead-capture-step .lead-marketing{min-height:43px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Control room navigation">
+    <div class="bug" aria-label="Twilio"><img src="assets/twilio-bug-official.png" alt="" width="38" height="38"></div>
+    <nav class="rail-nav" aria-label="Views">
+      <button type="button" class="nav active" data-view="run" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8 12h8m-4-4 4 4-4 4"/></svg><span>Run</span></button>
+      <button type="button" class="nav" data-view="prompts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/></svg><span>Prompts</span></button>
+      <button type="button" class="nav" data-view="event"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span>Event</span></button>
+      <a class="nav" href="signal-stadium-metrics.html" aria-label="Open event metrics and leads"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15v-4m4 4V7m4 8v-6m4 6V4"/></svg><span>Metrics</span></a>
+    </nav>
+    <div class="rail-foot">LIVE SHOW CONTROL</div>
+  </aside>
+  <div class="workbench">
+    <header class="topbar"><div class="top-left"><div class="showmark"><i></i><span>SIGNAL STADIUM</span></div><span class="top-rule"></span><div class="top-event"><strong id="top-event-name">Demo event</strong><small id="top-event-revision">Revision 1</small></div></div><div class="top-actions"><span id="save-state" class="save-state saved" role="status" aria-live="polite">Saved in this browser</span><a class="wall-link" href="signal-stadium-wall.html" target="_blank" rel="noopener">Open arena ↗</a></div></header>
+    <main class="canvas">
+      <section id="view-run" class="view active" aria-label="Run a heat"><div class="run-layout">
+        <div class="stage">
+          <div class="stage-top"><div><div class="eyebrow">Heat <span id="heat-number">01</span> / live control</div><strong id="stage-phase" class="display">Lobby open</strong></div><span id="on-air" class="on-air quiet"><i></i><span id="on-air-label">Standby</span></span></div>
+          <div class="metrics" aria-label="Demo metrics"><span class="metric"><b id="metric-players">0</b> joined</span><span class="metric"><b id="metric-heats">0</b> heats</span><span class="metric"><b id="metric-overrides">0</b> overrides</span></div>
+          <div class="stage-center"><div id="dial" class="dial"><div class="dial-inner"><span class="dial-label">Round clock</span><strong id="stage-time" class="dial-time">20</strong><span class="dial-unit">seconds</span></div></div></div>
+          <div class="stage-bottom"><div class="stage-clue"><div class="eyebrow">Clue channel</div><strong id="stage-clue-text" class="display">Clue sealed</strong><small id="stage-subline">Players see the clue only when the hunt begins.</small></div><div class="queue-control"><label class="eyebrow" for="queue-select">Next challenge</label><select id="queue-select" class="select" aria-label="Challenge to queue"></select><button id="queue-button" type="button" class="btn outline">Queue</button></div></div>
+        </div>
+        <div class="run-ops">
+          <section class="ops" aria-labelledby="ready-heading"><div class="ops-head"><div><div class="eyebrow">Heat intake</div><h2 id="ready-heading" class="display">Players ready</h2></div><div class="count"><span id="ready-count">0</span><span> / <span id="ready-max">6</span></span></div></div><div id="ready-track" class="ready-track" aria-label="Ready players"></div><div class="ready-controls"><button id="ready-down" class="btn outline" type="button" aria-label="Remove one ready player">−</button><button id="ready-up" class="btn outline" type="button" aria-label="Add one ready player">+</button><button id="start-button" class="btn primary" type="button">Start heat</button></div><div class="ready-foot"><span id="start-rule">Flexible start</span><span id="minimum-rule">Minimum 2 players</span></div></section>
+          <section class="ops" aria-labelledby="judge-heading"><div class="ops-head"><div><div class="eyebrow">Decision desk</div><h2 id="judge-heading" class="display">Award this heat</h2></div><span id="judge-policy-label" class="eyebrow">Override always on</span></div><p class="judge-note">Select one player, or several to declare a tie.</p><div id="candidate-grid" class="candidate-grid" role="group" aria-label="Select winner or tied winners"></div><div class="judge-actions"><button id="ai-button" class="btn outline" type="button">Simulate AI pick</button><button id="award-button" class="btn primary" type="button">Award selected</button></div><div class="judge-tail"><button id="clear-award-button" class="btn quiet" type="button">No valid match</button><div><button id="reset-button" class="btn quiet" type="button">Reset</button><button id="next-heat-button" class="btn quiet" type="button">Next heat ↗</button></div></div></section>
+        </div>
+      </div></section>
+      <section id="view-prompts" class="view" aria-label="Edit challenge prompts"><div id="prompt-step-tabs" class="compact-tabs"><button type="button" data-prompt-step="deck" class="active">Deck</button><button type="button" data-prompt-step="edit">Editor</button></div><div id="prompts-workspace" class="workspace prompts-workspace" data-step="deck">
+        <div class="surface deck"><div class="surface-head"><div><div class="eyebrow">The challenge deck</div><h1 class="display">Prompts</h1><p id="prompt-count">Ready for the next heat</p></div><button id="add-prompt-button" class="btn primary" type="button">+ Add</button></div><div class="deck-toolbar"><select id="prompt-filter" class="select" aria-label="Filter prompts by category"><option value="all">All categories</option><option value="Color">Color</option><option value="Object">Object</option><option value="Shape">Shape</option><option value="Text">Printed word</option><option value="Gesture">Gesture</option><option value="Combination">Combination</option><option value="Creative">Creative</option></select><span id="prompt-filter-count" class="eyebrow">8 total</span></div><div id="prompt-list" class="prompt-list"></div><div class="pagination"><span id="prompt-page">Page 1 of 1</span><div><button id="prompt-prev" class="btn quiet" type="button" aria-label="Previous prompt page">‹</button><button id="prompt-next" class="btn quiet" type="button" aria-label="Next prompt page">›</button></div></div></div>
+        <div class="surface editor"><div class="editor-banner"><div class="eyebrow">Challenge setup</div><h2 id="editor-heading" class="display">Edit prompt</h2></div><form id="prompt-form" class="form" autocomplete="off"><div class="field"><label for="prompt-text" class="prompt-text-label">What players must find or show <span id="prompt-length">0 / 55</span></label><input id="prompt-text" class="input long" type="text" maxlength="55" required list="tech-prompts" placeholder="SHOW A RED CUP"><datalist id="tech-prompts"><option value="FIND THE WORD TWILIO"><option value="FIND THE WORD API"><option value="FIND THE WORD WEBHOOK"><option value="FIND THE WORD CODE"><option value="FIND THE WORD SMS"><option value="FIND THE WORD 404"></datalist></div><div class="field-grid"><div class="field"><label for="prompt-category">Type</label><select id="prompt-category" class="select"><option>Color</option><option>Object</option><option>Shape</option><option>Text</option><option>Gesture</option><option>Combination</option><option>Creative</option></select></div><div class="field"><label for="prompt-judge">Judging</label><select id="prompt-judge" class="select"><option value="rule">Fast detector</option><option value="ai-assisted">AI assisted</option><option value="audience">Audience vote</option><option value="operator">Operator</option></select></div><div class="field"><label for="prompt-seconds">Seconds</label><input id="prompt-seconds" class="input" type="number" min="5" max="180" step="1" placeholder="Event"></div></div><div id="prompt-hint" class="hint">Printed-word ideas: TWILIO, API, WEBHOOK, CODE, SMS, 404.</div><label class="enabled-row" for="prompt-enabled"><span><strong>Use in rotation</strong><small>Disabled prompts stay in the deck for later.</small></span><span class="switch"><input id="prompt-enabled" type="checkbox"><span></span></span></label><div class="editor-actions"><button id="save-prompt-button" class="btn primary" type="submit">Save prompt</button><button id="queue-editor-button" class="btn outline" type="button">Queue next</button><button id="discard-prompt-button" class="btn quiet" type="button">Discard edits</button></div></form></div>
+      </div></section>
+      <section id="view-event" class="view" aria-label="Event configuration"><div class="workspace event-workspace">
+        <div class="surface event-identity"><div class="eyebrow">Control profile / multi-event</div><h1 class="display">Make every booth its own show.</h1><p>Each event keeps its game rules, challenge deck, and lead settings.</p><div class="event-picker"><label class="field-label" for="event-select">Active event</label><div class="event-picker-row"><select id="event-select" class="select" aria-label="Active event"></select><button id="new-event-button" class="btn outline" type="button">+ New</button></div></div></div>
+        <div class="surface event-settings"><div class="surface-head"><div><div class="eyebrow">Event configuration</div><h2 class="display">Show settings</h2><p>Game rules apply next heat. Lead settings update as soon as you save.</p></div></div><div id="event-step-tabs" class="event-step-tabs" role="tablist" aria-label="Event settings"><button type="button" data-event-step="basics" class="active">Game</button><button type="button" data-event-step="rules">Rules</button><button type="button" data-event-step="leads">Leads</button></div><form id="event-form" class="event-form" data-step="basics" autocomplete="off"><div class="settings-grid"><div class="field"><label for="event-name">Event name</label><input id="event-name" class="input" type="text" maxlength="50" required></div><div class="field"><label for="event-min">Minimum players</label><input id="event-min" class="input" type="number" min="2" max="6" step="1" required></div><div class="field"><label for="event-max">Maximum players</label><input id="event-max" class="input" type="number" min="2" max="6" step="1" required></div><div class="field"><label for="event-round">Round seconds</label><input id="event-round" class="input" type="number" min="5" max="180" step="1" required></div><div class="field"><label for="event-join">Join window</label><input id="event-join" class="input" type="number" min="5" max="180" step="1" required></div></div><div class="start-group"><div class="setting-label"><span>When does the heat start?</span><small>The clue appears only after GO.</small></div><div class="start-options"><label class="start-option"><input type="radio" name="start-mode" value="flexible"><span><b>Flexible</b><em>Full, timed, or manual</em></span></label><label class="start-option"><input type="radio" name="start-mode" value="capacity"><span><b>At capacity</b><em>When all slots fill</em></span></label><label class="start-option"><input type="radio" name="start-mode" value="deadline"><span><b>After wait</b><em>At join-window end</em></span></label><label class="start-option"><input type="radio" name="start-mode" value="manual"><span><b>Operator</b><em>Start on command</em></span></label></div></div><div class="policy-row"><div class="field"><label for="event-judge">Winner decision</label><select id="event-judge" class="select"><option value="auto-with-override">Auto award with operator override</option><option value="operator-confirm">Operator confirms detection</option><option value="manual">Operator judges manually</option></select></div><label class="enabled-row auto-row" for="event-auto"><span><strong>Auto-advance</strong><small>Prepare the next heat after results.</small></span><span class="switch"><input id="event-auto" type="checkbox"><span></span></span></label></div><div id="lead-pane" class="event-pane lead-pane" data-event-pane="leads" data-lead-step="capture">
+  <div class="lead-step-tabs" aria-label="Lead settings"><button type="button" data-lead-step="capture" class="active">Capture</button><button type="button" data-lead-step="fields">Form fields <span id="lead-fields-count">3</span></button></div>
+  <div class="lead-step lead-capture-step" data-lead-panel="capture">
+    <label class="enabled-row lead-master" for="lead-enabled"><span><strong>Collect leads after play</strong><small>Visitors choose a guide or expert follow-up.</small></span><span class="switch"><input id="lead-enabled" type="checkbox"><span></span></span></label>
+    <div class="lead-ctas"><label class="enabled-row" for="lead-guide"><span><strong>Build guide</strong><small>Requested follow-up</small></span><span class="switch"><input id="lead-guide" type="checkbox"><span></span></span></label><label class="enabled-row" for="lead-expert"><span><strong>Booth expert</strong><small>Requested conversation</small></span><span class="switch"><input id="lead-expert" type="checkbox"><span></span></span></label></div>
+    <label class="enabled-row lead-marketing" for="lead-marketing"><span><strong>Optional email product updates</strong><small id="lead-marketing-note">Shown with an email field; visitors start unchecked.</small></span><span class="switch"><input id="lead-marketing" type="checkbox"><span></span></span></label>
+    <div class="lead-preview"><div><strong id="lead-visibility">Player form on</strong><small id="lead-summary">3 fields · 2 required</small></div><button id="lead-edit-fields" type="button" class="btn outline">Edit fields ↗</button></div>
+    <p class="lead-note">Changes apply when saved. Phone contact never grants SMS or WhatsApp marketing consent. Demo leads stay here; export in Metrics.</p>
+  </div>
+  <div class="lead-step lead-fields-step" data-lead-panel="fields">
+    <div class="lead-fields-head"><div><strong>Player form fields</strong><small id="lead-field-summary">Drag-free order controls keep the phone layout predictable.</small></div><span class="lead-limit">UP TO 8</span></div>
+    <div id="lead-field-list" class="lead-field-list" aria-live="polite"></div>
+    <div class="lead-fields-toolbar"><select id="lead-field-preset" class="select" aria-label="Field to add"><option value="name">Name</option><option value="email">Work email</option><option value="company">Company</option><option value="jobTitle">Job title</option><option value="phone">Phone number</option><option value="custom">Short answer</option></select><button id="lead-add-field" type="button" class="btn outline">+ Add field</button></div>
+    <div class="lead-fields-footer"><span id="lead-field-page">1–3 of 3 fields</span><div><button id="lead-field-prev" type="button" class="btn quiet" aria-label="Previous form fields">‹</button><button id="lead-field-next" type="button" class="btn quiet" aria-label="Next form fields">›</button></div></div>
+    <p class="lead-fields-note">Changes apply when saved. Keep an email or phone field for follow-up; visitors must provide one contact method.</p>
+  </div>
+</div><div class="event-actions"><span class="muted">Saved settings stay with this event.</span><button id="save-event-button" class="btn primary" type="submit">Save settings</button></div></form></div>
+      </div></section>
+    </main>
+  </div>
+</div>
+<div id="toast" class="toast" aria-live="polite"></div>
+<script src="config-store.js"></script>
+<script>
+(() => {
+  const store = window.SignalStadiumStore;
+  const $ = (id) => document.getElementById(id);
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const modeName = { flexible: "Flexible start", capacity: "At capacity", deadline: "After join window", manual: "Operator start" };
+  const phaseName = { lobby: "Lobby open", countdown: "Starting soon", hunt: "Hunt is live", review: "Reviewing", result: "Results live" };
+  const phaseSubline = { lobby: "Players see the clue only when the hunt begins.", countdown: "The clue unlocks at GO.", hunt: "First valid match takes the lead.", review: "Detection is provisional until awarded.", result: "Operator can still correct the award." };
+  const detectorFor = { Color: "color", Object: "object", Shape: "shape-card", Text: "ocr-card", Gesture: "gesture", Combination: "object+color", Creative: "vote" };
+  if (location.search) document.querySelector(".wall-link").search = location.search;
+  let eventId = store.getActiveEventId();
+  let committed = store.getEvent(eventId);
+  let draft = clone(committed);
+  let selectedPromptId = draft.prompts[0]?.id || null;
+  let promptBuffer = selectedPromptId ? clone(draft.prompts[0]) : null;
+  let promptDirty = false;
+  let eventDirty = false;
+  let page = 0;
+  let leadFieldDraft = clone(draft.leadCapture.fields);
+  let leadFieldPage = 0;
+  let activeView = "run";
+  let selectedWinners = new Set();
+  let busy = false;
+  let runtime = store.getState(eventId);
+  let toastTimer;
+
+  function toast(message, error = false) {
+    const el = $("toast");
+    el.textContent = message;
+    el.classList.toggle("error", error);
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2900);
+  }
+  function saveStatus(message, kind = "saved") { const el = $("save-state"); el.textContent = message; el.className = "save-state " + kind; }
+  function dirty() { saveStatus("Unsaved changes", "dirty"); }
+  function pageSize() { return window.innerWidth <= 360 && window.innerHeight <= 600 ? 5 : window.innerWidth <= 760 ? (window.innerHeight <= 700 ? 2 : 3) : (window.innerHeight <= 700 ? 4 : 5); }
+  function activePrompt() { return draft.prompts.find((p) => p.id === selectedPromptId) || null; }
+  function filteredPrompts() { const f = $("prompt-filter").value; return draft.prompts.filter((p) => f === "all" || p.category === f); }
+
+  function collectEventForm() {
+    if (!eventDirty) return;
+    const min = Number($("event-min").value), max = Number($("event-max").value);
+    const round = Number($("event-round").value), join = Number($("event-join").value);
+    if (!$("event-name").value.trim()) throw new Error("Enter an event name.");
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 2 || max < 2 || max > 6 || min > max) throw new Error("Choose 2–6 players; minimum cannot exceed maximum.");
+    if (!Number.isInteger(round) || round < 5 || round > 180) throw new Error("Round time must be 5–180 seconds.");
+    if (!Number.isInteger(join) || join < 5 || join > 180) throw new Error("Join window must be 5–180 seconds.");
+    draft.name = $("event-name").value.trim();
+    draft.minPlayers = min; draft.maxPlayers = max; draft.roundSeconds = round; draft.joinSeconds = join;
+    draft.startMode = document.querySelector('input[name="start-mode"]:checked')?.value || "flexible";
+    draft.judgePolicy = $("event-judge").value;
+    draft.autoAdvance = $("event-auto").checked;
+    draft.leadCapture = {
+      enabled: $("lead-enabled").checked,
+      guideEnabled: $("lead-guide").checked,
+      expertEnabled: $("lead-expert").checked,
+      marketingOptIn: $("lead-marketing").checked,
+      fields: clone(leadFieldDraft),
+    };
+  }
+  function mergePromptBuffer() {
+    if (!promptDirty || !promptBuffer) return;
+    promptBuffer.text = $("prompt-text").value.trim();
+    if (!promptBuffer.text) throw new Error("Enter a prompt before saving.");
+    if (promptBuffer.text.length > 55) throw new Error("Keep prompts to 55 characters so they fit the arena.");
+    promptBuffer.category = $("prompt-category").value;
+    promptBuffer.judgeMode = $("prompt-judge").value;
+    promptBuffer.seconds = $("prompt-seconds").value === "" ? null : Number($("prompt-seconds").value);
+    if (promptBuffer.seconds !== null && (!Number.isInteger(promptBuffer.seconds) || promptBuffer.seconds < 5 || promptBuffer.seconds > 180)) throw new Error("Prompt time must be 5–180 seconds.");
+    promptBuffer.enabled = $("prompt-enabled").checked;
+    promptBuffer.detector = promptBuffer.judgeMode === "operator" ? "manual" : detectorFor[promptBuffer.category] || "manual";
+    const i = draft.prompts.findIndex((p) => p.id === promptBuffer.id);
+    if (i < 0) draft.prompts.push(clone(promptBuffer)); else draft.prompts[i] = clone(promptBuffer);
+  }
+  function commitAll(message = "Saved for the next heat") {
+    try { collectEventForm(); mergePromptBuffer(); }
+    catch (error) { saveStatus(error.message, "error"); toast(error.message, true); return false; }
+    if (!eventDirty && !promptDirty) { toast("Already saved"); return true; }
+    busy = true;
+    const result = store.saveEvent(eventId, draft, committed.revision);
+    busy = false;
+    if (!result.ok) { saveStatus(result.error || "Could not save", "error"); toast(result.error || "Could not save", true); return false; }
+    committed = result.event; draft = clone(result.event); eventDirty = false; promptDirty = false;
+    if (selectedPromptId) promptBuffer = clone(activePrompt() || promptBuffer);
+    saveStatus("Saved in this browser · rev " + committed.revision);
+    toast(message);
+    renderAll();
+    return true;
+  }
+  function loadEvent(id) {
+    eventId = id; committed = store.getEvent(id); draft = clone(committed);
+    selectedPromptId = draft.prompts[0]?.id || null;
+    promptBuffer = selectedPromptId ? clone(draft.prompts[0]) : null;
+    eventDirty = false; promptDirty = false; page = 0; leadFieldPage = 0; selectedWinners.clear(); runtime = store.getState(id);
+    saveStatus("Saved in this browser · rev " + committed.revision);
+    renderAll();
+  }
+  function renderEventPicker() {
+    const select = $("event-select"); select.replaceChildren();
+    for (const event of store.listEvents()) { const option = document.createElement("option"); option.value = event.id; option.textContent = event.name; select.append(option); }
+    select.value = eventId;
+  }
+  function renderEventForm() {
+    $("top-event-name").textContent = committed.name;
+    $("top-event-revision").textContent = "Revision " + committed.revision;
+    $("event-name").value = draft.name;
+    $("event-min").value = draft.minPlayers; $("event-max").value = draft.maxPlayers;
+    $("event-round").value = draft.roundSeconds; $("event-join").value = draft.joinSeconds;
+    const radio = document.querySelector('input[name="start-mode"][value="' + draft.startMode + '"]');
+    if (radio) radio.checked = true;
+    $("event-judge").value = draft.judgePolicy;
+    $("event-auto").checked = draft.autoAdvance;
+    const leads = draft.leadCapture;
+    $("lead-enabled").checked = leads.enabled;
+    $("lead-guide").checked = leads.guideEnabled;
+    $("lead-expert").checked = leads.expertEnabled;
+    $("lead-marketing").checked = leads.marketingOptIn;
+    leadFieldDraft = clone(leads.fields);
+    renderLeadFields();
+    updateLeadControls();
+  }
+  function updateLeadControls() {
+    const enabled = $("lead-enabled").checked;
+    $("lead-pane").classList.toggle("is-off", !enabled);
+    const offers = $("lead-guide").checked || $("lead-expert").checked;
+    $("lead-visibility").textContent = !enabled ? "Player form off" : offers ? "Player form on" : "No follow-up offer";
+  }
+  function leadFieldPageSize() { return innerWidth <= 360 && innerHeight <= 600 ? 2 : 3; }
+  function renderLeadFields() {
+    const fields = leadFieldDraft;
+    const size = leadFieldPageSize(), pages = Math.max(1, Math.ceil(fields.length / size));
+    leadFieldPage = Math.max(0, Math.min(leadFieldPage, pages - 1));
+    const required = fields.filter(field => field.required).length;
+    $("lead-fields-count").textContent = String(fields.length);
+    $("lead-summary").textContent = `${fields.length} field${fields.length === 1 ? "" : "s"} · ${required} required`;
+    $("lead-marketing-note").textContent = fields.some(field => field.type === "email")
+      ? "Shown with an email field; visitors start unchecked."
+      : "Add an email field to offer this; phone alone is not consent.";
+    $("lead-field-summary").textContent = "Use arrows to set the order shown on the player phone.";
+    const list = $("lead-field-list"); list.replaceChildren();
+    if (!fields.length) {
+      const empty = document.createElement("div"); empty.className = "lead-field-empty";
+      empty.textContent = "No fields yet. Add an email or phone field to collect requests.";
+      list.append(empty);
+    }
+    fields.slice(leadFieldPage * size, (leadFieldPage + 1) * size).forEach((field, pageIndex) => {
+      const index = leadFieldPage * size + pageIndex;
+      const row = document.createElement("div"); row.className = "lead-field-row"; row.dataset.fieldId = field.id;
+      const order = document.createElement("div"); order.className = "lead-field-order";
+      for (const [action, symbol, blocked] of [["up", "↑", index === 0], ["down", "↓", index === fields.length - 1]]) {
+        const button = document.createElement("button"); button.type = "button"; button.textContent = symbol;
+        button.dataset.fieldAction = action; button.dataset.fieldId = field.id;
+        button.setAttribute("aria-label", `Move ${field.label} ${action}`); button.disabled = blocked; order.append(button);
+      }
+      const main = document.createElement("div"); main.className = "lead-field-main";
+      const label = document.createElement("input"); label.className = "input"; label.type = "text"; label.maxLength = 40;
+      label.value = field.label; label.dataset.fieldLabel = field.id; label.setAttribute("aria-label", `Label for field ${index + 1}`);
+      const kind = document.createElement("small"); kind.textContent = field.type === "email" ? "Email address" : field.type === "tel" ? "Phone number" : "Short answer";
+      main.append(label, kind);
+      const requirement = document.createElement("label"); requirement.className = "lead-required";
+      const check = document.createElement("input"); check.type = "checkbox"; check.checked = field.required; check.dataset.fieldRequired = field.id;
+      const full = document.createElement("span"); full.className = "full"; full.textContent = "Required";
+      const short = document.createElement("span"); short.className = "short"; short.textContent = "Req.";
+      requirement.append(check, full, short);
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "lead-remove";
+      remove.textContent = "×"; remove.dataset.fieldAction = "remove"; remove.dataset.fieldId = field.id;
+      remove.setAttribute("aria-label", `Remove ${field.label}`);
+      row.append(order, main, requirement, remove); list.append(row);
+    });
+    $("lead-field-page").textContent = fields.length ? `${leadFieldPage * size + 1}–${Math.min((leadFieldPage + 1) * size, fields.length)} of ${fields.length} fields` : "0 fields";
+    $("lead-field-prev").disabled = leadFieldPage === 0;
+    $("lead-field-next").disabled = leadFieldPage >= pages - 1;
+    const preset = $("lead-field-preset");
+    for (const option of preset.options) option.disabled = option.value !== "custom" && fields.some(field => field.id === option.value);
+    if (preset.selectedOptions[0]?.disabled) preset.value = [...preset.options].find(option => !option.disabled)?.value || "custom";
+    $("lead-add-field").disabled = fields.length >= 8;
+  }
+  function renderQueue() {
+    const select = $("queue-select"), prior = select.value; select.replaceChildren();
+    const enabled = draft.prompts.filter((p) => p.enabled);
+    for (const p of enabled) { const option = document.createElement("option"); option.value = p.id; option.textContent = p.text; select.append(option); }
+    if (enabled.some((p) => p.id === prior)) select.value = prior;
+    else if (enabled.some((p) => p.id === runtime.queuedPromptId)) select.value = runtime.queuedPromptId;
+    $("queue-button").disabled = !enabled.length;
+  }
+  function renderPromptList() {
+    const prompts = filteredPrompts(), size = pageSize();
+    const total = Math.max(1, Math.ceil(prompts.length / size));
+    page = Math.max(0, Math.min(page, total - 1));
+    const list = $("prompt-list"); list.replaceChildren();
+    prompts.slice(page * size, page * size + size).forEach((p, i) => {
+      const row = document.createElement("button"); row.type = "button"; row.className = "prompt-row" + (p.id === selectedPromptId ? " active" : "");
+      row.setAttribute("aria-label", "Edit " + p.text);
+      const index = document.createElement("span"); index.className = "prompt-index"; index.textContent = String(page * size + i + 1).padStart(2, "0");
+      const copy = document.createElement("span"); copy.className = "prompt-copy";
+      const title = document.createElement("strong"); title.textContent = p.text;
+      const detail = document.createElement("small"); detail.textContent = p.category + " / " + (p.seconds || draft.roundSeconds) + " sec";
+      copy.append(title, detail);
+      const dot = document.createElement("span"); dot.className = "prompt-dot" + (p.enabled ? " enabled" : "");
+      dot.setAttribute("aria-label", p.enabled ? "Enabled" : "Disabled");
+      row.append(index, copy, dot); row.addEventListener("click", () => selectPrompt(p.id)); list.append(row);
+    });
+    $("prompt-page").textContent = "Page " + (page + 1) + " of " + total;
+    $("prompt-prev").disabled = page === 0; $("prompt-next").disabled = page >= total - 1;
+    $("prompt-count").textContent = draft.prompts.filter((p) => p.enabled).length + " active / edits apply next heat";
+    $("prompt-filter-count").textContent = prompts.length + " shown";
+  }
+  function renderPromptEditor() {
+    const p = promptBuffer, disabled = !p;
+    $("editor-heading").textContent = !p ? "Select a prompt" : activePrompt() ? "Edit prompt" : "New prompt";
+    $("prompt-text").value = p?.text || ""; $("prompt-length").textContent = $("prompt-text").value.length + " / 55"; $("prompt-category").value = p?.category || "Object";
+    $("prompt-judge").value = p?.judgeMode || "operator"; $("prompt-seconds").value = p?.seconds ?? "";
+    $("prompt-enabled").checked = p?.enabled ?? true;
+    ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-enabled", "save-prompt-button", "queue-editor-button", "discard-prompt-button"].forEach((id) => { $(id).disabled = disabled; });
+    $("queue-editor-button").disabled = disabled || !p.enabled;
+    $("prompt-hint").textContent = p?.category === "Text" ? "Printed-word ideas: TWILIO, API, WEBHOOK, CODE, SMS, 404." : "Fast detectors suit clear clues. Use AI assisted for ambiguous objects.";
+  }
+  function renderCandidates() {
+    const grid = $("candidate-grid"); grid.replaceChildren();
+    for (let i = 1; i <= committed.maxPlayers; i++) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "candidate"; button.dataset.player = String(i);
+      button.textContent = "PLAYER " + String(i).padStart(2, "0");
+      button.setAttribute("aria-pressed", String(selectedWinners.has(i)));
+      button.addEventListener("click", () => { if (selectedWinners.has(i)) selectedWinners.delete(i); else selectedWinners.add(i); updateCandidates(); });
+      grid.append(button);
+    }
+    updateCandidates();
+  }
+  function updateCandidates() {
+    const awarded = new Set((runtime.winners || []).map(Number));
+    const proposed = new Set((runtime.candidateWinners || []).map(Number));
+    const ready = Number(runtime.lockedCount ?? runtime.readyCount ?? 0);
+    for (const button of $("candidate-grid").querySelectorAll(".candidate")) {
+      const i = Number(button.dataset.player);
+      button.classList.toggle("awarded", awarded.has(i));
+      button.classList.toggle("proposed", !awarded.has(i) && proposed.has(i));
+      button.setAttribute("aria-pressed", String(selectedWinners.has(i)));
+      button.disabled = i > ready;
+    }
+    const canJudge = ["hunt", "review", "result"].includes(runtime.phase);
+    $("ai-button").disabled = !canJudge || !selectedWinners.size;
+    $("award-button").disabled = !canJudge || !selectedWinners.size;
+    $("clear-award-button").disabled = !canJudge;
+  }
+  function renderReady() {
+    const track = $("ready-track"); track.replaceChildren();
+    const count = Math.min(committed.maxPlayers, Math.max(0, Number(runtime.readyCount) || 0));
+    for (let i = 1; i <= committed.maxPlayers; i++) {
+      const slot = document.createElement("span"); slot.className = "ready-slot" + (i <= count ? " ready" : "");
+      slot.textContent = String(i).padStart(2, "0"); slot.setAttribute("aria-label", "Player " + i + (i <= count ? " ready" : " empty")); track.append(slot);
+    }
+    track.style.gridTemplateColumns = "repeat(" + committed.maxPlayers + ",1fr)";
+    $("ready-count").textContent = count; $("ready-max").textContent = committed.maxPlayers;
+    $("start-rule").textContent = modeName[committed.startMode] || "Flexible start";
+    $("minimum-rule").textContent = "Minimum " + committed.minPlayers + " players";
+    $("judge-policy-label").textContent = committed.judgePolicy === "manual" ? "Manual judging" : "Override always on";
+    const lobby = runtime.phase === "lobby";
+    $("ready-down").disabled = !lobby || count <= 0; $("ready-up").disabled = !lobby || count >= committed.maxPlayers;
+    $("start-button").disabled = !lobby || count < committed.minPlayers;
+    $("start-button").textContent = count < committed.minPlayers ? "Need " + committed.minPlayers + " players" : "Start heat";
+  }
+  function secondsRemaining() {
+    if (runtime.phase === "hunt") {
+      if (runtime.roundEndsAt) return Math.max(0, Math.ceil((Number(runtime.roundEndsAt) - Date.now()) / 1000));
+      if (runtime.remainingSeconds != null) return Math.max(0, Math.ceil(Number(runtime.remainingSeconds)));
+    }
+    if (runtime.phase === "countdown" && runtime.countdownEndsAt) return Math.max(0, Math.ceil((Number(runtime.countdownEndsAt) - Date.now()) / 1000));
+    return runtime.promptSnapshot?.seconds || committed.roundSeconds;
+  }
+  function updateRuntime() {
+    runtime = store.getState(eventId);
+    const phase = runtime.phase || "lobby", seconds = secondsRemaining();
+    const total = phase === "countdown" ? 3 : runtime.promptSnapshot?.seconds || committed.roundSeconds;
+    $("heat-number").textContent = String(runtime.heat || 1).padStart(2, "0");
+    $("stage-phase").textContent = phaseName[phase] || phase;
+    $("stage-time").textContent = String(seconds).padStart(2, "0");
+    $("dial").style.setProperty("--progress", String(Math.max(0, Math.min(1, seconds / Math.max(1, total)))));
+    $("stage-clue-text").textContent = ["hunt", "review", "result"].includes(phase) ? (runtime.promptSnapshot?.text || committed.prompts.find((p) => p.id === runtime.promptId)?.text || "Challenge live") : "Clue sealed";
+    $("stage-subline").textContent = phaseSubline[phase] || "Ready for the next heat.";
+    const air = ["hunt", "review", "result"].includes(phase);
+    $("on-air").classList.toggle("quiet", !air); $("on-air-label").textContent = air ? "On air" : "Standby";
+    $("metric-players").textContent = runtime.lockedCount ?? runtime.readyCount ?? 0;
+    $("metric-heats").textContent = runtime.heatsStarted || 0;
+    $("metric-overrides").textContent = runtime.overrideCount || 0;
+    renderReady(); updateCandidates();
+    $("next-heat-button").disabled = !["result", "review", "lobby"].includes(phase);
+  }
+  function renderAll() { renderEventPicker(); renderEventForm(); renderQueue(); renderPromptList(); renderPromptEditor(); renderCandidates(); updateRuntime(); }
+  function selectPrompt(id) {
+    if (promptDirty && !commitAll("Prompt saved")) return;
+    selectedPromptId = id; promptBuffer = clone(activePrompt()); promptDirty = false; renderPromptList(); renderPromptEditor(); setPromptStep("edit");
+  }
+  function send(type, payload = {}, message = "Sent to arena") {
+    const result = store.sendCommand(eventId, type, payload);
+    if (!result.ok) { toast(result.error || "Command failed", true); return false; }
+    toast(message); return true;
+  }
+  function setReady(delta) {
+    if (runtime.phase !== "lobby") return;
+    const count = Math.max(0, Math.min(committed.maxPlayers, (Number(runtime.readyCount) || 0) + delta));
+    store.setState(eventId, { readyCount: count });
+    send("setReady", { count }, count + " player" + (count === 1 ? "" : "s") + " ready");
+    updateRuntime();
+  }
+  function showView(view) {
+    activeView = view;
+    document.querySelectorAll(".view").forEach((section) => section.classList.toggle("active", section.id === "view-" + view));
+    document.querySelectorAll(".nav[data-view]").forEach((button) => { const active = button.dataset.view === view; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
+  }
+
+  function setPromptStep(step) { $("prompts-workspace").dataset.step = step; document.querySelectorAll("[data-prompt-step]").forEach((button) => button.classList.toggle("active", button.dataset.promptStep === step)); }
+  function setEventStep(step) { $("event-form").dataset.step = step; document.querySelectorAll("[data-event-step]").forEach((button) => button.classList.toggle("active", button.dataset.eventStep === step)); }
+  function setLeadStep(step) { $("lead-pane").dataset.leadStep = step; document.querySelectorAll(".lead-step-tabs button[data-lead-step]").forEach((button) => button.classList.toggle("active", button.dataset.leadStep === step)); }
+  document.querySelectorAll("[data-prompt-step]").forEach((button) => button.addEventListener("click", () => setPromptStep(button.dataset.promptStep)));
+  document.querySelectorAll("[data-event-step]").forEach((button) => button.addEventListener("click", () => setEventStep(button.dataset.eventStep)));
+  document.querySelectorAll(".lead-step-tabs button[data-lead-step]").forEach((button) => button.addEventListener("click", () => setLeadStep(button.dataset.leadStep)));
+  $("lead-edit-fields").addEventListener("click", () => setLeadStep("fields"));
+  $("lead-field-prev").addEventListener("click", () => { leadFieldPage--; renderLeadFields(); });
+  $("lead-field-next").addEventListener("click", () => { leadFieldPage++; renderLeadFields(); });
+  $("lead-add-field").addEventListener("click", () => {
+    if (leadFieldDraft.length >= 8) { toast("Use no more than eight fields", true); return; }
+    const selected = $("lead-field-preset").value;
+    const preset = store.leadFieldPresets.find(field => field.id === selected);
+    if (preset && leadFieldDraft.some(field => field.id === preset.id)) { toast("That field is already on the form", true); return; }
+    let field = preset ? clone(preset) : null;
+    if (!field) {
+      let number = 1;
+      while (leadFieldDraft.some(item => item.label.toLowerCase() === `new field ${number}`)) number++;
+      field = { id: store.uid("field"), label: `New field ${number}`, type: "text", required: false };
+    }
+    leadFieldDraft.push(field);
+    leadFieldPage = Math.floor((leadFieldDraft.length - 1) / leadFieldPageSize());
+    eventDirty = true; dirty(); renderLeadFields();
+    [...$("lead-field-list").querySelectorAll("[data-field-label]")].find(input => input.dataset.fieldLabel === field.id)?.focus();
+  });
+  $("lead-field-list").addEventListener("input", (event) => {
+    const id = event.target.dataset.fieldLabel;
+    if (!id) return;
+    const field = leadFieldDraft.find(item => item.id === id);
+    if (field) { field.label = event.target.value; eventDirty = true; dirty(); }
+  });
+  $("lead-field-list").addEventListener("change", (event) => {
+    const id = event.target.dataset.fieldRequired;
+    if (!id) return;
+    const field = leadFieldDraft.find(item => item.id === id);
+    if (field) { field.required = event.target.checked; eventDirty = true; dirty(); renderLeadFields(); }
+  });
+  $("lead-field-list").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-field-action]");
+    if (!button) return;
+    const index = leadFieldDraft.findIndex(field => field.id === button.dataset.fieldId);
+    if (index < 0) return;
+    if (button.dataset.fieldAction === "remove") leadFieldDraft.splice(index, 1);
+    else {
+      const next = index + (button.dataset.fieldAction === "up" ? -1 : 1);
+      if (next < 0 || next >= leadFieldDraft.length) return;
+      [leadFieldDraft[index], leadFieldDraft[next]] = [leadFieldDraft[next], leadFieldDraft[index]];
+      leadFieldPage = Math.floor(next / leadFieldPageSize());
+    }
+    eventDirty = true; dirty(); renderLeadFields();
+  });
+  document.querySelectorAll(".nav[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
+  $("ready-down").addEventListener("click", () => setReady(-1)); $("ready-up").addEventListener("click", () => setReady(1));
+  $("start-button").addEventListener("click", () => { if ((runtime.readyCount || 0) >= committed.minPlayers) send("start", {}, "Heat starting"); });
+  $("queue-button").addEventListener("click", () => { const id = $("queue-select").value; if (id) { store.setState(eventId, { queuedPromptId: id }); send("queuePrompt", { promptId: id }, "Challenge queued for next heat"); } });
+  $("ai-button").addEventListener("click", () => send("proposeWinner", { winners: [...selectedWinners].sort((a,b) => a-b) }, "AI candidate shown"));
+  $("award-button").addEventListener("click", () => send("overrideWinners", { winners: [...selectedWinners].sort((a,b) => a-b), reason: "operator-award" }, selectedWinners.size > 1 ? "Tie awarded" : "Winner awarded"));
+  $("clear-award-button").addEventListener("click", () => { selectedWinners.clear(); updateCandidates(); send("overrideWinners", { winners: [], reason: "no-match" }, "No valid match awarded"); });
+  $("reset-button").addEventListener("click", () => send("reset", {}, "Heat reset"));
+  $("next-heat-button").addEventListener("click", () => send("nextHeat", {}, "Next heat queued"));
+  $("prompt-filter").addEventListener("change", () => { page = 0; renderPromptList(); });
+  $("prompt-prev").addEventListener("click", () => { page--; renderPromptList(); }); $("prompt-next").addEventListener("click", () => { page++; renderPromptList(); });
+  $("add-prompt-button").addEventListener("click", () => {
+    if (promptDirty && !commitAll("Prompt saved")) return;
+    selectedPromptId = store.uid("prompt");
+    promptBuffer = { id: selectedPromptId, text: "", category: "Object", judgeMode: "operator", detector: "manual", enabled: true, seconds: null };
+    promptDirty = true; dirty(); renderPromptList(); renderPromptEditor(); setPromptStep("edit"); $("prompt-text").focus();
+  });
+  ["prompt-text", "prompt-category", "prompt-judge", "prompt-seconds", "prompt-enabled"].forEach((id) => $(id).addEventListener("input", () => { promptDirty = true; dirty(); if (id === "prompt-text") $("prompt-length").textContent = $("prompt-text").value.length + " / 55"; if (id === "prompt-category") $("prompt-hint").textContent = $(id).value === "Text" ? "Printed-word ideas: TWILIO, API, WEBHOOK, CODE, SMS, 404." : "Fast detectors suit clear clues. Use AI assisted for ambiguous objects."; }));
+  $("prompt-form").addEventListener("submit", (event) => { event.preventDefault(); commitAll("Prompt saved for next heat"); });
+  $("queue-editor-button").addEventListener("click", () => { if (!commitAll("Prompt saved")) return; if (!promptBuffer.enabled) { toast("Enable the prompt before queueing it", true); return; } store.setState(eventId, { queuedPromptId: selectedPromptId }); send("queuePrompt", { promptId: selectedPromptId }, "Prompt queued for next heat"); });
+  $("discard-prompt-button").addEventListener("click", () => { promptBuffer = clone(activePrompt() || draft.prompts[0] || null); selectedPromptId = promptBuffer?.id || null; promptDirty = false; renderPromptList(); renderPromptEditor(); saveStatus(eventDirty ? "Unsaved event settings" : "Saved in this browser · rev " + committed.revision, eventDirty ? "dirty" : "saved"); });
+  ["event-name", "event-min", "event-max", "event-round", "event-join", "event-judge", "event-auto", "lead-enabled", "lead-guide", "lead-expert", "lead-marketing"].forEach((id) => $(id).addEventListener("input", () => { eventDirty = true; dirty(); if (["lead-enabled", "lead-guide", "lead-expert"].includes(id)) updateLeadControls(); }));
+  document.querySelectorAll('input[name="start-mode"]').forEach((radio) => radio.addEventListener("change", () => { eventDirty = true; dirty(); }));
+  $("event-form").addEventListener("submit", (event) => { event.preventDefault(); commitAll("Event settings saved"); });
+  $("event-select").addEventListener("change", (event) => {
+    const nextId = event.target.value;
+    if ((eventDirty || promptDirty) && !commitAll("Changes saved")) { event.target.value = eventId; return; }
+    busy = true; const result = store.setActiveEvent(nextId); busy = false;
+    if (!result.ok) { toast(result.error || "Could not change event", true); event.target.value = eventId; return; }
+    loadEvent(nextId); toast("Switched event");
+  });
+  $("new-event-button").addEventListener("click", () => {
+    if ((eventDirty || promptDirty) && !commitAll("Changes saved")) return;
+    busy = true; const result = store.createEvent("NEW EXPO EVENT"); busy = false;
+    if (!result.ok) { toast(result.error || "Could not create event", true); return; }
+    loadEvent(result.event.id); $("event-name").select(); toast("New event created — name it and save");
+  });
+  store.subscribe((key) => {
+    if (busy) return;
+    if (key === store.EVENTS_KEY) {
+      const nextId = store.getActiveEventId();
+      if (nextId !== eventId && !eventDirty && !promptDirty) { loadEvent(nextId); return; }
+      const latest = store.getEvent(eventId);
+      if (latest.revision !== committed.revision) { if (eventDirty || promptDirty) saveStatus("Event changed elsewhere — reload before saving", "error"); else loadEvent(eventId); }
+    } else if (key === store.STATE_KEY) updateRuntime();
+  });
+  window.addEventListener("resize", () => { renderPromptList(); renderLeadFields(); });
+  setInterval(() => { if (activeView === "run") updateRuntime(); }, 250);
+  renderAll();
+  if (location.hash === "#leads") { showView("event"); setEventStep("leads"); }
+})();
+</script>
+</body>
+</html>

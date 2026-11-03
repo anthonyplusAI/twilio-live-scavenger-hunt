@@ -1,0 +1,139 @@
+<p align="center">
+  <img src="app/public/assets/twilio-bug-official.png" width="52" alt="Twilio mark">
+</p>
+
+<h1 align="center">Live Scavenger Hunt</h1>
+
+<p align="center"><strong>Find it. Show it. Beat the clock.</strong><br>
+A live camera race that turns an expo booth into a moment the whole crowd can watch.</p>
+
+<p align="center">
+  <strong>2–6 players per heat</strong> &nbsp;·&nbsp;
+  <strong>One shared arena</strong> &nbsp;·&nbsp;
+  <strong>Optional audience voting</strong>
+</p>
+
+![Four-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-4-players.png)
+
+<p align="center"><em>Illustrated arena preview. In a configured live event, each portrait spot carries that player's phone camera.</em></p>
+
+<p align="center">
+  <a href="#the-experience">The experience</a> ·
+  <a href="#see-the-moment">See the moment</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#twilio-product-story">Twilio product story</a> ·
+  <a href="#production-handoff">Production handoff</a>
+</p>
+
+## The experience
+
+A visitor scans the arena QR code, picks a screen name, consents to appear on the booth display, and joins with their phone camera. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
+
+Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
+
+Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors may explore how the activation works and voluntarily request a guide or a conversation with the booth team. Joining and voting never require a lead form.
+
+| Booth moment | What the app does |
+| --- | --- |
+| **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a shared clock, and a synchronized result reveal. |
+| **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
+| **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
+| **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, CTA activity, leads, player exits, and removals. |
+| **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen also offers a light/dark toggle. |
+
+## See the moment
+
+These are **visual previews with illustrated stand-ins**, captured from the running app. The live arena uses camera feeds after Twilio Video setup; local rehearsal uses brief JPEG snapshots.
+
+<table>
+  <tr><th>Arena · first find</th><th>Arena · another player wins</th></tr>
+  <tr>
+    <td><img src="docs/visuals/live-scavenger-hunt-arena-win.png" alt="Arena celebrating Maya as the winner" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-arena-lose.png" alt="Arena showing another player's win and a nice-try state" width="680"></td>
+  </tr>
+  <tr><th>Phone · winner</th><th>Phone · not this round</th></tr>
+  <tr>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Winner celebration on a player phone" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Supportive non-winner result on a player phone" width="300"></td>
+  </tr>
+</table>
+
+The motion plays in the browser: the arena spotlights a first find and acknowledges the other players; the winning phone gets a medal and a short confetti burst. Ties and no-match outcomes have their own result states. Motion reduces automatically when the device requests reduced motion.
+
+The wall also rearranges for traffic at the booth:
+
+![Six-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-6-players.png)
+
+After starting the app, open the read-only [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), or [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose) preview. Preview URLs do not start a heat, connect a camera, judge a player, or write metrics.
+
+## Twilio product story
+
+| Product | Role in the activation | Setup state |
+| --- | --- | --- |
+| **Twilio Video** | Phone cameras publish into an unrecorded room; the booth wall subscribes to the players' video. | Built in; needs Video credentials and a public HTTPS origin for a live event. |
+| **Twilio Messaging** | SMS or WhatsApp lets spectators send a ballot response. A web ballot is available without a sender. | Optional; needs event senders, webhook setup, and the applicable sender registration. |
+| **Twilio Segment** | Can mirror a limited, contact-free activity stream. The local report works without Segment. | Optional Write Key. Lead identity is sent only with separate marketing opt-in and explicit configuration. |
+| **Twilio SendGrid** | Can email a requested build guide. Expert requests are saved for staff follow-up. | Optional API key and verified sender. |
+
+Optional **OpenAI vision** can assess camera evidence for prompts that cannot be handled by the built-in color rule. The booth operator can always review or override a decision. The expert CTA records a request; it does **not** place a Voice call or launch Agent Connect.
+
+## Player safety and booth control
+
+Players have a visible **Leave** action while queued or playing. Leaving releases their spot and turns off their camera. A phone left idle in the queue, lobby, paused heat, or operator review asks “Still here?” after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
+
+Staff can open **Manage players** in the operator view, choose a current or queued player, and confirm removal. Removal clears the slot, requests a Twilio Video disconnect when configured, invalidates that player session, and records a removal metric. The command reports whether the Video disconnect succeeded. This is session-level moderation: a person with a new browser session can scan again, so booth staff should monitor the arena.
+
+## Quick start
+
+Requires **Node.js 26+**. No Twilio credentials are needed for a local rehearsal.
+
+```sh
+npm ci
+npm start
+```
+
+`npm start` builds the browser Video client before starting the server. On a new database, the terminal prints a generated admin username and one-time password. Save the password, then open:
+
+| Screen | Local URL |
+| --- | --- |
+| Arena wall | [Open arena](http://127.0.0.1:65111/e/live-scavenger-hunt/arena) |
+| Player phone | [Open player](http://127.0.0.1:65111/e/live-scavenger-hunt/play) |
+| Spectator ballot | [Open vote](http://127.0.0.1:65111/e/live-scavenger-hunt/vote) |
+| Operator and event settings | [Open control room](http://127.0.0.1:65111/e/live-scavenger-hunt/operator) |
+| Private metrics and leads | [Open metrics](http://127.0.0.1:65111/e/live-scavenger-hunt/metrics) |
+
+The default server address is `127.0.0.1:65111`; adjust it with [.env.example](.env.example). Local rehearsal sends short-lived JPEG camera frames through the app at a lower frame rate than Twilio Video. Camera access on real phones requires a reachable **HTTPS** origin. Sign in as an operator in the same browser profile used for the arena wall to see player cameras there.
+
+Run `npm run check` for the browser build, server tests, and README link check. The [runbook](docs/runbook.md) covers event setup, accounts, preflight, messaging registration, data care, and a full booth rehearsal.
+
+## Metrics and leads
+
+The admin-only Metrics view filters by event and date range, shows the engagement funnel, and exports filtered event or lead CSV. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
+
+The app stores event configuration, heat history, votes, metrics, and requested leads in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    P[Player phones] -->|join, heartbeat, evidence| A[App server]
+    P -->|live camera when configured| V[Twilio Video]
+    V -->|player tracks| W[Arena wall]
+    A -->|state and result| W
+    S[Spectator phones] -->|web ballot| A
+    S -. SMS or WhatsApp ballot .-> M[Twilio Messaging]
+    M -->|signed webhook| A
+    O[Booth operator and admin] <-->|settings, judging, reports| A
+    A <--> D[(SQLite)]
+    A -. optional judging .-> AI[OpenAI]
+    A -. optional events .-> SG[Segment]
+    A -. requested guide .-> E[SendGrid]
+```
+
+The server owns the round clock, sealed clue, slot assignment, winner decision, operator permissions, and event-scoped reports. The [API contract](docs/full-app-api.md) lists routes and payloads; the [challenge library](docs/concepts/find-it-first-challenge-library.md) helps plan an event prompt deck.
+
+## Production handoff
+
+**The app is ready for local rehearsal. Twilio account configuration and production deployment are still pending.** Before opening a public booth, add Video credentials and the webhook Auth Token, deploy behind HTTPS with persistent storage, and test the wall with real phones on the venue network. SMS/WhatsApp, AI vision, Segment, and SendGrid are optional integrations that each need their own setup. Follow the [runbook's handoff checklist](docs/runbook.md#8-production-handoff-checklist).
+
+When changing app behavior, screens, settings, or integrations, update this README and the relevant runbook/API sections in the same change. [Project guidance](AGENTS.md) records that maintenance rule.

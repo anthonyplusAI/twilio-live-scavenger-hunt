@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000d25">
+  <script src="/theme.js"></script>
+  <title>Live Scavenger Hunt / Audience vote</title>
+  <link rel="stylesheet" href="/vote.css">
+  <link rel="stylesheet" href="/theme.css">
+</head>
+<body>
+  <div class="voter-app">
+    <div class="atmosphere" aria-hidden="true"><div class="beam beam-a"></div><div class="beam beam-b"></div><div class="halo halo-a"></div><div class="halo halo-b"></div><div class="floor-grid"></div></div>
+    <header class="masthead">
+      <div class="brand"><img src="/assets/twilio-bug-official.png" alt="Twilio"><div><span class="brand-kicker">TWILIO PRESENTS</span><strong>LIVE <em>SCAVENGER HUNT</em></strong></div></div>
+      <div class="masthead-actions"><span id="connection-status" class="connection-status"><i></i> CONNECTING</span><button type="button" data-theme-toggle class="theme-toggle"></button></div>
+    </header>
+
+    <main class="stage">
+      <section class="intro" aria-labelledby="vote-title">
+        <span id="round-label" class="round-label"><i></i> THE CROWD DECIDES</span>
+        <h1 id="vote-title">Your call.<span> Their moment.</span></h1>
+        <p id="vote-subtitle">The next ballot opens between heats. Keep this page ready.</p>
+      </section>
+
+      <section class="ballot" aria-label="Audience ballot">
+        <div class="ballot-head"><span id="window-kind" class="window-kind">STANDBY</span><span id="vote-clock" class="vote-clock" aria-live="off">—</span></div>
+        <div id="vote-options" class="vote-options" role="group" aria-label="Voting choices" hidden></div>
+        <div id="closed-state" class="closed-state"><span class="closed-emblem" aria-hidden="true">◎</span><strong id="closed-title">Waiting for the next vote</strong><p id="closed-detail">When the arena pauses, you can help choose what happens next.</p></div>
+        <div class="ballot-foot"><span id="vote-feedback" role="status" aria-live="polite">One vote per browser, per ballot.</span><span id="vote-count">0 VOTES</span></div>
+      </section>
+
+      <div id="channel-strip" class="channel-strip" hidden><span class="channel-label">OTHER WAYS TO VOTE</span><div id="channel-instructions"></div></div>
+    </main>
+
+    <footer class="foot"><span id="event-name">LIVE SCAVENGER HUNT</span><span class="foot-rule"></span><span>NO SIGN-UP REQUIRED</span><a id="play-link" href="#">Want to play? <b>Play the game ↗</b></a></footer>
+  </div>
+  <script type="module" src="/vote.js"></script>
+</body>
+</html>

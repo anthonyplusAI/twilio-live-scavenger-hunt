@@ -1,0 +1,38 @@
+.theme-toggle {
+  --theme-toggle-bg: rgba(9, 28, 56, .82);
+  --theme-toggle-border: rgba(186, 210, 245, .34);
+  --theme-toggle-ink: #eef4ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+  min-width: 88px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--theme-toggle-border);
+  border-radius: 999px;
+  background: var(--theme-toggle-bg);
+  color: var(--theme-toggle-ink);
+  font: 800 10px/1 "Twilio Sans Text", "Avenir Next", system-ui, sans-serif;
+  letter-spacing: .13em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 6, 20, .14);
+  transition: background .2s ease, border-color .2s ease, transform .2s ease;
+}
+.theme-toggle:hover { transform: translateY(-1px); border-color: currentColor; }
+.theme-toggle:focus-visible { outline: 2px solid #ef223a; outline-offset: 3px; }
+.theme-toggle__icon, .theme-toggle__icon svg { display: block; width: 16px; height: 16px; }
+.theme-toggle--floating { position: fixed; z-index: 100; right: max(12px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); }
+html[data-theme="light"] .theme-toggle {
+  --theme-toggle-bg: #fff;
+  --theme-toggle-border: #aab7ce;
+  --theme-toggle-ink: #183255;
+  box-shadow: 0 2px 12px rgba(31, 54, 94, .1);
+}
+@media (max-width: 680px) {
+  .theme-toggle { min-width: 44px; width: 44px; min-height: 44px; padding: 0; }
+  .theme-toggle__label { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .theme-toggle { transition: none; } }

@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000d25">
+  <title>Signal Stadium · Live arena</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #000d25;
+      --ink-2: #071935;
+      --ink-3: #102346;
+      --red: #ef223a;
+      --red-light: #ff6875;
+      --paper: #f6f8ff;
+      --muted: #a9b6d2;
+      --line: rgba(207, 223, 255, .19);
+      --font-display: "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      --font-text: "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: var(--ink); color: var(--paper); font-family: var(--font-text); -webkit-font-smoothing: antialiased; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a:focus-visible { outline: 3px solid var(--paper); outline-offset: 5px; }
+
+    .screen {
+      position: relative;
+      isolation: isolate;
+      width: 100vw;
+      width: 100dvw;
+      height: 100vh;
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: clamp(52px, 6.8vh, 78px) clamp(122px, 17.4vh, 186px) minmax(0, 1fr) clamp(82px, 11.6vh, 130px);
+      gap: 0;
+      padding: clamp(14px, 2.2vw, 38px) clamp(18px, 3.2vw, 64px) clamp(14px, 2vw, 30px);
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 66% 40% at 50% 76%, rgba(239,34,58,.13), transparent 74%),
+        radial-gradient(ellipse 34% 24% at 90% 12%, rgba(73,118,206,.12), transparent 77%),
+        linear-gradient(150deg, #000b20 10%, #071735 66%, #020b1d 100%);
+    }
+    .screen::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -2;
+      pointer-events: none;
+      opacity: .33;
+      background: repeating-linear-gradient(90deg, transparent 0, transparent calc(8.333vw - 1px), rgba(154,185,242,.09) calc(8.333vw - 1px), rgba(154,185,242,.09) 8.333vw);
+      mask-image: linear-gradient(to bottom, transparent, black 42%, black 82%, transparent);
+    }
+    .screen::after {
+      content: "";
+      position: absolute;
+      left: 50%; bottom: -30vh;
+      width: 116vw; height: 78vh;
+      z-index: -1;
+      transform: translateX(-50%) perspective(1100px) rotateX(67deg);
+      border-radius: 50%;
+      border: 1px solid rgba(239,34,58,.21);
+      box-shadow: 0 0 0 14vw rgba(239,34,58,.025), 0 0 0 25vw rgba(142,178,242,.018), 0 0 120px rgba(239,34,58,.1) inset;
+      pointer-events: none;
+    }
+
+    .topbar {
+      min-width: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: clamp(10px, .9vw, 17px); min-width: 0; }
+    .brand-bug { width: clamp(27px, 2.5vw, 38px); height: clamp(27px, 2.5vw, 38px); flex: none; display: block; object-fit: contain; border-radius: 8px; box-shadow: 0 0 23px rgba(239,34,58,.19); }
+    .brand-divider { width: 1px; height: 28px; margin: 0 1px 0 5px; background: var(--line); }
+    .brand-event { max-width: min(30vw, 390px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(10px, .8vw, 14px); font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+    .top-meta { display: flex; align-items: center; gap: clamp(16px, 2.2vw, 44px); white-space: nowrap; padding-top: 7px; }
+    .live-mark { display: inline-flex; align-items: center; gap: 9px; font-size: clamp(10px, .83vw, 13px); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .live-mark::before { content: ""; width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px rgba(239,34,58,.13), 0 0 22px var(--red); }
+    .heat-number { font-size: clamp(11px, .9vw, 14px); font-weight: 800; letter-spacing: .14em; color: var(--muted); }
+    .operator-link { color: rgba(234,240,255,.58); text-decoration: none; font-size: clamp(10px, .8vw, 13px); font-weight: 700; letter-spacing: .04em; }
+    .operator-link:hover { color: var(--paper); }
+
+    .hero-row { display: flex; align-items: center; justify-content: space-between; gap: clamp(18px, 3vw, 60px); min-width: 0; }
+    .hero-copy { min-width: 0; max-width: calc(100% - 155px); align-self: center; }
+    .eyebrow { display: flex; align-items: center; gap: 12px; margin-bottom: clamp(8px, .8vh, 13px); color: var(--red-light); font-size: clamp(11px, .93vw, 15px); font-weight: 800; letter-spacing: .21em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 24px; height: 3px; flex: none; border-radius: 10px; background: var(--red); }
+    .headline { margin: 0; max-width: 1350px; font: 800 clamp(46px, 6.7vw, 116px)/.94 var(--font-display); letter-spacing: -.065em; text-transform: uppercase; text-wrap: balance; overflow-wrap: anywhere; color: var(--paper); filter: drop-shadow(0 12px 22px rgba(0,0,0,.16)); }
+    .headline.is-long { font-size: clamp(37px, 5vw, 82px); line-height: .98; }
+    .headline.is-extra-long { font-size: clamp(31px, 4.2vw, 70px); line-height: 1.01; }
+    .headline.flash { animation: headline-in .64s cubic-bezier(.2,.8,.14,1) both; }
+    @keyframes headline-in { from { opacity: 0; transform: translateY(22px) scale(.985); filter: blur(10px); } to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
+    .subline { min-height: 1.3em; margin: clamp(8px, .75vh, 12px) 0 0 2px; color: var(--muted); font-size: clamp(13px, 1.04vw, 18px); font-weight: 700; letter-spacing: .025em; }
+
+    .clock {
+      position: relative;
+      width: clamp(94px, 10.8vw, 176px);
+      height: clamp(94px, 10.8vw, 176px);
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: conic-gradient(var(--red) var(--clock-progress, 0%), rgba(255,255,255,.12) 0);
+      box-shadow: 0 0 40px rgba(239,34,58,.08);
+    }
+    .clock::before { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: #06142f; box-shadow: 0 0 28px rgba(0,0,0,.35) inset; }
+    .clock-inner { position: relative; z-index: 1; text-align: center; padding-top: 4px; }
+    .clock-value { display: block; font: 800 clamp(33px, 4.5vw, 72px)/.95 var(--font-display); letter-spacing: -.085em; }
+    .clock-label { display: block; margin-top: 4px; color: var(--muted); font-size: clamp(8px, .8vw, 12px); font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+
+    .field { position: relative; min-height: 0; display: flex; align-items: stretch; justify-content: center; padding: clamp(7px, .8vh, 13px) 0 clamp(9px, 1.15vh, 18px); }
+    .field::before {
+      content: ""; position: absolute; left: 8%; right: 8%; top: 49%; height: 62%; transform: translateY(-40%);
+      background: radial-gradient(ellipse 57% 70% at center, rgba(96,129,202,.14), transparent 84%);
+      filter: blur(24px); pointer-events: none;
+    }
+    .field::after {
+      content: ""; position: absolute; left: 6%; right: 6%; bottom: 1%; height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(239,34,58,.12) 16%, rgba(239,34,58,.72) 50%, rgba(239,34,58,.12) 84%, transparent);
+      box-shadow: 0 0 24px rgba(239,34,58,.45); pointer-events: none;
+    }
+    .players { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-content: center; align-items: center; justify-content: center; gap: var(--tile-gap, 12px); width: 100%; height: 100%; min-height: 0; margin-inline: auto; }
+    .player-tile {
+      position: relative;
+      width: var(--tile-w, 210px);
+      height: var(--tile-h, 373.333px);
+      aspect-ratio: 9 / 16;
+      flex: none;
+      overflow: hidden;
+      isolation: isolate;
+      border: 1px solid rgba(217,229,255,.28);
+      border-radius: 20px 20px 30px 20px;
+      background: #11254a;
+      box-shadow: 0 22px 30px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.28) inset;
+      transform: translateZ(0);
+      animation: tile-in .7s cubic-bezier(.19,.8,.18,1) both;
+      animation-delay: var(--tile-delay);
+      transition: border-color .35s ease, box-shadow .35s ease, transform .5s cubic-bezier(.2,.8,.2,1), opacity .35s;
+    }
+    @keyframes tile-in { from { opacity: 0; transform: translateY(27px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .player-tile::before {
+      content: ""; position: absolute; z-index: 3; pointer-events: none; inset: 0;
+      border-radius: inherit;
+      box-shadow: 0 0 0 1px rgba(247,249,255,.1) inset, 0 0 45px rgba(4,12,31,.42) inset;
+    }
+    .player-tile::after {
+      content: ""; position: absolute; z-index: 2; pointer-events: none; inset: 0;
+      background: linear-gradient(180deg, rgba(0,8,24,.3) 0%, transparent 25%, transparent 56%, rgba(0,9,27,.86) 100%);
+    }
+    .feed-art { position: absolute; inset: 0; overflow: hidden; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #223d66 0, #0a1734 68%, #050d21 100%); }
+    .portrait-svg, .feed-video { width: 100%; height: 100%; display: block; object-fit: contain; transition: filter .45s ease, opacity .4s ease; }
+    /* Live phone video replaces the illustration in production; contain preserves the entire camera frame. */
+    .feed-video { position: absolute; inset: 0; background: #07142f; }
+    .player-tile.is-open { border-style: dashed; border-color: rgba(181,204,247,.24); background: rgba(14,30,62,.42); box-shadow: 0 10px 20px rgba(0,0,0,.1); }
+    .player-tile.is-open .feed-art { opacity: .5; filter: grayscale(1) blur(4px); }
+    .player-tile.is-open::after { background: linear-gradient(180deg, rgba(3,12,32,.28), rgba(3,12,32,.54)); }
+    .player-tile.is-open .tile-top, .player-tile.is-open .tile-bottom { color: rgba(230,238,255,.7); }
+    .open-symbol { position: absolute; z-index: 4; top: 49%; left: 50%; transform: translate(-50%,-50%); width: clamp(56px, 6.2vw, 110px); height: clamp(56px, 6.2vw, 110px); display: grid; place-items: center; border: 1px solid rgba(230,239,255,.3); border-radius: 50%; font: 400 clamp(44px, 5.4vw, 90px)/1 var(--font-display); color: rgba(239,244,255,.75); }
+    .tile-top, .tile-bottom { position: absolute; left: clamp(12px, 1.12vw, 21px); right: clamp(12px, 1.12vw, 21px); z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .tile-top { top: clamp(12px, 1.1vw, 20px); }
+    .tile-bottom { bottom: clamp(14px, 1.2vw, 23px); align-items: flex-end; }
+    .tile-number { font: 800 clamp(22px, 2.7vw, 50px)/.88 var(--font-display); letter-spacing: -.08em; }
+    .tile-signal { display: inline-flex; align-items: center; gap: 3px; height: 15px; opacity: .76; }
+    .tile-signal i { display: block; width: 3px; border-radius: 5px; background: var(--paper); }
+    .tile-signal i:nth-child(1) { height: 5px; }.tile-signal i:nth-child(2) { height: 9px; }.tile-signal i:nth-child(3) { height: 14px; }
+    .tile-name { font-size: clamp(11px, 1vw, 17px); font-weight: 800; line-height: 1.1; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+    .tile-state { padding: 5px 7px 4px; border-radius: 4px; color: var(--paper); background: rgba(3,13,37,.55); border: 1px solid rgba(226,237,255,.28); font-size: clamp(8px, .67vw, 11px); font-weight: 800; line-height: 1; letter-spacing: .12em; text-transform: uppercase; }
+    .player-tile.is-winner { border-color: var(--red-light); box-shadow: 0 0 0 3px rgba(239,34,58,.65), 0 0 65px rgba(239,34,58,.43), 0 34px 45px rgba(0,0,0,.3); transform: translateY(-10px) scale(1.018); z-index: 5; }
+    .player-tile.is-winner .tile-state { color: var(--paper); border-color: var(--red); background: var(--red); }
+    .player-tile.is-winner .portrait-svg { filter: brightness(1.07) saturate(1.1); }
+    .screen[data-phase="result"] .player-tile.is-ready:not(.is-winner) { opacity: .48; filter: saturate(.55); }
+    .screen[data-phase="result"].is-no-match .player-tile.is-ready:not(.is-winner) { opacity: .73; filter: saturate(.75); }
+    .screen[data-phase="countdown"] .player-tile { filter: brightness(.54); }
+    .screen[data-phase="review"] .player-tile.is-ready .feed-art::after {
+      content: ""; position: absolute; left: 0; right: 0; top: -15%; height: 4px;
+      background: linear-gradient(90deg, transparent, rgba(248,251,255,.9), transparent);
+      box-shadow: 0 0 28px rgba(234,244,255,.85);
+      animation: scan 2.2s ease-in-out infinite alternate;
+    }
+    @keyframes scan { from { top: 5%; } to { top: 85%; } }
+
+    .countdown-overlay { position: absolute; z-index: 8; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
+    .screen[data-phase="countdown"] .countdown-overlay { display: flex; }
+    .countdown-number { font: 800 min(46vh, 32vw)/.8 var(--font-display); letter-spacing: -.11em; color: var(--paper); text-shadow: 0 0 25px rgba(239,34,58,.7), 0 25px 65px rgba(0,0,0,.7); }
+    .countdown-number.bump { animation: count-pop .58s cubic-bezier(.15,.8,.2,1) both; }
+    @keyframes count-pop { from { opacity: 0; transform: scale(1.5); filter: blur(15px); } to { opacity: 1; transform: scale(1); filter: blur(0); } }
+    .go-burst { position: absolute; z-index: 12; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 44%, rgba(255,255,255,.84) 0%, rgba(239,34,58,.42) 20%, rgba(239,34,58,.06) 51%, transparent 72%); }
+    .screen.show-go .go-burst { animation: go-flash .85s ease-out both; }
+    @keyframes go-flash { 0% { opacity: 0; transform: scale(.65); } 15% { opacity: 1; } 100% { opacity: 0; transform: scale(1.55); } }
+
+    .footer { display: flex; align-items: center; justify-content: space-between; gap: clamp(18px, 3vw, 60px); min-width: 0; border-top: 1px solid var(--line); }
+    .join { display: flex; align-items: center; gap: clamp(12px, 1.45vw, 24px); min-width: 0; color: inherit; text-decoration: none; }
+    .join:hover .join-title { text-decoration: underline; text-decoration-thickness: .06em; text-underline-offset: .1em; }
+    .qr-wrap { position: relative; width: clamp(58px, 6.7vw, 106px); height: clamp(58px, 6.7vw, 106px); flex: none; display: grid; place-items: center; background: #fff; padding: clamp(5px, .45vw, 8px); border-radius: 10px; box-shadow: 0 0 27px rgba(255,255,255,.1); }
+    .qr-wrap svg { display: block; width: 100%; height: 100%; }
+    .join-kicker { color: var(--red-light); font-size: clamp(10px, .85vw, 14px); font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+    .join-title { margin-top: 5px; font: 800 clamp(22px, 2.6vw, 46px)/.98 var(--font-display); letter-spacing: -.045em; text-transform: uppercase; white-space: nowrap; }
+    .join-detail { margin-top: 5px; color: var(--muted); font-size: clamp(11px, .9vw, 15px); font-weight: 700; white-space: nowrap; }
+    .footer-status { display: flex; align-items: center; justify-content: flex-end; gap: clamp(14px, 2vw, 32px); min-width: 0; text-align: right; }
+    .footer-line { font: 800 clamp(16px, 1.45vw, 25px)/1.1 var(--font-display); letter-spacing: -.035em; white-space: nowrap; }
+    .footer-detail { margin-top: 6px; color: var(--muted); font-size: clamp(10px, .84vw, 14px); font-weight: 700; white-space: nowrap; }
+    .footer-bars { width: clamp(38px, 4vw, 65px); height: 36px; flex: none; display: flex; align-items: flex-end; gap: 5px; }
+    .footer-bars span { flex: 1; border-radius: 3px 3px 0 0; background: var(--red); opacity: .75; }
+    .footer-bars span:nth-child(1) { height: 28%; }.footer-bars span:nth-child(2) { height: 55%; }.footer-bars span:nth-child(3) { height: 78%; }.footer-bars span:nth-child(4) { height: 100%; }
+    .screen[data-phase="result"] .footer-status .footer-line { color: var(--paper); }
+
+    @media (max-width: 900px) {
+      .screen { grid-template-rows: 58px clamp(100px, 16vh, 145px) minmax(0, 1fr) 94px; padding: 18px 24px 16px; }
+      .brand-event { max-width: 22vw; }
+      .top-meta { gap: 16px; }
+      .headline { font-size: clamp(42px, 7vw, 74px); }
+      .headline.is-long { font-size: clamp(35px, 5.7vw, 60px); }
+      .headline.is-extra-long { font-size: clamp(30px, 4.7vw, 49px); }
+      .clock { width: 105px; height: 105px; }
+      .clock-value { font-size: 41px; }
+      .tile-state { display: none; }
+    }
+    @media (max-width: 680px) {
+      .screen { grid-template-rows: 46px clamp(104px, 17.5vh, 150px) minmax(0, 1fr) clamp(82px, 12vh, 108px); padding: 12px 14px 12px; }
+      .screen::before { opacity: .23; }
+      .topbar { align-items: center; }
+      .brand { gap: 8px; }.brand-bug { width: 27px; height: 27px; border-radius: 6px; }.brand-divider, .live-mark { display: none; }.brand-event { display: block; max-width: 29vw; font-size: 10px; letter-spacing: .07em; }
+      .top-meta { padding-top: 0; gap: 12px; }.heat-number { font-size: 11px; }.operator-link { font-size: 10px; }
+      .hero-row { gap: 8px; align-items: center; }
+      .hero-copy { max-width: calc(100% - 66px); }
+      .eyebrow { gap: 7px; margin-bottom: 6px; font-size: 9px; letter-spacing: .11em; }.eyebrow::before { width: 12px; height: 2px; }
+      .headline { font-size: clamp(29px, 8.4vw, 55px); line-height: .96; letter-spacing: -.06em; }
+      .headline.is-long { font-size: clamp(25px, 7vw, 42px); }
+      .headline.is-extra-long { font-size: clamp(20px, 5.8vw, 35px); line-height: 1.03; }
+      .subline { margin-top: 6px; font-size: 11px; line-height: 1.2; }
+      .clock { width: 64px; height: 64px; }.clock::before { inset: 5px; }.clock-value { font-size: 24px; }.clock-label { font-size: 7px; letter-spacing: .08em; margin-top: 2px; }
+      .field { padding: 6px 0 10px; }
+      .players { max-width: 100%; }
+      .player-tile { min-width: 0; border-radius: 12px 12px 17px 12px; }
+      .tile-top, .tile-bottom { left: 7px; right: 7px; }.tile-top { top: 8px; }.tile-bottom { bottom: 8px; }
+      .tile-number { font-size: clamp(17px, 5.8vw, 25px); }.tile-name { font-size: clamp(8px, 2.5vw, 11px); letter-spacing: .025em; }.tile-signal { transform: scale(.7); transform-origin: right top; }
+      .open-symbol { width: 45px; height: 45px; font-size: 40px; }
+      .countdown-number { font-size: min(34vh, 58vw); }
+      .footer { gap: 8px; }
+      .qr-wrap { width: 58px; height: 58px; border-radius: 7px; padding: 5px; }
+      .join { gap: 8px; }.join-kicker { font-size: 8px; letter-spacing: .07em; }.join-title { font-size: clamp(16px, 5vw, 22px); }.join-detail { display: none; }
+      .footer-line { font-size: clamp(11px, 3.2vw, 15px); white-space: normal; }.footer-detail { font-size: 9px; white-space: normal; }.footer-bars { display: none; }
+    }
+    @media (max-width: 360px) {
+      .screen { padding-left: 10px; padding-right: 10px; }
+      .join-title { font-size: 15px; }
+      .footer-status { max-width: 122px; }
+    }
+    @media (max-height: 650px) and (min-width: 681px) {
+      .screen { grid-template-rows: 45px 89px minmax(0,1fr) 68px; padding-top: 10px; padding-bottom: 10px; }
+      .headline { font-size: clamp(35px, 5.2vw, 76px); }.headline.is-long { font-size: clamp(30px, 4.2vw, 60px); }.headline.is-extra-long { font-size: clamp(25px, 3.5vw, 49px); }
+      .clock { width: 82px; height: 82px; }.clock::before { inset: 6px; }.clock-value { font-size: 31px; }.clock-label { font-size: 8px; }
+      .qr-wrap { width: 50px; height: 50px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="screen" id="screen" data-phase="lobby">
+    <header class="topbar">
+      <div class="brand" aria-label="Twilio Signal Stadium">
+        <img class="brand-bug" src="assets/twilio-bug-official.png" alt="Twilio" width="38" height="38"><span class="brand-divider"></span><span class="brand-event" id="eventName">Signal Stadium</span>
+      </div>
+      <div class="top-meta"><span class="live-mark" id="liveMark">Live arena</span><span class="heat-number" id="heatNumber">HEAT 01</span><a class="operator-link" href="signal-stadium-operator.html" aria-label="Open operator controls">Operator ↗</a></div>
+    </header>
+
+    <section class="hero-row" aria-live="polite" aria-atomic="true">
+      <div class="hero-copy"><div class="eyebrow" id="eyebrow">Find it first</div><h1 class="headline" id="headline">The floor is yours.</h1><p class="subline" id="subline">Scan. Step in. Be the first to show the find.</p></div>
+      <div class="clock" id="clock" style="--clock-progress:0%"><div class="clock-inner"><span class="clock-value" id="clockValue">0/6</span><span class="clock-label" id="clockLabel">Ready</span></div></div>
+    </section>
+
+    <section class="field" id="field" aria-label="Player camera wall"><div class="players" id="players" data-slots="2"></div><div class="countdown-overlay" aria-live="assertive"><span class="countdown-number" id="countdownNumber">3</span></div><div class="go-burst" aria-hidden="true"></div></section>
+
+    <footer class="footer">
+      <a class="join" href="signal-stadium-player.html" aria-label="Open the player phone preview"><div class="qr-wrap" aria-label="Join QR placeholder for this visual prototype"><svg id="qrArt" viewBox="0 0 21 21" aria-hidden="true"></svg></div><div><div class="join-kicker" id="joinKicker">Your camera. Your call.</div><div class="join-title" id="joinTitle">Scan to play</div><div class="join-detail" id="joinDetail">Join on your phone</div></div></a>
+      <div class="footer-status"><div><div class="footer-line" id="footerLine">Step into the spotlight</div><div class="footer-detail" id="footerDetail">The prompt stays secret until GO</div></div><div class="footer-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div></div>
+    </footer>
+  </main>
+  <script src="config-store.js"></script>
+  <script src="metrics-store.js"></script>
+  <script>
+  (() => {
+    "use strict";
+    const store = window.SignalStadiumStore;
+    const metrics = window.SignalStadiumMetrics;
+    const $ = (id) => document.getElementById(id);
+    const screen = $("screen");
+    const portraitPalettes = [
+      { bg1: "#1a3359", bg2: "#604c65", skin: "#d4a18c", skin2: "#a7615d", hair: "#1d1723", shirt: "#e7c1b5", shirt2: "#70405b" },
+      { bg1: "#234654", bg2: "#24385f", skin: "#a96f50", skin2: "#754532", hair: "#141b26", shirt: "#e1a66f", shirt2: "#9e5446" },
+      { bg1: "#342b5d", bg2: "#34516e", skin: "#e6bd96", skin2: "#ba8171", hair: "#2c2038", shirt: "#9ec4e2", shirt2: "#4b7098" },
+      { bg1: "#4a3e51", bg2: "#183653", skin: "#8f5947", skin2: "#61382f", hair: "#13141e", shirt: "#db9eaa", shirt2: "#874963" },
+      { bg1: "#1e4c56", bg2: "#625069", skin: "#c5957b", skin2: "#9e5e55", hair: "#36232a", shirt: "#b3d4c9", shirt2: "#497c79" },
+      { bg1: "#354969", bg2: "#573b50", skin: "#d7b28d", skin2: "#ac7866", hair: "#191923", shirt: "#e7c0d3", shirt2: "#8b5e7c" },
+    ];
+    let eventId = store.getActiveEventId();
+    let eventConfig = store.getEvent(eventId);
+    let state = store.getState(eventId);
+    let lastCommandId = store.getCommand()?.id || null;
+    let visualSignature = "";
+    let lastClockNumber = "";
+
+    function pad(number) { return String(number).padStart(2, "0"); }
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+    function now() { return Date.now(); }
+    function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : 0; }
+    function heatId(heat = Number(state.heat || 1)) { return `${eventId}:heat-${heat}`; }
+    function track(type, properties = {}) { try { metrics?.record(eventId, type, properties); } catch (error) { console.warn("Could not record arena metric", error); } }
+    function trackOnce(type, properties = {}) { try { metrics?.recordOnce(eventId, type, properties.heatId, properties); } catch (error) { console.warn("Could not record arena metric", error); } }
+    function saveState(patch) {
+      const result = store.setState(eventId, patch);
+      if (!result.ok) return false;
+      state = store.getState(eventId);
+      render();
+      return true;
+    }
+    function portraitSvg(index) {
+      const p = portraitPalettes[index % portraitPalettes.length];
+      const id = `portrait-${index}`;
+      const hair = index % 3 === 0
+        ? `<path d="M104 251C88 167 128 109 202 113c67 4 107 53 94 139-24-32-36-68-46-104-45 46-97 63-146 103Z" fill="${p.hair}"/><path d="M118 259c-9 59-14 117-35 174l38-13 33-105Z" fill="${p.hair}"/>`
+        : index % 3 === 1
+        ? `<path d="M103 252c-4-79 39-128 102-128 73 0 108 54 94 124-29-13-56-38-81-59-27 28-72 49-115 63Z" fill="${p.hair}"/><path d="M281 220c28 30 31 81 7 117l-22-63Z" fill="${p.hair}"/>`
+        : `<path d="M111 249c-5-61 24-117 98-120 79-3 105 58 87 119-18-7-35-18-43-37-29 21-83 34-142 38Z" fill="${p.hair}"/><path d="M99 219c0-56 47-113 101-111-59 39-74 92-67 137Z" fill="${p.hair}"/>`;
+      return `<svg class="portrait-svg" viewBox="0 0 400 660" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs><linearGradient id="bg-${id}" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="${p.bg1}"/><stop offset="1" stop-color="${p.bg2}"/></linearGradient><radialGradient id="halo-${id}"><stop stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient><linearGradient id="face-${id}" x1=".1" x2=".9" y1="0" y2="1"><stop stop-color="${p.skin}"/><stop offset="1" stop-color="${p.skin2}"/></linearGradient><linearGradient id="shirt-${id}" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${p.shirt}"/><stop offset="1" stop-color="${p.shirt2}"/></linearGradient><pattern id="dots-${id}" width="17" height="17" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d5e3ff" opacity=".1"/></pattern></defs>
+        <rect width="400" height="660" fill="url(#bg-${id})"/><rect width="400" height="660" fill="url(#dots-${id})"/><path d="M-30 145 400 44v154L-30 328Z" fill="#fff" opacity=".055"/><path d="M-30 430 400 310v79L-30 509Z" fill="#fff" opacity=".035"/><circle cx="205" cy="325" r="242" fill="url(#halo-${id})"/>
+        <path d="M-42 706c11-164 76-230 166-253l63 33 30-1 62-31c85 29 154 94 166 252Z" fill="url(#shirt-${id})"/><path d="M148 453c10 43 33 71 56 71 28 0 53-33 56-72l-24-15h-69Z" fill="${p.skin2}"/><path d="M143 452 205 528l-35 132-58-197Z" fill="#fff" opacity=".07"/><path d="M258 448 205 528l40 132 54-198Z" fill="#000" opacity=".08"/>
+        <ellipse cx="201" cy="297" rx="93" ry="122" fill="url(#face-${id})"/><ellipse cx="108" cy="311" rx="13" ry="30" fill="${p.skin2}"/><ellipse cx="294" cy="311" rx="13" ry="30" fill="${p.skin2}"/>${hair}<path d="M135 291c18-11 34-11 47-5M218 286c18-10 33-9 48 0" fill="none" stroke="${p.hair}" stroke-width="7" stroke-linecap="round" opacity=".65"/><path d="M142 313h36m43 0h35" stroke="#18233a" stroke-width="5" stroke-linecap="round" opacity=".75"/><path d="m202 322-8 38 17 2" fill="none" stroke="${p.skin2}" stroke-width="5" stroke-linecap="round" opacity=".7"/><path d="M171 389c23 13 46 13 67-1" fill="none" stroke="#713f42" stroke-width="6" stroke-linecap="round" opacity=".72"/>
+        <path d="M26 0v660M374 0v660" stroke="#e9f1ff" stroke-opacity=".07" stroke-width="2"/><path d="M0 565h400" stroke="#e9f1ff" stroke-opacity=".07" stroke-width="2"/><rect width="400" height="660" fill="none" stroke="#d8e5ff" stroke-opacity=".06" stroke-width="12"/>
+      </svg>`;
+    }
+    function qrArt() {
+      const svg = $("qrArt");
+      const cell = (x, y) => `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+      const finder = (x, y) => `<rect x="${x}" y="${y}" width="7" height="7"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fff"/><rect x="${x+2}" y="${y+2}" width="3" height="3"/>`;
+      let cells = `<g fill="#001634">${finder(0,0)}${finder(14,0)}${finder(0,14)}`;
+      for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
+        if ((x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12)) continue;
+        if (((x*x + y*7 + x*y*3 + 19) % 8) < 4) cells += cell(x,y);
+      }
+      svg.innerHTML = cells + "</g>";
+    }
+    function validWinners(values) {
+      const count = clamp(Number(state.lockedCount || state.readyCount || eventConfig.maxPlayers), 0, 6);
+      return [...new Set((Array.isArray(values) ? values : []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= count))].sort((a,b) => a-b);
+    }
+    function pickPrompt() {
+      const enabled = eventConfig.prompts.filter(p => p.enabled);
+      if (!enabled.length) return null;
+      return enabled.find(p => p.id === state.queuedPromptId) || enabled[(Number(state.heat || 1)-1) % enabled.length];
+    }
+    function startHeat() {
+      if (state.phase !== "lobby" || state.readyCount < eventConfig.minPlayers) return;
+      const prompt = pickPrompt();
+      if (!prompt) { saveState({ error: "No prompts enabled" }); return; }
+      const seconds = prompt.seconds || eventConfig.roundSeconds;
+      const heat = Number(state.heat || 1), playerCount = Number(state.readyCount || 0);
+      if (!saveState({ phase: "countdown", lockedCount: playerCount, firstReadyAt: null, countdownEndsAt: now()+3000,
+        pendingPromptSnapshot: { id: prompt.id, text: prompt.text, category: prompt.category, judgeMode: prompt.judgeMode, detector: prompt.detector, seconds },
+        promptSnapshot: null, promptId: null, roundEndsAt: null, durationSeconds: seconds,
+        judgePolicySnapshot: eventConfig.judgePolicy, autoAdvanceSnapshot: eventConfig.autoAdvance,
+        winners: [], candidateWinners: [], resultSource: null, resultAt: null,
+        queuedPromptId: null, error: null, heatsStarted: Number(state.heatsStarted || 0)+1,
+        resultReason: null, judgmentSimulated: false, candidateSource: null })) return;
+      trackOnce("heat_started", { heatId: heatId(heat), heat, playerCount, promptId: prompt.id, durationSeconds: seconds });
+    }
+    function revealPrompt() {
+      if (state.phase !== "countdown") return;
+      const prompt = state.pendingPromptSnapshot;
+      if (!prompt) return;
+      if (!saveState({ phase: "hunt", countdownEndsAt: null, promptId: prompt.id, promptSnapshot: prompt, pendingPromptSnapshot: null,
+        roundEndsAt: now()+(prompt.seconds * 1000), durationSeconds: prompt.seconds, candidateWinners: [], winners: [] })) return;
+      trackOnce("prompt_revealed", { heatId: heatId(), heat: Number(state.heat || 1), promptId: prompt.id, promptText: prompt.text,
+        category: prompt.category, durationSeconds: prompt.seconds, playerCount: Number(state.lockedCount || 0) });
+      screen.classList.remove("show-go"); void screen.offsetWidth; screen.classList.add("show-go");
+      window.setTimeout(() => screen.classList.remove("show-go"), 1100);
+    }
+    function enterReview() {
+      if (state.phase !== "hunt") return;
+      saveState({ phase: "review", roundEndsAt: null, reviewStartedAt: now() });
+    }
+    function finalize(winners, source, reason = "") {
+      const chosen = validWinners(winners);
+      const previous = state.phase === "result" ? (state.winners || []) : (state.candidateWinners || []);
+      const hadPriorDecision = state.phase === "result" || (state.candidateWinners?.length || 0) > 0;
+      const changedByOperator = source === "operator" && hadPriorDecision && JSON.stringify(previous) !== JSON.stringify(chosen);
+      const cleanedReason = String(reason || "").trim().slice(0, 160);
+      const results = Array.isArray(state.results) ? state.results.slice(-99) : [];
+      const currentResult = { heat: Number(state.heat || 1), promptId: state.promptId, winners: chosen,
+        outcome: chosen.length ? (chosen.length > 1 ? "tie" : "winner") : "no-match", source,
+        simulated: source === "simulated-judge", reason: cleanedReason || null, at: new Date().toISOString() };
+      const decisionLog = Array.isArray(state.decisionLog) ? state.decisionLog.slice(-99) : [];
+      decisionLog.push({ ...currentResult, kind: "final" });
+      const existingIndex = results.findIndex(item => item.heat === currentResult.heat);
+      if (existingIndex >= 0) results[existingIndex] = currentResult; else results.push(currentResult);
+      if (!saveState({ phase: "result", winners: chosen, candidateWinners: chosen, resultSource: source,
+        resultReason: cleanedReason || null, judgmentSimulated: source === "simulated-judge",
+        resultAt: now(), roundEndsAt: null, reviewStartedAt: null, results, decisionLog,
+        roundsFinished: Number(state.roundsFinished || 0) + (existingIndex >= 0 ? 0 : 1),
+        overrideCount: Number(state.overrideCount || 0) + (changedByOperator ? 1 : 0) })) return;
+      const result = { heatId: heatId(currentResult.heat), heat: currentResult.heat, promptId: currentResult.promptId,
+        winners: chosen, outcome: currentResult.outcome,
+        source: changedByOperator ? "override" : source === "simulated-judge" ? "auto" : source,
+        judgeSource: source, reason: cleanedReason || null,
+        isOverride: changedByOperator, simulated: currentResult.simulated, playerCount: Number(state.lockedCount || 0) };
+      track("winner_finalized", result);
+      if (existingIndex < 0) trackOnce("heat_completed", result);
+    }
+    function propose(winners) {
+      if (!["hunt", "review"].includes(state.phase)) return;
+      if (!["rule", "ai-assisted"].includes(state.promptSnapshot?.judgeMode)) return;
+      const chosen = validWinners(winners);
+      if (!chosen.length) return;
+      if (state.phase === "review" && JSON.stringify(state.candidateWinners || []) === JSON.stringify(chosen)) return;
+      track("judge_proposed", { heatId: heatId(), heat: Number(state.heat || 1), promptId: state.promptId,
+        winners: chosen, source: "simulated-judge", simulated: true });
+      if ((state.judgePolicySnapshot || eventConfig.judgePolicy) === "auto-with-override") finalize(chosen, "simulated-judge");
+      else {
+        const decisionLog = Array.isArray(state.decisionLog) ? state.decisionLog.slice(-99) : [];
+        decisionLog.push({ heat: Number(state.heat || 1), promptId: state.promptId, winners: chosen,
+          outcome: "candidate", kind: "candidate", source: "simulated-judge", simulated: true,
+          reason: null, at: new Date().toISOString() });
+        saveState({ phase: "review", candidateWinners: chosen, candidateSource: "simulated-judge", winners: [],
+          reviewStartedAt: now(), roundEndsAt: null, decisionLog });
+      }
+    }
+    function nextHeat(increment = true) {
+      saveState({ phase: "lobby", heat: Number(state.heat || 1) + (increment ? 1 : 0), readyCount: 0, lockedCount: null,
+        firstReadyAt: null, countdownEndsAt: null, pendingPromptSnapshot: null, promptSnapshot: null, promptId: null,
+        durationSeconds: null, judgePolicySnapshot: null, autoAdvanceSnapshot: null, roundEndsAt: null, reviewStartedAt: null,
+        winners: [], candidateWinners: [], resultSource: null,
+        resultAt: null, error: null, resultReason: null, judgmentSimulated: false, candidateSource: null });
+    }
+    function handleCommand() {
+      const command = store.getCommand();
+      if (!command || command.id === lastCommandId) return;
+      lastCommandId = command.id;
+      if (command.eventId !== eventId) return;
+      const payload = command.payload || {};
+      switch (command.type) {
+        case "setReady": {
+          if (state.phase !== "lobby") return;
+          const count = clamp(Math.round(Number(payload.count) || 0), 0, eventConfig.maxPlayers);
+          saveState({ readyCount: count, firstReadyAt: count ? (state.firstReadyAt || now()) : null, error: null });
+          break;
+        }
+        case "start": startHeat(); break;
+        case "proposeWinner": propose(payload.winners); break;
+        case "overrideWinners": if (["hunt", "review", "result"].includes(state.phase)) finalize(payload.winners, "operator", payload.reason); break;
+        case "nextHeat": nextHeat(true); break;
+        case "reset": nextHeat(false); break;
+        case "queuePrompt": {
+          const found = eventConfig.prompts.find(p => p.id === payload.promptId && p.enabled);
+          if (found) saveState({ queuedPromptId: found.id });
+          break;
+        }
+      }
+    }
+    function autoStartReady() {
+      if (state.phase !== "lobby" || state.readyCount < eventConfig.minPlayers) return false;
+      const mode = eventConfig.startMode;
+      const full = state.readyCount >= eventConfig.maxPlayers;
+      const deadline = state.firstReadyAt && now() >= timestamp(state.firstReadyAt) + eventConfig.joinSeconds*1000;
+      if ((["capacity", "flexible"].includes(mode) && full) || (["deadline", "flexible"].includes(mode) && deadline)) { startHeat(); return true; }
+      return false;
+    }
+    function tick() {
+      if (state.phase === "lobby") autoStartReady();
+      else if (state.phase === "countdown" && now() >= timestamp(state.countdownEndsAt)) revealPrompt();
+      else if (state.phase === "hunt" && now() >= timestamp(state.roundEndsAt)) enterReview();
+      else if (state.phase === "review" && ["rule", "ai-assisted"].includes(state.promptSnapshot?.judgeMode)
+        && (state.judgePolicySnapshot || eventConfig.judgePolicy) !== "manual"
+        && !state.candidateWinners?.length && now() >= timestamp(state.reviewStartedAt)+2000) {
+        // A visual simulation only. Production vision judging replaces this placeholder.
+        const demoWinner = ((Number(state.heat || 1)-1) % Math.max(1, Number(state.lockedCount || 1)))+1;
+        propose([demoWinner]);
+      }
+      else if (state.phase === "result" && (state.autoAdvanceSnapshot ?? eventConfig.autoAdvance) && now() >= timestamp(state.resultAt)+8500) nextHeat(true);
+      updateClock();
+    }
+    function setHeadline(text) {
+      const node = $("headline");
+      if (node.textContent !== text) {
+        node.textContent = text;
+        node.classList.remove("flash"); void node.offsetWidth; node.classList.add("flash");
+      }
+      node.classList.toggle("is-long", text.length > 29 && text.length <= 46);
+      node.classList.toggle("is-extra-long", text.length > 46);
+    }
+    function renderTiles() {
+      const livePhase = state.phase !== "lobby";
+      const ready = clamp(Number(livePhase ? (state.lockedCount || 0) : (state.readyCount || 0)), 0, eventConfig.maxPlayers);
+      // Two open cards keep the attract screen readable; joined players alone fill active heats.
+      const slots = clamp(Math.max(2, ready), 2, 6);
+      const winners = Array.isArray(state.winners) ? state.winners : [];
+      const players = $("players");
+      players.dataset.slots = String(slots);
+      players.innerHTML = Array.from({length:slots}, (_,i) => {
+        const n = i+1, active = n <= ready, winner = winners.includes(n);
+        return `<article class="player-tile ${active ? "is-ready" : "is-open"} ${winner ? "is-winner" : ""}" style="--tile-delay:${i*55}ms" aria-label="Player ${n}${winner ? ", winner" : active ? ", ready" : ", open slot"}"><div class="feed-art">${portraitSvg(i)}</div>${active ? "" : '<div class="open-symbol" aria-hidden="true">+</div>'}<div class="tile-top"><span class="tile-number">${pad(n)}</span><span class="tile-signal" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="tile-bottom"><span class="tile-name">${active ? `Player ${pad(n)}` : "Open slot"}</span><span class="tile-state">${winner ? "Winner" : active ? "Ready" : "Join"}</span></div></article>`;
+      }).join("");
+      layoutTiles();
+    }
+    function layoutTiles() {
+      const field = $("field"), players = $("players");
+      const count = players.children.length;
+      if (!count) return;
+      const style = getComputedStyle(field);
+      const width = field.clientWidth;
+      const height = field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (width <= 0 || height <= 0) return;
+      const gap = clamp(Math.round(Math.min(width, height) * .024), 6, 18);
+      let best = null;
+      for (const rows of count >= 3 ? [1, 2] : [1]) {
+        const columns = Math.ceil(count / rows);
+        const tileWidth = Math.floor(Math.min(
+          (width - 3 - gap * (columns - 1)) / columns,
+          ((height - 3 - gap * (rows - 1)) / rows) * 9 / 16
+        ));
+        if (tileWidth < 1) continue;
+        const tileHeight = tileWidth * 16 / 9;
+        const score = tileWidth * tileHeight;
+        if (!best || score > best.score) best = { rows, columns, tileWidth, tileHeight, score };
+      }
+      if (!best) return;
+      players.style.setProperty("--tile-w", `${best.tileWidth}px`);
+      players.style.setProperty("--tile-h", `${best.tileHeight}px`);
+      players.style.setProperty("--tile-gap", `${gap}px`);
+      players.style.width = `${best.columns * best.tileWidth + (best.columns - 1) * gap + 1}px`;
+      players.dataset.layout = best.rows === 1 ? "line" : "stagger";
+    }
+    function render() {
+      eventConfig = store.getEvent(eventId);
+      state = store.getState(eventId);
+      const phase = state.phase || "lobby";
+      const signature = JSON.stringify([eventId,phase === "lobby" ? eventConfig.revision : 0,phase,state.readyCount,state.lockedCount,state.heat,state.promptId,state.winners,state.candidateWinners,state.error]);
+      if (signature === visualSignature) { updateClock(); return; }
+      visualSignature = signature;
+      screen.dataset.phase = phase;
+      screen.classList.toggle("is-no-match", phase === "result" && !(state.winners || []).length);
+      $("eventName").textContent = eventConfig.name;
+      $("heatNumber").textContent = `HEAT ${pad(state.heat || 1)}`;
+      renderTiles();
+      $("liveMark").textContent = phase === "lobby" ? "Live arena" : phase === "result" ? "Official result" : "Live heat";
+      $("joinKicker").textContent = phase === "result" ? "Made with Twilio" : "Your camera. Your call.";
+      $("joinTitle").textContent = "Scan to play";
+      $("joinDetail").textContent = phase === "result" ? "Your turn is next" : "Join on your phone";
+      switch (phase) {
+        case "countdown":
+          $("eyebrow").textContent = "The challenge is sealed";
+          setHeadline("Get ready.");
+          $("subline").textContent = "Everyone sees the prompt at GO.";
+          $("footerLine").textContent = `${state.lockedCount || 0} players locked in`;
+          $("footerDetail").textContent = "The race starts together";
+          break;
+        case "hunt":
+          $("eyebrow").textContent = "Find it first";
+          setHeadline(String(state.promptSnapshot?.text || "GO!").toUpperCase());
+          $("subline").textContent = "Show it clearly to your camera.";
+          $("footerLine").textContent = "The clock is running";
+          $("footerDetail").textContent = "First verified find wins";
+          break;
+        case "review":
+          $("eyebrow").textContent = "The find is in";
+          setHeadline("Checking the find.");
+          $("subline").textContent = state.candidateWinners?.length ? "Result coming up." : "Hold it to the camera.";
+          $("footerLine").textContent = "Stay in the frame";
+          $("footerDetail").textContent = "The referee is checking";
+          break;
+        case "result": {
+          const winners = state.winners || [];
+          $("eyebrow").textContent = "It's official";
+          setHeadline(!winners.length ? "No match." : winners.length > 1 ? "It's a tie!" : `Player ${pad(winners[0])} wins!`);
+          $("subline").textContent = !winners.length ? "No verified find this round. The next heat is coming." : winners.length > 1 ? `Players ${winners.map(pad).join(" + ")} share the win.` : "That was fast. One more heat?";
+          $("footerLine").textContent = "Want to build this?";
+          $("footerDetail").textContent = "Ask us at the booth";
+          break;
+        }
+        default:
+          $("eyebrow").textContent = "Find it first";
+          setHeadline(state.error ? "Stand by." : "The floor is yours.");
+          $("subline").textContent = state.error ? "The next challenge is being prepared." : "Scan. Step in. Be the first to show the find.";
+          $("footerLine").textContent = state.readyCount >= eventConfig.maxPlayers ? "Ready for the start" : state.readyCount >= eventConfig.minPlayers ? "The arena is filling" : "Step into the spotlight";
+          $("footerDetail").textContent = "The prompt stays secret until GO";
+      }
+      updateClock();
+    }
+    function updateClock() {
+      const phase = state.phase || "lobby";
+      let value, label, progress = 0;
+      if (phase === "lobby") {
+        value = `${state.readyCount || 0}/${eventConfig.maxPlayers}`; label = "Ready";
+        progress = clamp((Number(state.readyCount || 0)/eventConfig.maxPlayers)*100,0,100);
+      } else if (phase === "countdown") {
+        value = String(clamp(Math.ceil((timestamp(state.countdownEndsAt)-now())/1000),1,3)); label = "To go"; progress = 100;
+      } else if (phase === "hunt") {
+        const seconds = clamp(Math.ceil((timestamp(state.roundEndsAt)-now())/1000),0,180);
+        value = String(seconds); label = "Seconds";
+        progress = clamp((seconds/Math.max(1,Number(state.durationSeconds || eventConfig.roundSeconds)))*100,0,100);
+      } else if (phase === "review") { value = "···"; label = "Checking"; progress = 42; }
+      else { value = (state.winners || []).length === 0 ? "NO" : (state.winners || []).length > 1 ? "TIE" : "1ST"; label = (state.winners || []).length === 0 ? "Match" : "Result"; progress = 100; }
+      $("clockValue").textContent = value;
+      $("clockLabel").textContent = label;
+      $("clock").style.setProperty("--clock-progress", `${progress}%`);
+      if (phase === "countdown" && value !== lastClockNumber) {
+        lastClockNumber = value;
+        const node = $("countdownNumber"); node.textContent = value; node.classList.remove("bump"); void node.offsetWidth; node.classList.add("bump");
+      }
+    }
+    store.subscribe((key) => {
+      if (key === store.COMMAND_KEY) handleCommand();
+      else if (key === store.EVENTS_KEY) {
+        const active = store.getActiveEventId();
+        if (active !== eventId) { eventId = active; state = store.getState(eventId); visualSignature = ""; }
+        eventConfig = store.getEvent(eventId); render();
+      } else if (key === store.STATE_KEY) { state = store.getState(eventId); render(); }
+    });
+    qrArt(); render();
+    if ("ResizeObserver" in window) new ResizeObserver(layoutTiles).observe($("field"));
+    else window.addEventListener("resize", layoutTiles);
+    window.setInterval(tick, 100);
+  })();
+  </script>
+</body>
+</html>

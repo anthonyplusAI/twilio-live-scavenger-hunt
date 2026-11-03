@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000d25">
+<script src="/theme.js"></script>
+<title>Live Scavenger Hunt / Sign in</title>
+<link rel="stylesheet" href="/login.css">
+<link rel="stylesheet" href="/theme.css">
+</head>
+<body>
+<main class="login-shell">
+  <section class="login-card" aria-labelledby="login-heading">
+    <div class="login-header"><div class="brand"><img src="/assets/twilio-bug-official.png" width="45" height="45" alt="Twilio"><span><b>LIVE SCAVENGER HUNT</b><small>CONTROL ROOM</small></span></div><button type="button" data-theme-toggle class="theme-toggle"></button></div>
+    <div class="login-copy"><span class="eyebrow">Operator access</span><h1 id="login-heading">Control<br><em>the moment.</em></h1><p>Sign in to run the arena, shape each heat, and see what your audience did.</p></div>
+    <form id="login-form" autocomplete="on">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false" placeholder="Your username">
+      <label for="password">Password</label>
+      <div class="password-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Your password"><button id="show-password" type="button" aria-label="Show password">Show</button></div>
+      <p id="login-message" class="login-message" role="alert" aria-live="polite"></p>
+      <button id="submit-button" type="submit" class="submit-button"><span>Enter control room</span><span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="login-foot"><span class="status-light"></span> PRIVATE BOOTH OPERATIONS <span>·</span> TWILIO</div>
+  </section>
+  <aside class="hero-panel" aria-hidden="true"><div class="hero-grid"></div><div class="hero-orbit"><div class="hero-core"><span>LIVE</span><strong>GO<span>·</span></strong><small>FIND IT FIRST</small></div></div><div class="hero-caption"><span>01 / READY</span><span>02 / GO</span><span>03 / REVEAL</span></div><div class="hero-bottom"><span>THE ARENA STARTS HERE</span><span class="hero-line"></span><span>TWILIO LIVE SCAVENGER HUNT</span></div></aside>
+</main>
+<script type="module" src="/login.js"></script>
+</body>
+</html>

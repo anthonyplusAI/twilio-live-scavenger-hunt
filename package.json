@@ -1,0 +1,28 @@
+{
+  "name": "live-scavenger-hunt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "esbuild app/client/video-entry.js --bundle --format=esm --target=es2022 --outfile=app/public/vendor/video-client.js",
+    "prestart": "npm run build",
+    "start": "node app/server/index.mjs",
+    "dev": "node --watch app/server/index.mjs",
+    "test": "node --test app/server/test/*.test.mjs",
+    "docs:check": "node scripts/check-readme-links.mjs",
+    "check": "npm run build && npm test && npm run docs:check"
+  },
+  "dependencies": {
+    "@segment/analytics-node": "3.1.0",
+    "jpeg-js": "0.4.4",
+    "qrcode": "1.5.4",
+    "twilio": "6.2.0",
+    "twilio-video": "2.36.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

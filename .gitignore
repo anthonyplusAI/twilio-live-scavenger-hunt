@@ -1,0 +1,7 @@
+node_modules/
+app/data/
+app/public/vendor/
+.env
+.DS_Store
+.playwright-mcp/
+coverage/
