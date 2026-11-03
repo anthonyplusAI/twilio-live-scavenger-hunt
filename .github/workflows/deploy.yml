@@ -77,6 +77,24 @@ jobs:
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       # Explicit emergency off switch; an unset value preserves the live state.
       GOOGLE_AUTH_DISABLE: ${{ vars.GOOGLE_AUTH_DISABLE }}
+      # Explicit live/rehearsal Video switch. Blank preserves the ACA setting.
+      # Live activation requires all four Twilio secrets; the rollout validates
+      # them before it stops the current SQLite writer.
+      TWILIO_VIDEO_MODE: ${{ vars.TWILIO_VIDEO_MODE }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
+      TWILIO_API_KEY_SECRET: ${{ secrets.TWILIO_API_KEY_SECRET }}
+      # Also deployable alone for signed SMS/WhatsApp ballot webhooks.
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      # Optional server integrations. Blank values preserve the deployed ACA
+      # configuration; only the deploy job receives application credentials.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_VISION_MODEL: ${{ vars.OPENAI_VISION_MODEL }}
+      SEGMENT_WRITE_KEY: ${{ secrets.SEGMENT_WRITE_KEY }}
+      SEGMENT_IDENTIFY_LEADS: ${{ vars.SEGMENT_IDENTIFY_LEADS }}
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+      SENDGRID_FROM_EMAIL: ${{ vars.SENDGRID_FROM_EMAIL }}
+      SENDGRID_REGION: ${{ vars.SENDGRID_REGION }}
     steps:
       - uses: actions/checkout@v7
         with:

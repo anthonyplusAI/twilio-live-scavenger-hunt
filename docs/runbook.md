@@ -1,6 +1,6 @@
 # Live Scavenger Hunt runbook
 
-This guide covers local and Azure rehearsals plus the setup still needed for a public expo. The app stores each event's configuration, heat state, players, ballots, metrics, and requested leads in SQLite. The [Azure infrastructure guide](INFRA_SETUP.md) and [deployment guide](DEPLOYMENT.md) cover the hosted service; Twilio credentials remain an event-specific setup step.
+This guide covers local and Azure rehearsals plus the setup still needed for a public expo. The app stores each event's configuration, heat state, players, ballots, metrics, and requested leads in SQLite. The [Azure infrastructure guide](INFRA_SETUP.md) and [deployment guide](DEPLOYMENT.md) cover the hosted service. Video credentials and the webhook Auth Token are app-wide deployment settings; Messaging senders, channels, and voting codes are configured for each event.
 
 ## 1. Install and sign in
 
@@ -34,7 +34,7 @@ The command prints a one-time generated password. Use `--role admin` for someone
 
 ## 2. Rehearse without external credentials
 
-Leave `REHEARSAL_MODE` blank or set it to `on`. Without complete Twilio Video credentials, the server uses rehearsal mode automatically. Open the seeded event at:
+Leave `REHEARSAL_MODE` blank or set it to `on`. Without the complete four-value Video set, including the Auth Token, the server uses rehearsal mode automatically. Open the seeded event at:
 
 | Purpose | Path |
 | --- | --- |
@@ -82,15 +82,19 @@ The phone product story uses selectable Video, Messaging, and Segment explanatio
 
 ## 4. Connect Twilio Video
 
-Set a public HTTPS `PUBLIC_BASE_URL`, then add `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, and `TWILIO_AUTH_TOKEN` in the server environment. Leave `REHEARSAL_MODE` blank or set it to `off`. The server creates one unrecorded **Group Room** per event heat, issues room-scoped player and wall tokens, and configures the Room callback at `PUBLIC_BASE_URL/webhooks/twilio/video`. `TWILIO_AUTH_TOKEN` is needed to validate the callback signature. Video tracks are not recorded by this app; evidence JPEGs are kept in memory briefly and never written to SQLite.
+Set a public HTTPS `PUBLIC_BASE_URL`, then add `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, and `TWILIO_AUTH_TOKEN` in the server environment. Use a US1 Standard API Key from the same Twilio account as the Account SID; its secret is distinct from the account Auth Token. Locally, leave `REHEARSAL_MODE` blank or set it to `off`. For the hosted app, store the four values as GitHub Actions secrets, set `TWILIO_VIDEO_MODE=live`, and dispatch the [controlled deploy workflow](INFRA_SETUP.md#activate-twilio-video) between heats. The rollout validates the complete set before stopping the old writer and sets `REHEARSAL_MODE=off` only on the candidate. To return the hosted app to snapshots, set `TWILIO_VIDEO_MODE=rehearsal` and dispatch the same workflow; an unset mode preserves the existing setting.
+
+The server creates one unrecorded **Group Room** per event heat, issues room-scoped player and wall tokens, and configures the Room callback at `PUBLIC_BASE_URL/webhooks/twilio/video`. No account-wide Video webhook needs manual setup. `TWILIO_AUTH_TOKEN` validates the callback signature. Video tracks are not recorded by this app; evidence JPEGs are kept in memory briefly and never written to SQLite.
 
 Run the operator **Preflight** view and test with at least two real phones and the intended arena display. The Video Room and JavaScript client follow [Twilio's Rooms API](https://www.twilio.com/docs/video/api/rooms-resource), [access token guide](https://www.twilio.com/docs/video/tutorials/user-identity-access-tokens), and [status callback guide](https://www.twilio.com/docs/video/api/status-callbacks).
 
 ## 5. Add SMS or WhatsApp audience ballots
 
-Web voting needs no Twilio sender. To enable messaging ballots, provision a sender for the event and configure inbound HTTP **POST** messages to `PUBLIC_BASE_URL/webhooks/twilio/messaging`. Set the event's SMS sender or WhatsApp sender, event code, and corresponding channel in the admin voting settings. The booth screen shows each ballot option's numeric code; with an event code of `HUNT`, a voter sends `HUNT 2` to the displayed sender. Every inbound ballot must contain the event code and one displayed option number. The admin save rejects duplicate effective codes when events share a sender.
+Web voting needs no Twilio sender. To enable messaging ballots, provision a sender for the event in the Twilio account whose Auth Token is deployed, then configure inbound HTTP **POST** messages to `PUBLIC_BASE_URL/webhooks/twilio/messaging` in Twilio's number, Messaging Service, or WhatsApp sender configuration as applicable. The app supports one account-wide signing token. Set the event's SMS sender or WhatsApp sender, event code, and corresponding channel in the admin voting settings. The booth screen shows each ballot option's numeric code; with an event code of `HUNT`, a voter sends `HUNT 2` to the displayed sender. Every inbound ballot must contain the event code and one displayed option number. The admin save rejects duplicate effective codes when events share a sender.
 
-The endpoint validates `X-Twilio-Signature` using the exact public URL and account Auth Token, deduplicates `MessageSid`, and counts one ballot per sender per window. A messaging sender is hashed for voting and is **never** inserted as a lead. A vote or acknowledgement is not consent for later marketing. Complete the sender registration and regional messaging requirements that apply to the event before enabling the channel. See [incoming message webhooks](https://www.twilio.com/docs/messaging/guides/webhook-request), [webhook security](https://www.twilio.com/docs/usage/webhooks/webhooks-security), and [Twilio's messaging policy](https://www.twilio.com/en-us/legal/messaging-policy).
+The endpoint validates `X-Twilio-Signature` using the exact public URL and account Auth Token, deduplicates `MessageSid`, and counts one ballot per sender per window. It returns a TwiML acknowledgment or correction that Twilio sends as an SMS/WhatsApp reply from the configured sender. There is no separate outbound Messaging REST call. A messaging sender is hashed for voting and is **never** inserted as a lead. A vote or acknowledgment is not consent for later marketing. Complete the sender registration and regional messaging requirements that apply to both inbound ballots and automated replies before enabling the channel. If replies go from a US local 10DLC number to US recipients, [register its A2P 10DLC brand and campaign](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/quickstart) before use. See [incoming message webhooks](https://www.twilio.com/docs/messaging/guides/webhook-request), [webhook security](https://www.twilio.com/docs/usage/webhooks/webhooks-security), and [Twilio's messaging policy](https://www.twilio.com/en-us/legal/messaging-policy).
+
+The [WhatsApp Sandbox](https://www.twilio.com/docs/whatsapp/sandbox) works for a staff test, but each test phone must send its join code before voting. Register a [WhatsApp Business sender](https://www.twilio.com/docs/whatsapp/self-sign-up) for walk-up expo attendees.
 
 Category voting opens between heats when enabled and enough approved categories exist; the winning category steers the next approved clue but never reveals its text. The operator can close the vote or choose a different available category. Creative audience voting opens after a creative hunt and can award ties; the operator can still correct the result.
 
@@ -103,6 +107,21 @@ Changing an event's voting settings while its ballot is open closes that ballot 
 | OpenAI vision | `OPENAI_API_KEY`, optional `OPENAI_VISION_MODEL` | Reviews JPEG evidence for AI-assisted prompts with a structured verdict. The request uses `store:false`. Without it, the operator judges these prompts. |
 | Segment | `SEGMENT_WRITE_KEY` | Mirrors a safe, contact-free subset of local activity. Local metrics work without it. `SEGMENT_IDENTIFY_LEADS=1` additionally sends name/email/company **only** for leads that checked the separate marketing opt-in. |
 | SendGrid | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, optional `SENDGRID_REGION=eu` | Emails the requested build guide through the Mail Send API from a verified sender. Without configuration, guide requests remain saved with `pending-configuration`; expert requests remain for operator follow-up. |
+
+For Azure, put `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, and `SENDGRID_API_KEY`
+in GitHub Actions **secrets**. Put `OPENAI_VISION_MODEL`,
+`SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, and `SENDGRID_REGION` in
+Actions **variables** only when you want to set them. The SendGrid key and
+verified sender address must be supplied together. `SENDGRID_REGION=eu` uses
+the EU API; leave it unset for the default global API, or set `global` to
+switch an existing EU deployment back. `SEGMENT_IDENTIFY_LEADS` stays off
+unless explicitly set to `1`; use `0` to turn it off after a previous enable.
+Dispatch the [controlled deployment](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)
+between heats. Blank values preserve the active ACA setting, so deleting a
+GitHub secret alone does not disable a previously configured integration.
+Credential updates use new ACA secret names per rollout, leaving older
+revisions' references intact for pre-cutover rollback. Remove old secret
+versions only when those revisions are no longer needed.
 
 Keep all keys on the server. Never place them in browser JavaScript or commit `.env`. The optional vision request includes the camera image, so ensure the on-screen consent and event privacy notice describe automated judging. AI can misread a booth scene; the operator's award/override remains available. See [OpenAI vision](https://developers.openai.com/api/docs/guides/images-vision), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [Segment Node](https://www.twilio.com/docs/segment/connections/sources/catalog/libraries/server/node), and [SendGrid's Mail Send API](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send).
 
@@ -126,8 +145,8 @@ Litestream attempts to sync every second when Blob is healthy, but an outage can
 
 - [ ] Verify the Azure Container App serves HTTPS with the exact `PUBLIC_BASE_URL`, one running replica, a healthy `/health` response, and a current Litestream backup; complete a restore drill before opening doors.
 - [ ] Sign in as admin, create and test named local operator accounts in **Team**, optionally rename the initial admin username, rotate the initial admin password, and remove accounts that no longer need access. If Google sign-in is enabled, complete a verified Twilio Workspace login on the stable public hostname, confirm **Team** and **Metrics** appear, and confirm a non-Twilio account is denied.
-- [ ] Add Video credentials and the Auth Token, then check a live Group Room, player publishing, wall subscription, and signed callbacks.
-- [ ] Register and configure any SMS/WhatsApp senders, exact inbound webhook URL, event codes, and event-specific channel toggles.
+- [ ] Add the four app-wide Twilio secrets, deploy with `TWILIO_VIDEO_MODE=live`, then check a live Group Room, player publishing, wall subscription, and signed callbacks.
+- [ ] Register and configure any SMS/WhatsApp senders for inbound ballots and TwiML acknowledgment replies; check the exact inbound webhook URL, event codes, and event-specific channel toggles.
 - [ ] Configure optional OpenAI, Segment, and SendGrid only for the services the activation will use.
 - [ ] Check event settings, lead fields and consent copy, approved prompts, props, lighting, camera permission, both arena QR codes, tie/no-match override, pause/resume, player leave, idle cleanup, and operator removal on the actual booth network.
 - [ ] Run `npm run check`, review the operator Preflight view, and test a complete 2–6 player heat and a filtered lead export before opening doors.

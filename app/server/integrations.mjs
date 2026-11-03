@@ -176,7 +176,7 @@ export class Integrations {
       (!event.vote.channels.whatsapp || event.vote.whatsappSender));
     return [
       { name: 'Messaging ballots', status: !messagingEnabled ? 'warning' : messagingReady ? 'ready' : 'warning',
-        detail: !messagingEnabled ? 'Web voting is available; SMS and WhatsApp ballots are off.' : messagingReady ? 'Signed inbound ballots configured.' : 'Set senders, Auth Token, and public URL before enabling message ballots.' },
+        detail: !messagingEnabled ? 'Web voting is available; SMS and WhatsApp ballots are off.' : messagingReady ? 'Sender and signed webhook settings are present. Test inbound votes and automatic replies.' : 'Set senders, Auth Token, and public URL before enabling message ballots.' },
       { name: 'Segment metrics', status: this.segment ? 'ready' : 'warning',
         detail: this.segment ? 'Server events mirror to Segment.' : 'Local event metrics are active; add a Segment Write Key to mirror them.' },
       { name: 'SendGrid guide', status: this.env.SENDGRID_API_KEY && this.env.SENDGRID_FROM_EMAIL ? 'ready' : 'warning',

@@ -19,6 +19,7 @@ Container Registry. GitHub does not store an Azure password or registry key.
 | Database | `/tmp/live-scavenger-hunt.sqlite` | SQLite stays on fast local disk with WAL, not a network share. |
 | Backup | Litestream → private Azure Blob, `1s` sync interval | Restores the database when a new container starts. Unreplicated writes can be lost after an abrupt failure; lag can grow during Blob errors. |
 | Initial media mode | `REHEARSAL_MODE=on` | The site can be checked before Twilio Video credentials are configured. |
+| Live Video mode | `REHEARSAL_MODE=off` with four Twilio ACA secret references | The deploy workflow sets this only when `TWILIO_VIDEO_MODE=live` and the complete credential set passes pre-stop validation. |
 | Optional Google sign-in | `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` | Both are needed for verified `@twilio.com` Workspace admins. The secret is an ACA secret reference, never a plain environment value. |
 
 The image bundles the generated Twilio Video browser client and the prompt
@@ -55,16 +56,54 @@ is the deployment smoke target.
 
 When both Google repository secrets are present, the deploy job checks the
 pair before stopping the old revision. After it verifies zero old replicas,
-it saves `GOOGLE_CLIENT_SECRET` as the ACA `google-client-secret` and creates
-the candidate with `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET=secretref:google-client-secret`. Google sign-in uses the
-stable public hostname for its exact callback, so test a complete Google
-login **after** public cutover; the revision-specific pre-cutover smoke checks
+it saves `GOOGLE_CLIENT_SECRET` under a rollout-specific ACA secret name and
+creates the candidate with `GOOGLE_CLIENT_ID` and a reference to that secret.
+Google sign-in uses the stable public hostname for its exact callback, so test
+a complete Google login **after** public cutover; the revision-specific smoke checks
 only health and the arena. An unset pair preserves the live OAuth settings; a
-partial pair fails before downtime when Google is being enabled or refreshed. The explicit `GOOGLE_AUTH_DISABLE=1`
-repository variable removes both OAuth environment variables in the next safe
+partial pair fails before downtime when Google is being enabled or refreshed.
+The explicit `GOOGLE_AUTH_DISABLE=1` repository variable removes both OAuth
+environment variables in the next safe
 rollout. The [OAuth setup steps](INFRA_SETUP.md#optional-google-sign-in-for-twilio-admins)
 include the registered redirect URI.
+
+Twilio Video activation follows the same stopped-writer boundary. Add the
+Actions secrets `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`,
+`TWILIO_API_KEY_SECRET`, and `TWILIO_AUTH_TOKEN`, then set the Actions variable
+`TWILIO_VIDEO_MODE=live`. The deploy script rejects a missing value, malformed
+SID, or whitespace in a secret before its first Azure call. After the old
+writer reaches zero replicas, it saves all four under rollout-specific ACA
+secret names, attaches only `secretref:` values to the candidate, and sets
+`REHEARSAL_MODE=off`. It never prints the credentials.
+`TWILIO_VIDEO_MODE=rehearsal` explicitly sets `REHEARSAL_MODE=on`; an unset
+mode preserves the active setting. A nonempty
+`TWILIO_AUTH_TOKEN` secret can also be deployed alone for signed Messaging
+webhooks without changing the explicit `REHEARSAL_MODE` setting. Removing a
+GitHub secret later does not remove its existing ACA reference; use the
+event's voting toggle to stop ballots and the explicit rehearsal mode to stop
+live Video.
+
+These checks catch incomplete settings before downtime, but they do not test
+Twilio account permissions or network access. After public cutover, check
+Operator **Preflight** and a real two-phone heat. The app creates the Video
+Room and its signed status callback automatically. SMS/WhatsApp sender inbound
+POST URLs are configured separately in Twilio and the event; the webhook's
+TwiML response instructs Twilio to send a ballot acknowledgment. The [Twilio
+setup steps](INFRA_SETUP.md#activate-twilio-video) cover those settings.
+
+The same stopped-writer update supports optional OpenAI, Segment, and SendGrid
+settings. Nonempty `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, and `SENDGRID_API_KEY`
+Actions secrets become ACA secret references; optional
+`OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, and
+`SENDGRID_REGION` Actions variables become candidate environment settings.
+The SendGrid API key and verified sender email must be supplied together.
+`SEGMENT_IDENTIFY_LEADS` accepts only `0` or `1`; it is never enabled by
+default. Set `1` only for separately opted-in lead identity, and `0` to turn
+that identity sharing off. Invalid values and a partial SendGrid pair fail
+before the old writer stops. Unset values preserve the live configuration;
+removing a GitHub secret does not remove an existing ACA reference. The
+[optional integration setup](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)
+includes post-cutover checks.
 
 To dispatch a release already on `main`:
 
@@ -97,8 +136,13 @@ in SQLite.
 ## Configuration changes and recovery
 
 The runtime configuration is set on the Container App during provisioning.
-Image deploys preserve existing secrets and environment variables. A secret or
-environment update itself can create a new revision, so make those changes in
+Image deploys preserve existing secrets and environment variables when the
+corresponding GitHub Actions setting is unset. Configured credentials create
+rollout-specific ACA secret names, so a failed pre-cutover candidate cannot
+change the credentials used by the previous revision. Older secret versions
+remain for rollback; review and remove versions only after their referencing
+revisions are no longer needed. A secret or environment update itself can
+create a new revision, so make those changes in
 a maintenance window using the same stop-old-revision sequence. A direct
 `az containerapp update` against a live single-revision app can overlap two
 revisions and interrupt the game while the second waits for the writer lease;
@@ -114,8 +158,9 @@ start the prior image against the **current** Blob replica. Do not replace
 accepted leads or votes with a pre-release snapshot.
 
 The cloud site initially uses rehearsal camera snapshots. Live Twilio Video
-requires Video credentials and an Auth Token, plus a fresh venue-phone test.
-SMS/WhatsApp requires sender registration and webhook configuration; OpenAI
-vision, Segment, and SendGrid are optional. See [the booth runbook](runbook.md)
-for event operations. The hosted site does not implement Voice or Agent
-Connect.
+requires its four credentials, the explicit `TWILIO_VIDEO_MODE=live` rollout,
+and a fresh venue-phone test. SMS/WhatsApp requires sender registration and
+webhook configuration for inbound ballots and automated acknowledgment replies;
+OpenAI vision, Segment, and SendGrid are optional server integrations. See
+[the booth runbook](runbook.md) for event operations. The hosted site does not
+implement Voice or Agent Connect.

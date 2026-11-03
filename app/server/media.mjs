@@ -5,6 +5,7 @@ import { ValidationError } from './config.mjs';
 const MAX_FRAME_BYTES = 150_000;
 const FRAME_TTL_MS = 15_000;
 const ROOM_CACHE_MS = 60_000;
+const ROOM_PARTICIPANT_CAPACITY = 7; // The app permits up to six players plus one wall subscriber.
 
 export class MediaError extends Error {
   constructor(message, code = 'media_unavailable', status = 503) {
@@ -42,7 +43,7 @@ export class MediaService {
     const setting = String(this.env.REHEARSAL_MODE ?? '').toLowerCase();
     if (['on', 'true', '1', 'yes'].includes(setting)) return 'rehearsal';
     const { accountSid, keySid, keySecret } = this.credentials();
-    if (accountSid && keySid && keySecret) return 'twilio';
+    if (accountSid && keySid && keySecret && this.env.TWILIO_AUTH_TOKEN) return 'twilio';
     if (['off', 'false', '0', 'no'].includes(setting)) return 'unconfigured';
     return 'rehearsal';
   }
@@ -87,11 +88,12 @@ export class MediaService {
     } catch (error) {
       if (error.status !== 404 && error.code !== 20404) throw error;
     }
-    const maxPlayers = Math.max(2, Math.min(6, Number(event.maxPlayers) || 6));
     const options = {
       uniqueName: name,
       type: 'group',
-      maxParticipants: maxPlayers + 1, // Players plus the arena subscriber.
+      // A live event can increase maxPlayers after this Room is created.
+      // Reserve the app's full six-player limit; joining still follows event.maxPlayers.
+      maxParticipants: ROOM_PARTICIPANT_CAPACITY,
       recordParticipantsOnConnect: false,
       statusCallback: this._callbackUrl(),
       statusCallbackMethod: 'POST',
@@ -170,8 +172,11 @@ export class MediaService {
     if (mode === 'twilio') {
       try { this._callbackUrl(); }
       catch { return { name: 'Twilio Video', status: 'warning', detail: 'Video credentials are set, but PUBLIC_BASE_URL needs a public HTTPS URL for callbacks.' }; }
-      if (!this.env.TWILIO_AUTH_TOKEN) return { name: 'Twilio Video', status: 'warning', detail: 'Add TWILIO_AUTH_TOKEN so Video status callbacks can be validated.' };
-      return { name: 'Twilio Video', status: 'ok', detail: 'Room scoped Video tokens and signed status callbacks are configured.' };
+      return { name: 'Twilio Video', status: 'ok', detail: 'Credential fields and HTTPS callback URL are present. Verify with a live two-phone heat.' };
+    }
+    if (present === 3 && !this.env.TWILIO_AUTH_TOKEN) {
+      return { name: 'Twilio Video', status: mode === 'unconfigured' ? 'unconfigured' : 'warning',
+        detail: 'Add TWILIO_AUTH_TOKEN so signed Video callbacks can mark player cameras ready.' };
     }
     if (mode === 'rehearsal') {
       return { name: 'Twilio Video', status: present && present < 3 ? 'warning' : 'rehearsal', detail: present && present < 3 ? 'Video credentials are incomplete; local camera rehearsal is active.' : 'Local camera snapshots are active; Twilio Video is not connected.' };

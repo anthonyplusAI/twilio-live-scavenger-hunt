@@ -555,12 +555,7 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       }
       if (method === 'GET' && tail === 'preflight') {
         auth.require(req.headers.cookie);
-        const video = media.preflight();
-        if (media.mode() === 'twilio' && !process.env.TWILIO_AUTH_TOKEN) {
-          video.status = 'warning';
-          video.detail = 'Set TWILIO_AUTH_TOKEN to validate Video status callbacks.';
-        }
-        return json(res, 200, { checks: [video, judge.preflight(), ...integrations.preflight(event)] });
+        return json(res, 200, { checks: [media.preflight(), judge.preflight(), ...integrations.preflight(event)] });
       }
     }
     throw new ValidationError('Route not found.', 'not_found');
