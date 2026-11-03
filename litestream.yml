@@ -1,0 +1,13 @@
+socket:
+  enabled: true
+  path: /tmp/litestream.sock
+  permissions: 0600
+
+dbs:
+  - path: ${LIVE_SCAVENGER_HUNT_DB}
+    replica:
+      type: abs
+      account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
+      bucket: ${LITESTREAM_AZURE_CONTAINER_NAME}
+      path: live-scavenger-hunt.sqlite
+      sync-interval: 1s

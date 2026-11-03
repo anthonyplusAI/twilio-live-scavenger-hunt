@@ -1,0 +1,85 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: live-scavenger-hunt-deploy-prod
+  cancel-in-progress: false
+
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_REPO: live-scavenger-hunt
+  ACA_NAME: ${{ vars.ACA_NAME }}
+  ACA_RESOURCE_GROUP: ${{ vars.ACA_RESOURCE_GROUP }}
+
+jobs:
+  ci:
+    # The reusable test workflow receives no Azure or application secrets.
+    uses: ./.github/workflows/ci.yml
+
+  build-and-push:
+    needs: ci
+    if: ${{ needs.ci.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.image.outputs.uri }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Resolve immutable image tag
+        id: image
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          test -n "$ACR_NAME" || { echo '::error::ACR_NAME is unset'; exit 1; }
+          echo "uri=${ACR_NAME}.azurecr.io/${ACR_REPO}:${SHA}" >> "$GITHUB_OUTPUT"
+      - name: Azure login through GitHub OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.uri }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE: ${{ needs.build-and-push.outputs.image }}
+      # An unset variable leaves the live setting untouched. Provisioning starts
+      # at 0; after verifying the first Blob backup, set this repo variable to 1.
+      LITESTREAM_REQUIRE_REPLICA: ${{ vars.LITESTREAM_REQUIRE_REPLICA }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Azure login through GitHub OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Stop old writer and deploy one verified revision
+        run: bash scripts/deploy-azure.sh "$IMAGE"

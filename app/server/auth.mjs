@@ -30,9 +30,10 @@ export class AuthError extends Error {
 }
 
 export class AuthService {
-  constructor({ store, publicBaseUrl = '' } = {}) {
+  constructor({ store, publicBaseUrl = '', bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD } = {}) {
     if (!store?.sql) throw new Error('AuthService needs a Store with an initialized SQL database.');
     this.store = store;
+    this.bootstrapPassword = bootstrapPassword;
     this.secureCookies = /^https:/i.test(String(publicBaseUrl));
     this.failures = new Map();
     this.dummySalt = randomBytes(16).toString('hex');
@@ -78,15 +79,21 @@ export class AuthService {
   }
 
   bootstrap() {
+    const configuredPassword = this.bootstrapPassword;
+    if (configuredPassword !== undefined &&
+      (typeof configuredPassword !== 'string' || configuredPassword.length < 24 || configuredPassword.length > 1024 ||
+        configuredPassword.trim() !== configuredPassword || new Set(configuredPassword).size < 8)) {
+      throw new AuthError('BOOTSTRAP_ADMIN_PASSWORD must be 24–1024 characters with at least 8 distinct characters and no surrounding whitespace.', 400, 'invalid_password');
+    }
     let generated = null;
     const result = this.store.transaction(() => {
       this.store.sql.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString());
       const count = this.store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count;
       if (count) return { created: false };
       const username = 'admin';
-      const password = issueToken(24);
+      const password = configuredPassword === undefined ? issueToken(24) : configuredPassword;
       const user = this._insertUser(username, password, 'admin');
-      generated = { username, password };
+      if (configuredPassword === undefined) generated = { username, password };
       return { created: true, user: publicUser(user) };
     });
     if (generated) {

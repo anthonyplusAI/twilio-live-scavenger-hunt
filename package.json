@@ -11,11 +11,13 @@
     "prestart": "npm run build",
     "start": "node app/server/index.mjs",
     "dev": "node --watch app/server/index.mjs",
-    "test": "node --test app/server/test/*.test.mjs",
+    "test": "node --test app/server/test/*.test.mjs scripts/test/*.test.mjs",
     "docs:check": "node scripts/check-readme-links.mjs",
     "check": "npm run build && npm test && npm run docs:check"
   },
   "dependencies": {
+    "@azure/identity": "4.14.1",
+    "@azure/storage-blob": "12.34.0",
     "@segment/analytics-node": "3.1.0",
     "jpeg-js": "0.4.4",
     "qrcode": "1.5.4",

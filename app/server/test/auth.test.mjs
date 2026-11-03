@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../db.mjs';
 import { AuthService, AuthError } from '../auth.mjs';
@@ -11,6 +12,13 @@ import { AuthService, AuthError } from '../auth.mjs';
 function makeAuth(publicBaseUrl = 'http://localhost:3000') {
   const store = new Store(':memory:');
   return { store, auth: new AuthService({ store, publicBaseUrl }) };
+}
+
+function testBootstrapPassword() {
+  let value;
+  do { value = randomBytes(32).toString('hex'); }
+  while (new Set(value).size < 8);
+  return value;
 }
 
 test('first boot creates one admin, prints the password once, and stores only a scrypt hash', () => {
@@ -44,6 +52,40 @@ test('first boot creates one admin, prints the password once, and stores only a 
     assert.ok(login.token);
     assert.ok(login.csrfToken);
   } finally { store.close(); }
+});
+
+test('a configured bootstrap password creates the first admin without entering retained logs', () => {
+  const password = testBootstrapPassword();
+  const store = new Store(':memory:');
+  const auth = new AuthService({ store, bootstrapPassword: password });
+  const output = [];
+  const originalLog = console.log;
+  try {
+    console.log = (...args) => output.push(args.join(' '));
+    const first = auth.bootstrap();
+    const second = auth.bootstrap();
+    assert.equal(first.created, true);
+    assert.equal(first.user.username, 'admin');
+    assert.equal(second.created, false);
+    assert.equal(auth.login('admin', password).user.role, 'admin');
+    assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, 1);
+    assert.ok(!output.join('\n').includes(password));
+    assert.ok(!output.some(line => line.startsWith('One-time password: ')));
+  } finally {
+    console.log = originalLog;
+    store.close();
+  }
+});
+
+test('invalid configured bootstrap passwords fail before a user is created', () => {
+  for (const password of ['', 'too-short', 'x'.repeat(32), ` ${testBootstrapPassword()}`]) {
+    const store = new Store(':memory:');
+    try {
+      const auth = new AuthService({ store, bootstrapPassword: password });
+      assert.throws(() => auth.bootstrap(), { code: 'invalid_password' });
+      assert.equal(store.sql.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0);
+    } finally { store.close(); }
+  }
 });
 
 test('session cookies, CSRF, roles, logout, and expiry are enforced', () => {

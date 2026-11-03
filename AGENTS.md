@@ -8,4 +8,4 @@
 - Distinguish what works in local rehearsal from services that still require Twilio credentials, sender registration, or production HTTPS. Do not claim Voice or Agent Connect is implemented until it is actually wired.
 - Before finishing, run `npm run check` and `node scripts/check-readme-links.mjs`. Check the README against the changed screens and code, since a link check cannot detect inaccurate prose.
 
-The demo intentionally leaves Twilio account configuration and production deployment to the event owner. Do not commit `.env`, databases, exported leads, or credentials.
+The hosted app can run in rehearsal mode until Twilio credentials are configured and a full venue preflight is complete. Do not commit `.env`, databases, exported leads, or credentials.
