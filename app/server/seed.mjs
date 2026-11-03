@@ -14,21 +14,19 @@ export function promptBank() {
   for (const line of markdown.split('\n')) {
     const match = line.match(/^\|\s*([COGSTNMV]\d{2})\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
     if (!match) continue;
-    const [, id, text, tier, rule, caution] = match;
+    const [, id, text, tier, , caution] = match;
     const category = categoryByPrefix[id[0]];
-    const color = category === 'Color' ? text.match(/\b(RED|BLUE|YELLOW|GREEN|ORANGE|PURPLE)\b/i)?.[1]?.toLowerCase() : null;
     prompts.push({
       id, text: text.trim(), category, tier: tier.trim(),
-      judgeMode: category === 'Creative' ? 'audience' : color ? 'rule' : 'ai-assisted',
-      detector: color ? `color:${color}` : rule.trim(),
-      enabled: activePilotIds.has(id), seconds: category === 'Creative' ? 30 : null,
+      judgeMode: 'ai-assisted', detector: `visual:${text.trim()}`,
+      enabled: activePilotIds.has(id), seconds: category === 'Creative' ? 60 : null,
       accessNote: caution.trim(),
     });
   }
   if (prompts.length === 50) return prompts;
   return [
-    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', tier: 'Launch candidate', judgeMode: 'rule', detector: 'color:red', enabled: true, seconds: null, accessNote: 'Provide a red card.' },
-    { id: 'O01', text: 'SHOW A CUP', category: 'Object', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'object:cup', enabled: true, seconds: null, accessNote: 'Supply an empty cup.' },
-    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', tier: 'Pilot', judgeMode: 'ai-assisted', detector: 'text:TWILIO', enabled: true, seconds: null, accessNote: 'Supply a printed card.' },
+    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'visual:SHOW SOMETHING RED', enabled: true, seconds: null, accessNote: 'Provide a red card.' },
+    { id: 'O01', text: 'SHOW A CUP', category: 'Object', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'visual:SHOW A CUP', enabled: true, seconds: null, accessNote: 'Supply an empty cup.' },
+    { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', tier: 'Pilot', judgeMode: 'ai-assisted', detector: 'visual:FIND THE WORD TWILIO', enabled: true, seconds: null, accessNote: 'Supply a printed card.' },
   ];
 }

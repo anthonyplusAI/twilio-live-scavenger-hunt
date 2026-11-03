@@ -1,6 +1,6 @@
 # Find It First — challenge library
 
-Planning catalog for a configurable 2–6-player expo race. The event sets the default hunt time (5–180 seconds); a prompt may override it. The exact prompt stays hidden until the shared GO signal, after the roster locks. The runnable app ships a repeated-frame color detector, optional AI-assisted image review, operator judging, and creative audience ballots. This is a candidate bank for booth testing, not a promise that every prompt works under every camera and lighting condition.
+Planning catalog for a configurable 2–6-player expo race. The event starts at 45 seconds by default (configurable from 5–180 seconds); seeded creative prompts use 60 seconds, and any prompt may override the event timer. The exact prompt stays hidden until the shared GO signal, after the roster locks. The runnable app defaults prompts to AI-assisted image review and also offers a repeated-frame color detector, operator judging, and audience ballots. This is a candidate bank for booth testing, not a promise that every prompt works under every camera and lighting condition.
 
 ## Ground rules
 

@@ -94,12 +94,11 @@ setup steps](INFRA_SETUP.md#activate-twilio-video) cover those settings.
 The same stopped-writer update supports optional OpenAI, Segment, and SendGrid
 settings. Nonempty `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, and `SENDGRID_API_KEY`
 Actions secrets become ACA secret references; optional
-`OPENAI_VISION_MODEL`, `SEGMENT_IDENTIFY_LEADS`, `SENDGRID_FROM_EMAIL`, and
-`SENDGRID_REGION` Actions variables become candidate environment settings.
+`OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, and `SENDGRID_REGION` Actions
+variables become candidate environment settings.
 The SendGrid API key and verified sender email must be supplied together.
-`SEGMENT_IDENTIFY_LEADS` accepts only `0` or `1`; it is never enabled by
-default. Set `1` only for separately opted-in lead identity, and `0` to turn
-that identity sharing off. Invalid values and a partial SendGrid pair fail
+The retired `SEGMENT_IDENTIFY_LEADS` Actions variable is no longer forwarded;
+the app does not send lead identity to Segment. Invalid values and a partial SendGrid pair fail
 before the old writer stops. Unset values preserve the live configuration;
 removing a GitHub secret does not remove an existing ACA reference. The
 [optional integration setup](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)

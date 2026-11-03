@@ -653,3 +653,5 @@ html[data-theme="light"] .team-detail-head{border-color:#c1cedf}
 html[data-theme="light"] .team-empty{border-color:#adc1d6}
 html[data-theme="light"] .team-empty strong,html[data-theme="light"] .team-google-detail p strong{color:#172b48}
 html[data-theme="light"] .team-remove-button{color:#aa1c34}
+.lead-pane[data-lead-step="capture"] .lead-capture-step{grid-template-areas:"master master" "ctas ctas" "preview preview" "note note"}
+@media(max-width:760px){.lead-pane[data-lead-step="capture"] .lead-capture-step{grid-template-areas:"master" "ctas" "preview" "note"}}

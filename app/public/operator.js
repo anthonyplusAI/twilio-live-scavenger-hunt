@@ -472,7 +472,7 @@ function renderEventForm() {
   $("event-timezone").value = draft.timeZone || "UTC";
   $("event-min").value = draft.minPlayers ?? 2;
   $("event-max").value = draft.maxPlayers ?? 6;
-  $("event-round").value = draft.roundSeconds ?? 20;
+  $("event-round").value = draft.roundSeconds ?? 45;
   $("event-join").value = draft.joinSeconds ?? 30;
   $("event-result").value = draft.resultSeconds ?? 8;
   $("event-tie").value = draft.tieWindowMs ?? 300;
@@ -485,7 +485,6 @@ function renderEventForm() {
   $("lead-enabled").checked = Boolean(lead.enabled);
   $("lead-guide").checked = Boolean(lead.guideEnabled);
   $("lead-expert").checked = Boolean(lead.expertEnabled);
-  $("lead-marketing").checked = Boolean(lead.marketingOptIn);
   renderLeadFields();
   updateLeadControls();
   renderVoteConfig();
@@ -526,9 +525,6 @@ function renderLeadFields() {
   const required = fields.filter((field) => field.required).length;
   $("lead-fields-count").textContent = String(fields.length);
   $("lead-summary").textContent = fields.length + " field" + (fields.length === 1 ? "" : "s") + " · " + required + " required";
-  $("lead-marketing-note").textContent = fields.some((field) => field.type === "email")
-    ? "Visitors start unchecked."
-    : "Add an email field to offer updates.";
   const list = $("lead-field-list");
   list.replaceChildren();
   if (!fields.length) {
@@ -670,7 +666,6 @@ function syncEventForm() {
   draft.leadCapture.enabled = $("lead-enabled").checked;
   draft.leadCapture.guideEnabled = $("lead-guide").checked;
   draft.leadCapture.expertEnabled = $("lead-expert").checked;
-  draft.leadCapture.marketingOptIn = $("lead-marketing").checked;
   draft.vote.enabled = $("vote-enabled").checked;
   draft.vote.windowSeconds = Number($("vote-seconds").value);
   draft.vote.creativeWindowSeconds = Number($("vote-creative-seconds").value);
@@ -726,7 +721,6 @@ function validateEvent() {
   }
   if (lead.enabled && lead.guideEnabled && !lead.fields.some((field) => field.type === "email" && field.required)) return "The build guide needs a required email field.";
   if (lead.enabled && lead.expertEnabled && !lead.fields.some((field) => ["email", "tel"].includes(field.type))) return "Add email or phone for expert requests.";
-  if (lead.enabled && lead.marketingOptIn && !lead.fields.some((field) => field.type === "email")) return "Add an email field for email updates.";
   return null;
 }
 async function saveEvent(includePrompt = true) {
@@ -820,7 +814,7 @@ function colorTargetFromText(value) {
 function promptHint(prompt) {
   if (prompt?.judgeMode === "rule") return "Fast detector: SHOW SOMETHING RED. Use AI assisted for named objects.";
   if (prompt?.category === "Text") return "Printed-word ideas: TWILIO, API, WEBHOOK, CODE, SMS, 404.";
-  return "New prompts begin with operator judging. Use AI assisted for open-ended objects.";
+  return "New prompts use AI judging. Test each clue on the booth cameras before play.";
 }
 function renderPromptEditor() {
   const prompt = promptBuffer;
@@ -828,7 +822,7 @@ function renderPromptEditor() {
   $("prompt-text").value = prompt?.text || "";
   $("prompt-length").textContent = $("prompt-text").value.length + " / 55";
   $("prompt-category").value = prompt?.category || "Object";
-  $("prompt-judge").value = prompt?.judgeMode || "operator";
+  $("prompt-judge").value = prompt?.judgeMode || "ai-assisted";
   $("prompt-seconds").value = prompt?.seconds ?? "";
   $("prompt-enabled").checked = prompt?.enabled ?? false;
   $("prompt-hint").textContent = promptHint(prompt);
@@ -877,7 +871,7 @@ function addPrompt() {
   if (draft.prompts.length >= 100) return flash("The deck can have up to 100 prompts.", true);
   if (promptDirty && !commitPromptBuffer()) return;
   selectedPromptId = "prompt-" + crypto.randomUUID();
-  promptBuffer = { id: selectedPromptId, text: "", category: "Object", judgeMode: "operator", detector: "manual", enabled: true, seconds: null };
+  promptBuffer = { id: selectedPromptId, text: "", category: "Object", judgeMode: "ai-assisted", detector: "manual", enabled: true, seconds: null };
   promptDirty = true;
   saveStatus("Unsaved prompt", "dirty");
   renderPromptList();
@@ -1642,7 +1636,6 @@ function wireControls() {
     markDirty();
     if (event.target.id === "vote-event-code") updateMessagingPreview();
     if (["lead-enabled", "lead-guide", "lead-expert"].includes(event.target.id)) updateLeadControls();
-    if (event.target.id === "lead-marketing") renderLeadFields();
   });
   $("event-form").addEventListener("change", (event) => {
     if (!isAdmin()) return;

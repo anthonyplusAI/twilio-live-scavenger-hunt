@@ -11,7 +11,7 @@ function setup() {
   const joined = engine.join(event.slug, { alias: 'Visitor', displayConsent: true });
   const tracked = [];
   const integrations = {
-    track(item) { tracked.push(item); }, identifyOptedInLead() {},
+    track(item) { tracked.push(item); },
     async sendGuide(lead) { return lead.intent === 'expert' ? 'operator-follow-up' : 'pending-configuration'; },
   };
   return { store, event, engine, joined, tracked, integrations };
@@ -29,7 +29,7 @@ test('dynamic lead fields save their field snapshot and stay separate from joini
   } }, app.event.revision);
   const result = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,
     slug: app.event.slug, token: app.joined.token, input: {
-      intent: 'guide', fieldValues: { name: 'A Visitor', email: 'a@example.com', 'favorite-tool': 'Studio' }, marketingOptIn: false,
+      intent: 'guide', fieldValues: { name: 'A Visitor', email: 'a@example.com', 'favorite-tool': 'Studio' },
     } });
   assert.equal(result.deliveryStatus, 'pending-configuration');
   const lead = app.store.getLead(result.leadId);
@@ -48,7 +48,7 @@ test('dynamic lead fields save their field snapshot and stay separate from joini
   app.store.close();
 });
 
-test('lead validation rejects unknown fields, missing contact, invalid email, and marketing without email', () => {
+test('lead validation rejects unknown fields, missing contact, invalid email, and legacy marketing opt-in', () => {
   const app = setup();
   const state = app.store.getRuntime(app.event.id);
   const player = app.engine.player(app.event.slug, app.joined.token);
@@ -62,6 +62,8 @@ test('lead validation rejects unknown fields, missing contact, invalid email, an
   const phoneEvent = { ...app.event, leadCapture: { ...app.event.leadCapture,
     fields: [{ id: 'phone', label: 'Phone', type: 'tel', required: true }] } };
   assert.throws(() => validateLead(phoneEvent, player, { intent: 'expert', fieldValues: { phone: '+1 555 222 3333' }, marketingOptIn: true }, state),
+    error => error.code === 'invalid_lead');
+  assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: true }, state),
     error => error.code === 'invalid_lead');
   assert.throws(() => validateLead(app.event, player, { ...base, marketingOptIn: 'false' }, state),
     error => error.code === 'invalid_lead');
@@ -86,7 +88,7 @@ test('a configured build guide always has a required email field', () => {
 
 test('lead capture can be turned off and repeated submission does not duplicate a lead', async () => {
   const app = setup();
-  const input = { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'a@example.com', company: 'Acme' }, marketingOptIn: false };
+  const input = { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'a@example.com', company: 'Acme' } };
   const first = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,
     slug: app.event.slug, token: app.joined.token, input });
   const second = await submitLead({ store: app.store, engine: app.engine, integrations: app.integrations,

@@ -18,18 +18,19 @@ This is the contract for `app/`. All times are UTC ISO strings or epoch millisec
 
 | Route | Input | Response |
 | --- | --- | --- |
-| `POST /api/e/:slug/join` | `{alias,displayConsent:true}` | `{player:{id,alias,slot,status,heat},token,state}`. A non-lobby join queues for the next heat. |
+| `POST /api/e/:slug/join` | `{alias,displayConsent:true}` after the player accepts public display and camera-image judging | `{player:{id,alias,slot,status,heat},token,state}`. A non-lobby join queues for the next heat. |
 | `GET /api/e/:slug/me` | `Authorization: Bearer <player token>` | `{player,state}`. |
 | `POST /api/e/:slug/ready` | Player bearer token | `{player,state}`; requires media ready or explicit rehearsal mode. |
+| `POST /api/e/:slug/replay` | Finished player bearer token | `{player,state}`; keeps the same token and alias, takes an available lobby slot or queues for the next heat, and returns `409` while a heat is unfinished. Repeated calls after queuing are idempotent. |
 | `POST /api/e/:slug/heartbeat` | Player bearer token | `{player,state}`. The player page sends this about every five seconds while open. |
 | `POST /api/e/:slug/leave` | Player bearer token | `{state}`; marks the session left and releases the slot. The player page also stops its local camera. |
 | `GET /api/e/:slug/media-token` | Player bearer token | `{mode,token?,roomName?,identity?}`. Twilio tokens are room-scoped. |
 | `POST /api/e/:slug/frame` | Player bearer token, `image/jpeg` body, max 150 KB | `{ok:true}`; rehearsal frames and evidence only, rate-limited. |
 | `POST /api/e/:slug/votes` | `{windowId,choice}`; anonymous voter cookie | `{accepted:true,vote}` or `409` duplicate/closed. A vote never creates a lead. |
-| `POST /api/e/:slug/leads` | Player bearer token, `{intent:"guide"|"expert",fieldValues,marketingOptIn}` | `{leadId,deliveryStatus}`; validates event's current form and stores its field snapshot. |
+| `POST /api/e/:slug/leads` | Player bearer token, `{intent:"guide"|"expert",fieldValues}` | `{leadId,deliveryStatus}`; validates event's current form and stores its field snapshot. The removed `marketingOptIn:true` input returns `400`; legacy `false` is accepted without subscribing the visitor. |
 | `POST /api/e/:slug/activity` | `{type}` from an allowlist. `twilio_product_link_opened` also requires `product:"video"|"messaging"|"segment"`; `github_cta_opened` may include `source:"phone"|"spectator"`. The arena referral route sets its own source. | `{ok:true}`. Contact fields are rejected. |
 
-After an operator removes a player, that token receives HTTP `403` with `code: "player_kicked"` on authenticated player routes. The phone turns off its camera and shows a removal screen. Missing, left, or expired player tokens receive `401`. The server also marks stale sessions left when heartbeats stop: about 25 seconds for waiting/queued players and 60 seconds during a heat.
+After an operator removes a player, that token receives HTTP `403` with `code: "player_kicked"` on authenticated player routes. The phone turns off its camera and shows a removal screen. Missing, left, or expired player tokens receive `401`. Replay releases media between heats and records another `player_joined` entry under the same player ID; a result roster still shows the finished heat. The server also marks stale sessions left when heartbeats stop: about 25 seconds for waiting/queued players and 60 seconds during a heat.
 
 ## Authentication and operator actions
 
@@ -70,6 +71,6 @@ The operator state also includes a five-heat `recentHeats` list with prompt, pla
 
 `kickPlayer` takes `payload: {playerId}` for a current-heat or queued player. It clears the slot, invalidates the token, records `player_kicked`, and removes that player from candidates and creative ballots. If the player had already won the displayed result, the stored winner list is corrected. Its response adds `mediaDisconnect: {status:"ok",mode,disconnected}` on a successful Twilio disconnect attempt or `{status:"failed"}` if the media operation fails; the player is removed from the game in either case.
 
-The private report summary includes `kickedPlayers`, `timedOutPlayers`, `playerLeaves`, `twilioProductLinkClicks`, `twilioProductLinkClicksByProduct: {video,messaging,segment}`, `githubRepoClicks`, and `githubRepoClicksBySource: {phone,spectator,arenaQr,arenaLink}` alongside joins, plays, heats, votes, CTA activity, and leads. These are distinct activity counts within the requested event/date filter. Historical GitHub clicks without a source count as `phone`. Outbound fields count clicks or scans through the redirect, not verified destination page loads or GitHub stars; corresponding activity events appear in the filtered event log and export.
+The private report summary includes `kickedPlayers`, `timedOutPlayers`, `playerLeaves`, `twilioProductLinkClicks`, `twilioProductLinkClicksByProduct: {video,messaging,segment}`, `githubRepoClicks`, and `githubRepoClicksBySource: {phone,spectator,arenaQr,arenaLink}` alongside joins, plays, heats, votes, CTA activity, and leads. `totalParticipants` counts player entries including replay, while `uniquePlayers` deduplicates by player ID within the filter. `marketingOptIns` reflects historical records only; the current lead form cannot create one. Historical GitHub clicks without a source count as `phone`. Outbound fields count clicks or scans through the redirect, not verified destination page loads or GitHub stars; corresponding activity events appear in the filtered event log and export.
 
 Twilio signed webhooks live at `/webhooks/twilio/messaging` and `/webhooks/twilio/video`. They validate the exact public URL and `X-Twilio-Signature`, then deduplicate message/event IDs before changing state or metrics.

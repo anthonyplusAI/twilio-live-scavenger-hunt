@@ -57,7 +57,7 @@ The application event log is authoritative for live counters and winner decision
 | Play engagement | Heats started/completed, attempts per player, repeat players, prompts tried, and average time to verified match. |
 | Spectator engagement | Unique accepted ballots and total accepted ballots, split by web/SMS/WhatsApp. Cross-channel people count can overlap unless identities are voluntarily linked. |
 | Product interest | CTA opens, build-guide requests, expert conversations requested, and conversion from player/voter to CTA. |
-| Leads | Accepted lead forms, with requested follow-up and marketing opt-in counted separately. |
+| Leads | Accepted build-guide and expert requests; the current form does not offer marketing subscriptions. |
 | Delivery | Requested messages/emails accepted, delivered, bounced, and clicked when tracking is enabled. |
 | Operations | Camera join failures, detector uncertainty, operator overrides/ties, message rejection, and median/p95 verification latency. |
 

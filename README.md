@@ -39,11 +39,11 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 ## The experience
 
-A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display, checks their phone camera, and joins the heat. The phone checks the 2–20 character name and display consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
+A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, agrees to appear on the booth display and have camera images checked for matches, checks their phone camera, and joins the heat. The consent screen explains that OpenAI may review brief images when AI judging is enabled. The phone checks the 2–20 character name and consent inline and shows progress while it saves a spot. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**. Every screen uses the official Twilio bug mark for its browser icon.
 
-Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
+The next clue is drawn randomly from enabled prompts that have not appeared in the current deck cycle. An operator can choose the next clue, and an audience category vote can narrow the draw. After every enabled clue has appeared, a new cycle begins without immediately repeating the last clue. The standard hunt now lasts **45 seconds**, with **60 seconds** for seeded creative clues; admins can change the event timer or a prompt's timer. Everyone races to show the requested color, object, shape, printed tech word, or creative find. Prompts default to AI-assisted judging; an admin can instead choose the built-in color detector, an audience vote, or booth-operator judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and voluntarily request a guide or a conversation with the booth team. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot. Joining and voting never require a lead form.
+Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can tap **Play next heat** without entering their name again, or **Leave game** to end their session and turn off the camera. They can also follow a visual phone-to-arena product story, open official Twilio pages, and voluntarily request a guide or a conversation with the booth team. Those requests do not subscribe visitors to product updates. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot. Joining and voting never require a lead form.
 
 | Booth moment | What the app does |
 | --- | --- |
@@ -51,7 +51,7 @@ Spectators can take part through a web ballot. With configured senders, SMS or W
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
 | **Manage booth access** | An admin can create local operators, change local usernames and passwords, or remove access from the control room. Optional Google sign-in grants verified `@twilio.com` Workspace accounts admin access. |
-| **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
+| **Measure engagement** | Private reports filter by event and date and cover joins, repeat entries, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
 | **Adapt to the event** | Each event has its own URL, prompt deck, player limits, start rules, voting settings, and lead form. Every screen offers light/dark mode; the arena keeps its display controls hidden until staff interact. |
 
 ## See the moment
@@ -66,8 +66,8 @@ These are **visual previews with illustrated stand-ins**, captured from the runn
   </tr>
   <tr><th>Phone · winner</th><th>Phone · not this round</th></tr>
   <tr>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Winner celebration on a player phone, with a Star on GitHub link in the footer" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Phone clearly says not this round, names the winner, and shows the GitHub star link" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-win.png" alt="Visual preview of the winning phone result with Play next heat, Leave game, Twilio build story, and GitHub link" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-lose.png" alt="Visual preview of a losing phone result naming the winner, with Play next heat and Leave game" width="300"></td>
   </tr>
 </table>
 
@@ -89,12 +89,12 @@ The arena keeps the game QR large and gives the [source repository](https://gith
   <tr><th>Player phone · before joining</th><th>Player phone · consent check</th><th>Spectator phone · between ballots</th></tr>
   <tr>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player join preview with an illustrated phone camera spot and Star on GitHub footer link" width="300"></td>
-    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player consent form showing an inline reminder to check display consent and the GitHub star footer" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-consent.png" alt="Local rehearsal player consent form describing display and optional OpenAI review, with an inline reminder to check consent" width="300"></td>
     <td align="center"><img src="docs/visuals/live-scavenger-hunt-vote.png" alt="Spectator ballot preview waiting for the next vote, with a Star on GitHub footer link" width="300"></td>
   </tr>
 </table>
 
-<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the consent screen shows the missing-checkbox message; the spectator ballot is waiting for its next vote.</em></p>
+<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the consent screen explains optional OpenAI review and shows the missing-checkbox message; the spectator ballot is waiting for its next vote.</em></p>
 
 ## Twilio product story
 
@@ -116,14 +116,17 @@ Each product panel links to its official Twilio page: [Video](https://www.twilio
 | --- | --- | --- |
 | **Twilio Video** | Phone cameras publish into an unrecorded room; the booth wall subscribes to the players' video. | Built in; needs the Account SID, API Key SID and secret, Auth Token, and a public HTTPS origin for a live event. |
 | **Twilio Messaging** | Spectators send SMS or WhatsApp ballots and receive an automated TwiML acknowledgment reply. A web ballot is available without a sender. | Optional; needs event senders, inbound webhook setup, and registration that covers the replies. |
-| **Twilio Segment** | Can mirror a limited, contact-free activity stream. The local report works without Segment. | Optional Write Key. Lead identity is sent only with separate marketing opt-in and explicit configuration. |
+| **Twilio Segment** | Can mirror a limited, contact-free activity stream. The local report works without Segment. | Optional Write Key. The app does not send lead identity to Segment. |
 | **Twilio SendGrid** | Can email a requested build guide. Expert requests are saved for staff follow-up. | Optional API key and verified sender. |
 
-Optional **OpenAI vision** can assess camera evidence for prompts that cannot be handled by the built-in color rule. The booth operator can always review or override a decision. The expert CTA records a request; it does **not** place a Voice call or launch Agent Connect.
+Prompts use **OpenAI vision** by default when its server key is configured. Existing saved prompts switch to AI-assisted judging once on upgrade; later admin choices remain in place. Without an OpenAI key, an operator must judge AI-assisted rounds. The booth operator can always review or override a decision. The expert CTA records a request; it does **not** place a Voice call or launch Agent Connect.
 
 ## Player safety and booth control
 
-Players have a visible **Leave** action while queued or playing. Leaving releases their spot and turns off their camera. A phone left idle in the queue, lobby, paused heat, or operator review asks “Still here?” after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. The camera stops at the end of the configured result display, with a time limit even if the result is paused.
+The result screen offers **Play next heat** and **Leave game**. Replay keeps the player's alias and session, queues them for the next heat, and turns off the camera between heats; when a spot opens, the phone reconnects or offers a reconnect button. Leave ends the session and frees the spot. The header also offers Leave while queued, playing, or exploring the postgame story. A phone left idle in the queue, lobby, paused heat, or operator review asks “Still here?” after three minutes and releases the spot after another 30 seconds. An abandoned Leave confirmation also releases after 30 seconds. If the tab closes or stops sending heartbeats, the server clears waiting players after about 25 seconds and in-progress players after about 60 seconds. A finished player does not occupy a new slot until choosing replay; the camera stops at the end of the configured result display, with a time limit even if the result is paused.
+
+<p align="center"><img src="docs/visuals/live-scavenger-hunt-phone-next-heat.png" alt="Visual preview of the next-heat waiting screen with an illustrated player spot and camera-off message" width="300"></p>
+<p align="center"><em>Next-heat visual preview. The portrait is an illustration; no live camera is shown.</em></p>
 
 Staff can open **Manage players** in the operator view, choose a current or queued player, and confirm removal. Removal clears the slot, requests a Twilio Video disconnect when configured, invalidates that player session, and records a removal metric. The command reports whether the Video disconnect succeeded. This is session-level moderation: a person with a new browser session can scan again, so booth staff should monitor the arena.
 

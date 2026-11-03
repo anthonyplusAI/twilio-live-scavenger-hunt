@@ -35,11 +35,11 @@ export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenge
   const now = new Date().toISOString();
   return {
     id: randomUUID(), slug, name, venue: '', timeZone: 'UTC',
-    minPlayers: 2, maxPlayers: 6, roundSeconds: 20, joinSeconds: 30,
+    minPlayers: 2, maxPlayers: 6, roundSeconds: 45, joinSeconds: 30,
     resultSeconds: 8, tieWindowMs: 300, startMode: 'flexible',
     judgePolicy: 'auto-with-override', autoAdvance: true, retentionDays: 90,
     leadCapture: {
-      enabled: true, guideEnabled: true, expertEnabled: true, marketingOptIn: true,
+      enabled: true, guideEnabled: true, expertEnabled: true,
       fields: [
         { id: 'name', label: 'Name', type: 'text', required: true },
         { id: 'email', label: 'Work email', type: 'email', required: true },
@@ -75,7 +75,7 @@ function normalizeLeadCapture(raw, previous) {
     fail('The build guide needs a required email field.');
   if (enabled && expertEnabled && !normalized.some(field => field.type === 'email' || field.type === 'tel'))
     fail('Add an email or phone field for expert requests.');
-  return { enabled, guideEnabled, expertEnabled, marketingOptIn: Boolean(value.marketingOptIn), fields: normalized };
+  return { enabled, guideEnabled, expertEnabled, fields: normalized };
 }
 
 function normalizeVote(raw, previous) {
@@ -111,8 +111,8 @@ function normalizePrompts(raw) {
     const seconds = item?.seconds == null || item.seconds === '' ? null : integer(item.seconds, 5, 180, 'Prompt timer');
     const promptText = text(item?.text, 55, `Prompt ${index + 1} text`);
     const category = choice(item?.category, CATEGORIES, 'prompt category');
-    const judgeMode = choice(item?.judgeMode, JUDGE_MODES, 'prompt judging mode');
-    const detector = text(item?.detector ?? 'manual', 200, 'Prompt detector');
+    const judgeMode = choice(item?.judgeMode ?? 'ai-assisted', JUDGE_MODES, 'prompt judging mode');
+    const detector = text(item?.detector ?? (judgeMode === 'ai-assisted' ? `visual:${promptText}` : 'manual'), 200, 'Prompt detector');
     if (judgeMode === 'rule') {
       const target = detector.match(/^color:(red|blue|yellow|green|orange|purple)$/i)?.[1]?.toLowerCase();
       const colorClue = promptText.match(/^(?:SHOW|FIND) SOMETHING (RED|BLUE|YELLOW|GREEN|ORANGE|PURPLE)[.!]?$/i)?.[1]?.toLowerCase();

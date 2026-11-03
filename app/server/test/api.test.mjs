@@ -16,7 +16,7 @@ async function fixture(changes = {}, options = {}) {
   let event = store.seedDefault();
   if (Object.keys(changes).length) event = store.saveEvent(event.slug, { ...event, ...changes }, event.revision);
   let now = Date.UTC(2026, 10, 2, 12);
-  const engine = new GameEngine({ store, now: () => now });
+  const engine = new GameEngine({ store, now: () => now, randomIndex: () => 0 });
   const auth = new AuthService({ store });
   auth.createUser('admin', 'correct-password-123', 'admin');
   auth.createUser('operator', 'operator-password-123', 'operator');
@@ -100,6 +100,34 @@ test('public HTML/API/SSE seal the clue through countdown, and concurrent client
     assert.equal(hunt.value.state.prompt.text, 'SHOW SOMETHING RED');
     const queuedReady = await app.request(`/api/e/${app.event.slug}/ready`, { method: 'POST', token: c.token });
     assert.equal(queuedReady.response.status, 409);
+  } finally { await app.close(); }
+});
+
+test('player replay reuses a finished session and leave ends it', async () => {
+  const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const first = await app.join('Ada'), second = await app.join('Bea');
+    assert.equal((await app.ready(first)).response.status, 200);
+    assert.equal((await app.ready(second)).response.status, 200);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.now += 3000;
+    app.engine.tickAll();
+    app.engine.command(app.event.slug, 'award', { winners: [first.player.id] }, { id: 'operator' });
+
+    const replay = await app.request(`/api/e/${app.event.slug}/replay`, { method: 'POST', token: first.token });
+    assert.equal(replay.response.status, 200);
+    assert.equal(replay.value.player.id, first.player.id);
+    assert.equal(replay.value.player.status, 'queued');
+    assert.equal(replay.value.state.queuedCount, 1);
+    assert.equal((await app.request(`/api/e/${app.event.slug}/replay`, { method: 'POST', token: first.token })).response.status, 200);
+    assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'player_joined').length, 3);
+
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    const promoted = await app.request(`/api/e/${app.event.slug}/me`, { token: first.token });
+    assert.equal(promoted.value.player.status, 'joined');
+    assert.equal(promoted.value.player.slot, 1);
+    assert.equal((await app.request(`/api/e/${app.event.slug}/leave`, { method: 'POST', token: first.token })).response.status, 200);
+    assert.equal((await app.request(`/api/e/${app.event.slug}/replay`, { method: 'POST', token: first.token })).response.status, 401);
   } finally { await app.close(); }
 });
 
