@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabase, resolveDatabasePath } from '../db.mjs';
 import { defaultEvent, normalizeEvent } from '../config.mjs';
 
@@ -23,7 +24,9 @@ test('legacy default event adopts the new name and URL without losing saved sett
   const store = openDatabase();
   try {
     const legacy = store.createEvent('SIGNAL STADIUM', 'signal-stadium');
-    const configured = store.saveEvent(legacy.slug, { ...legacy, roundSeconds: 37 }, legacy.revision);
+    const configured = store.saveEvent(legacy.slug, {
+      ...legacy, roundSeconds: 37, resultSeconds: 8, startMode: 'capacity',
+    }, legacy.revision);
     store.recordActivity(legacy.id, 'player_joined', { playerId: 'sample-player' });
 
     const renamed = store.seedDefault();
@@ -31,6 +34,8 @@ test('legacy default event adopts the new name and URL without losing saved sett
     assert.equal(renamed.slug, 'live-scavenger-hunt');
     assert.equal(renamed.name, 'Live Scavenger Hunt');
     assert.equal(renamed.roundSeconds, 37);
+    assert.equal(renamed.resultSeconds, 8);
+    assert.equal(renamed.startMode, 'capacity');
     assert.equal(renamed.revision, configured.revision + 1);
     assert.equal(store.getEvent('signal-stadium'), null);
     assert.equal(store.listEvents().length, 1);
@@ -53,6 +58,31 @@ test('database path uses the new name for fresh installs and reuses an existing 
     assert.equal(resolveDatabasePath(root, {}), current);
     assert.equal(resolveDatabasePath(root, { LIVE_SCAVENGER_HUNT_DB: 'custom.sqlite' }), join(root, 'custom.sqlite'));
     assert.equal(resolveDatabasePath(root, { SIGNAL_STADIUM_DB: 'old-custom.sqlite' }), join(root, 'old-custom.sqlite'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('existing player rows survive the private replay-timeout reason migration', () => {
+  const root = mkdtempSync(join(tmpdir(), 'live-scavenger-hunt-player-migration-'));
+  const filename = join(root, 'legacy.sqlite');
+  try {
+    const original = openDatabase(filename);
+    const event = original.seedDefault();
+    original.insertPlayer({
+      id: 'player-before-migration', eventId: event.id, alias: 'Ada', heat: 1, slot: null,
+      status: 'left', mediaConnected: false, joinedAt: new Date().toISOString(),
+    }, 'old-token-hash');
+    original.close();
+    const legacy = new DatabaseSync(filename);
+    legacy.exec('ALTER TABLE players DROP COLUMN last_exit_reason');
+    legacy.close();
+
+    const migrated = openDatabase(filename);
+    try {
+      assert.equal(migrated.getPlayer('player-before-migration').alias, 'Ada');
+      assert.equal(migrated.getPlayer('player-before-migration').lastExitReason, null);
+      migrated.updatePlayer('player-before-migration', { lastExitReason: 'replay_timeout' });
+      assert.equal(migrated.getPlayer('player-before-migration').lastExitReason, 'replay_timeout');
+    } finally { migrated.close(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -238,6 +268,8 @@ test('color-only clues default to low rotation priority and admins can save an o
 
 test('new and existing events default to post-play leads and GitHub CTA', () => {
   const fresh = normalizeEvent(defaultEvent('New Expo', 'new-expo'));
+  assert.equal(fresh.startMode, 'manual');
+  assert.equal(fresh.resultSeconds, 15);
   assert.equal(fresh.leadCapture.timing, 'after-play');
   assert.equal(fresh.cta.primary, 'github');
   const legacy = structuredClone(fresh);
@@ -248,6 +280,11 @@ test('new and existing events default to post-play leads and GitHub CTA', () => 
   assert.equal(updated.cta.primary, 'github');
   const join = normalizeEvent({ ...legacy, leadCapture: { ...legacy.leadCapture, timing: 'join' } }, legacy);
   assert.equal(join.leadCapture.timing, 'join');
+  const savedAuto = normalizeEvent({ ...legacy, startMode: 'deadline' }, legacy);
+  assert.equal(normalizeEvent({ ...savedAuto, name: 'Updated Expo' }, savedAuto).startMode, 'deadline');
+  assert.equal(normalizeEvent({ ...fresh, resultSeconds: 30 }, fresh).resultSeconds, 30);
+  assert.throws(() => normalizeEvent({ ...fresh, resultSeconds: 31 }, fresh),
+    error => error.code === 'invalid_input');
 });
 
 test('primary CTA only accepts an enabled follow-up action', () => {

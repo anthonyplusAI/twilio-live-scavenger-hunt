@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS players (
   token_hash TEXT NOT NULL UNIQUE, alias TEXT NOT NULL, heat INTEGER NOT NULL,
   slot INTEGER, status TEXT NOT NULL, media_connected INTEGER NOT NULL DEFAULT 0,
   transport TEXT, joined_at TEXT NOT NULL, ready_at TEXT, last_seen_at TEXT NOT NULL, left_at TEXT,
-  analytics_session_id TEXT
+  analytics_session_id TEXT, last_exit_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_players_event_heat ON players(event_id, heat);
 CREATE TABLE IF NOT EXISTS heats (
@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS activity (
   type TEXT NOT NULL, at TEXT NOT NULL, properties_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_activity_event_at ON activity(event_id, at);
+CREATE INDEX IF NOT EXISTS idx_activity_player_heat ON activity(
+  event_id, type, json_extract(properties_json, '$.playerId'), json_extract(properties_json, '$.heat')
+);
 CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL, intent TEXT NOT NULL, participant_id TEXT NOT NULL,
@@ -60,6 +63,7 @@ CREATE TABLE IF NOT EXISTS leads (
   expert_status TEXT NOT NULL DEFAULT 'not-requested'
 );
 CREATE INDEX IF NOT EXISTS idx_leads_event_at ON leads(event_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_leads_event_participant_intent ON leads(event_id, participant_id, intent);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
   password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -123,6 +127,7 @@ export class Store {
     this.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
     const playerColumns = new Set(this.sql.prepare('PRAGMA table_info(players)').all().map(column => column.name));
     if (!playerColumns.has('analytics_session_id')) this.sql.exec('ALTER TABLE players ADD COLUMN analytics_session_id TEXT');
+    if (!playerColumns.has('last_exit_reason')) this.sql.exec('ALTER TABLE players ADD COLUMN last_exit_reason TEXT');
     const leadColumns = new Set(this.sql.prepare('PRAGMA table_info(leads)').all().map(column => column.name));
     if (!leadColumns.has('guide_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN guide_requested_at TEXT');
     if (!leadColumns.has('expert_requested_at')) this.sql.exec('ALTER TABLE leads ADD COLUMN expert_requested_at TEXT');
@@ -340,11 +345,12 @@ export class Store {
   }
 
   insertPlayer(player, tokenHash) {
-    this.sql.prepare(`INSERT INTO players(id,event_id,token_hash,alias,heat,slot,status,media_connected,transport,joined_at,ready_at,last_seen_at,left_at,analytics_session_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    this.sql.prepare(`INSERT INTO players(id,event_id,token_hash,alias,heat,slot,status,media_connected,transport,joined_at,ready_at,last_seen_at,left_at,analytics_session_id,last_exit_reason)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(player.id, player.eventId, tokenHash, player.alias, player.heat, player.slot ?? null, player.status,
         player.mediaConnected ? 1 : 0, player.transport || null, player.joinedAt, player.readyAt || null,
-        player.lastSeenAt || player.joinedAt, player.leftAt || null, player.analyticsSessionId || null);
+        player.lastSeenAt || player.joinedAt, player.leftAt || null, player.analyticsSessionId || null,
+        player.lastExitReason || null);
     return player;
   }
 
@@ -364,6 +370,7 @@ export class Store {
       slot: row.slot, status: row.status, mediaConnected: Boolean(row.media_connected),
       transport: row.transport, joinedAt: row.joined_at, readyAt: row.ready_at,
       lastSeenAt: row.last_seen_at, leftAt: row.left_at, analyticsSessionId: row.analytics_session_id || null,
+      lastExitReason: row.last_exit_reason || null,
     };
   }
 
@@ -371,7 +378,7 @@ export class Store {
     const fields = {
       alias: 'alias', heat: 'heat', slot: 'slot', status: 'status', mediaConnected: 'media_connected',
       transport: 'transport', joinedAt: 'joined_at', readyAt: 'ready_at', lastSeenAt: 'last_seen_at', leftAt: 'left_at',
-      analyticsSessionId: 'analytics_session_id',
+      analyticsSessionId: 'analytics_session_id', lastExitReason: 'last_exit_reason',
     };
     const pairs = Object.entries(patch).filter(([key]) => fields[key]);
     if (!pairs.length) return this.getPlayer(id);
@@ -483,6 +490,13 @@ export class Store {
     this.sql.prepare('INSERT INTO activity(id,event_id,type,at,properties_json) VALUES(?,?,?,?,?)')
       .run(item.id, eventId, type, at, json(item.properties));
     return item;
+  }
+
+  hasPlayerHeatActivity(eventId, type, playerId, heat) {
+    return Boolean(this.sql.prepare(`SELECT 1 FROM activity WHERE event_id=? AND type=?
+      AND json_extract(properties_json, '$.playerId')=?
+      AND json_extract(properties_json, '$.heat')=? LIMIT 1`)
+      .get(eventId, type, playerId, heat));
   }
 
   listActivity(eventId = null) {

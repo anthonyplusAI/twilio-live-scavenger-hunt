@@ -10,12 +10,16 @@ const tokenHash = token => createHash('sha256').update(String(token)).digest('he
 const HUNT_PHASES = new Set(['hunt', 'review', 'result']);
 const INACTIVE_WAITING_MS = 25_000;
 const INACTIVE_HEAT_MS = 60_000;
+const SLOT_CLAIM_MS = 30_000;
+const PLAYER_SESSION_MS = 24 * 60 * 60_000;
+const RETURN_SESSION_MS = 7 * PLAYER_SESSION_MS;
 
 function fail(message, code = 'invalid_state') { throw new ValidationError(message, code); }
 function initialRuntime(eventId, now) {
   return {
     eventId, phase: 'lobby', heat: 1, version: 1, updatedAt: toIso(now),
     paused: false, pauseRemaining: null, readyDeadline: null, goAt: null,
+    slotClaims: {},
     countdownEndsAt: null, roundEndsAt: null, reviewEndsAt: null,
     resultEndsAt: null, heatId: null, promptSnapshot: null, rulesSnapshot: null,
     lockedPlayerIds: [], queuedPromptId: null, preferredCategory: null,
@@ -202,11 +206,13 @@ export class GameEngine extends EventEmitter {
     return { event: this.publicEvent(event), state: publicState, serverTime: this.now() };
   }
 
-  _authenticatePlayer(eventId, token) {
+  _authenticatePlayer(eventId, token, { allowLeft = false } = {}) {
     if (typeof token !== 'string' || token.length < 20 || token.length > 200) fail('Player session required.', 'unauthorized');
     const player = this.store.findPlayerByTokenHash(tokenHash(token));
     if (player?.eventId === eventId && player.status === 'kicked') fail('You were removed from this game by booth staff.', 'player_kicked');
-    if (!player || player.eventId !== eventId || player.status === 'left' || this.now() - fromIso(player.joinedAt) > 24 * 60 * 60_000)
+    const returnVisit = allowLeft && ['finished', 'left'].includes(player?.status);
+    if (!player || player.eventId !== eventId || (!allowLeft && player.status === 'left') ||
+        this.now() - fromIso(player.joinedAt) > (returnVisit ? RETURN_SESSION_MS : PLAYER_SESSION_MS))
       fail('Player session expired.', 'unauthorized');
     return player;
   }
@@ -221,6 +227,68 @@ export class GameEngine extends EventEmitter {
     const position = this.store.listQueuedPlayers(player.eventId)
       .findIndex(waiting => waiting.id === player.id) + 1;
     return { ...player, queuePosition: position || null };
+  }
+
+  _needsJoinLead(event, player) {
+    return Boolean(event.leadCapture?.enabled && event.leadCapture?.timing === 'join' &&
+      !this.store.findCapturedLead(event.id, player.id));
+  }
+
+  _playerSession(event, player) {
+    return {
+      ...this._withQueuePosition(player),
+      needsJoinLead: ['finished', 'left'].includes(player.status) && this._needsJoinLead(event, player),
+    };
+  }
+
+  _recordPlayerActivityOnce(context, type, player, extras = {}) {
+    if (this.store.hasPlayerHeatActivity(context.event.id, type, player.id, player.heat)) return null;
+    return context.activity(type, { playerId: player.id, heat: player.heat, ...extras });
+  }
+
+  _setSlotClaim(context, playerId, returning = null) {
+    const { state, now, touch } = context;
+    state.slotClaims ||= {};
+    const isReturning = returning ?? state.slotClaims[playerId]?.returning ?? false;
+    state.slotClaims[playerId] = state.paused
+      ? { returning: isReturning, remainingMs: SLOT_CLAIM_MS }
+      : { returning: isReturning, deadlineAt: toIso(now + SLOT_CLAIM_MS) };
+    touch();
+  }
+
+  _queueReplayClaim(context, playerId) {
+    context.state.slotClaims ||= {};
+    context.state.slotClaims[playerId] = { returning: true };
+    context.touch();
+  }
+
+  _clearSlotClaimDeadline(context, playerId) {
+    const claims = context.state.slotClaims;
+    const claim = claims?.[playerId];
+    if (!claim) return;
+    if (claim.returning) claims[playerId] = { returning: true };
+    else delete claims[playerId];
+    context.touch();
+  }
+
+  _expireSlotClaim(context, player, reason = 'unclaimed_slot') {
+    const { event, state, now, activity, removeMedia, touch } = context;
+    if (!state.slotClaims?.[player.id]?.returning) {
+      this._removePlayer(context, player, 'left', 'player_timed_out');
+      return;
+    }
+    delete state.slotClaims[player.id];
+    this.store.updatePlayer(player.id, {
+      status: 'finished', slot: null, mediaConnected: false, transport: null,
+      readyAt: null, lastSeenAt: toIso(now), leftAt: null, lastExitReason: 'replay_timeout',
+    });
+    if (state.phase === 'lobby') {
+      this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
+      this._fillOpenLobbySlots(context);
+    }
+    activity('player_timed_out', { playerId: player.id, heat: player.heat, reason });
+    removeMedia(player, 'finished');
+    touch();
   }
 
   join(slug, { alias, displayConsent, lead } = {}, { requireLead = false, analyticsSessionId = null } = {}) {
@@ -255,15 +323,21 @@ export class GameEngine extends EventEmitter {
       return player;
     });
     const state = this.snapshot(slug).state;
-    return { player: this._withQueuePosition(this.store.getPlayer(value.id)), token, state };
+    return { player: this._playerSession(this.event(slug), this.store.getPlayer(value.id)), token, state };
   }
 
-  replay(slug, token) {
+  replay(slug, token, { lead } = {}) {
     const player = this._mutate(slug, context => {
       const { event, state, now, touch, activity } = context;
-      const current = this._authenticatePlayer(event.id, token);
+      const current = this._authenticatePlayer(event.id, token, { allowLeft: true });
       if (['queued', 'joined', 'ready'].includes(current.status)) return current;
-      if (current.status !== 'finished') fail('Finish this heat before playing again.', 'replay_unavailable');
+      if (!['finished', 'left'].includes(current.status)) fail('Finish this heat before playing again.', 'replay_unavailable');
+      let capturedLead = null;
+      if (this._needsJoinLead(event, current)) {
+        if (lead == null) fail('Enter the current event contact fields before rejoining.', 'join_lead_required');
+        capturedLead = validateLead(event, current, { ...lead, intent: 'capture' },
+          { heatId: null }, new Date(now));
+      }
       if (state.phase === 'lobby') this._fillOpenLobbySlots(context);
       const occupied = this.store.listPlayers(event.id, state.heat)
         .filter(entry => entry.slot != null && !['left', 'kicked'].includes(entry.status));
@@ -274,21 +348,27 @@ export class GameEngine extends EventEmitter {
         heat: slot ? state.heat : state.heat + 1, slot,
         status: slot ? 'joined' : 'queued', mediaConnected: false, transport: null,
         joinedAt: toIso(now), readyAt: null, lastSeenAt: toIso(now), leftAt: null,
+        lastExitReason: null,
       });
+      if (capturedLead) this.store.insertLead(capturedLead);
+      if (slot) this._setSlotClaim(context, next.id, true);
+      else this._queueReplayClaim(context, next.id);
       const session = next.analyticsSessionId ? { sessionId: next.analyticsSessionId } : {};
-      activity('player_joined', { playerId: next.id, heat: next.heat, queued: !slot, ...session });
-      if (!slot) activity('player_queued', { playerId: next.id, heat: next.heat, ...session });
+      this._recordPlayerActivityOnce(context, 'player_joined', next, { queued: !slot, ...session });
+      if (!slot) this._recordPlayerActivityOnce(context, 'player_queued', next, session);
+      if (capturedLead) activity('lead_captured', { playerId: next.id, heat: next.heat, ...session });
       touch();
       return next;
     });
     const state = this.snapshot(slug).state;
-    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
+    return { player: this._playerSession(this.event(slug), this.store.getPlayer(player.id)), state };
   }
 
   me(slug, token) {
-    const player = this.player(slug, token);
+    const event = this.event(slug);
+    const player = this._authenticatePlayer(event.id, token, { allowLeft: true });
     const state = this.snapshot(slug).state;
-    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
+    return { player: this._playerSession(event, this.store.getPlayer(player.id)), state };
   }
 
   setTransport(slug, token, transport) {
@@ -300,6 +380,8 @@ export class GameEngine extends EventEmitter {
       const next = this.store.updatePlayer(current.id, { transport, mediaConnected, lastSeenAt: toIso(this.now()) });
       if (next.transport !== current.transport || next.mediaConnected !== current.mediaConnected) touch();
       if (state.phase === 'lobby' && current.status === 'ready' && next.mediaConnected !== current.mediaConnected) {
+        if (next.mediaConnected) this._clearSlotClaimDeadline(context, current.id);
+        else this._setSlotClaim(context, current.id);
         this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
         if (next.mediaConnected) this._maybeAutoStart(context);
       }
@@ -329,9 +411,12 @@ export class GameEngine extends EventEmitter {
       const { event, state, touch, activity } = context;
       const player = this.store.getPlayer(playerId);
       if (!player || player.eventId !== event.id || ['left', 'kicked'].includes(player.status)) return null;
+      if (player.status === 'finished' && player.slot == null) return player;
       if (player.mediaConnected === Boolean(connected)) return player;
       const updated = this.store.updatePlayer(player.id, { mediaConnected: Boolean(connected), lastSeenAt: toIso(this.now()) });
       if (state.phase === 'lobby' && player.status === 'ready') {
+        if (connected) this._clearSlotClaimDeadline(context, player.id);
+        else this._setSlotClaim(context, player.id);
         this._updateLobbyReadyDeadline(context, this._readyPlayers(event, state).length);
         if (connected) this._maybeAutoStart(context);
       }
@@ -376,6 +461,7 @@ export class GameEngine extends EventEmitter {
       if (!current.mediaConnected && current.transport !== 'rehearsal') fail('Connect your camera before marking ready.', 'media_required');
       const readyBefore = this._readyPlayers(event, state).length;
       const updated = this.store.updatePlayer(current.id, { status: 'ready', readyAt: toIso(now), lastSeenAt: toIso(now) });
+      this._clearSlotClaimDeadline(context, current.id);
       const readyAfter = this._readyPlayers(event, state).length;
       this._updateLobbyReadyDeadline(context, readyAfter, readyBefore < event.minPlayers);
       activity('player_ready', { playerId: current.id, heat: state.heat });
@@ -409,7 +495,7 @@ export class GameEngine extends EventEmitter {
       return this.store.updatePlayer(current.id, { lastSeenAt: toIso(this.now()) });
     });
     const state = this.snapshot(slug).state;
-    return { player: this._withQueuePosition(this.store.getPlayer(player.id)), state };
+    return { player: this._playerSession(this.event(slug), this.store.getPlayer(player.id)), state };
   }
 
   leave(slug, token) {
@@ -438,13 +524,19 @@ export class GameEngine extends EventEmitter {
         heat: state.heat, slot, status: 'joined', readyAt: null,
         mediaConnected: false, transport: null,
       });
+      this._setSlotClaim(context, player.id);
       touch();
     });
   }
 
   _removePlayer(context, player, status, activityType) {
     const { state, now, touch, activity, removeMedia } = context;
-    this.store.updatePlayer(player.id, { status, mediaConnected: false, leftAt: toIso(now), slot: null });
+    if (state.slotClaims) delete state.slotClaims[player.id];
+    if (status === 'kicked' || (activityType === 'player_left' && state.phase !== 'result'))
+      state.resultRoster = (state.resultRoster || []).filter(spot => spot.id !== player.id);
+    this.store.updatePlayer(player.id, {
+      status, mediaConnected: false, leftAt: toIso(now), slot: null, lastExitReason: null,
+    });
     if (state.phase === 'lobby')
       this._updateLobbyReadyDeadline(context, this._readyPlayers(context.event, state).length);
     this._fillOpenLobbySlots(context);
@@ -468,7 +560,8 @@ export class GameEngine extends EventEmitter {
       state.vote.options = state.vote.options.filter(option => option.id !== player.id);
       if (Array.isArray(state.vote.result)) state.vote.result = state.vote.result.filter(id => id !== player.id);
     }
-    activity(activityType, { playerId: player.id, heat: player.heat });
+    if (activityType === 'player_left') this._recordPlayerActivityOnce(context, activityType, player);
+    else activity(activityType, { playerId: player.id, heat: player.heat });
     removeMedia(player, status);
     touch();
   }
@@ -549,8 +642,15 @@ export class GameEngine extends EventEmitter {
     const lockedIds = readyPlayers.map(player => player.id);
     for (const player of this.store.listPlayers(event.id, state.heat)) {
       if (['left', 'kicked'].includes(player.status)) continue;
-      if (lockedIds.includes(player.id)) this.store.updatePlayer(player.id, { status: 'locked' });
-      else this.store.updatePlayer(player.id, { heat: state.heat + 1, slot: null, status: 'queued' });
+      if (lockedIds.includes(player.id)) {
+        this.store.updatePlayer(player.id, { status: 'locked' });
+        if (state.slotClaims) delete state.slotClaims[player.id];
+      } else {
+        this.store.updatePlayer(player.id, { heat: state.heat + 1, slot: null, status: 'queued' });
+        const claim = state.slotClaims?.[player.id];
+        if (claim?.returning) state.slotClaims[player.id] = { returning: true };
+        else if (claim) delete state.slotClaims[player.id];
+      }
     }
     state.phase = 'countdown';
     state.heatId = randomUUID();
@@ -561,6 +661,8 @@ export class GameEngine extends EventEmitter {
       autoAdvance: event.autoAdvance,
     };
     state.lockedPlayerIds = lockedIds;
+    // The result wall keeps original slots even if a locked player's session later times out.
+    state.resultRoster = readyPlayers.map(player => ({ id: player.id, alias: player.alias, slot: player.slot }));
     state.rulesSnapshot.lockedPlayerIds = [...lockedIds];
     state.readyDeadline = null;
     state.countdownEndsAt = toIso(now + 3000);
@@ -658,15 +760,18 @@ export class GameEngine extends EventEmitter {
     const previous = state.phase === 'result';
     if (unique.some(id => {
       const player = this.store.getPlayer(id);
-      return !state.lockedPlayerIds.includes(id) || !player || player.status === 'kicked' ||
-        (player.status === 'left' && !(previous && state.resultRoster?.some(spot => spot.id === id)));
+      if (!state.lockedPlayerIds.includes(id) || !player || player.status === 'kicked') return true;
+      if (previous) return !state.resultRoster?.some(spot => spot.id === id);
+      return player.heat !== state.heat || player.status !== 'active' || player.slot == null;
     })) fail('Choose a player in this heat.');
     const isOverride = previous || (source === 'operator' && state.candidate &&
       JSON.stringify([...state.candidate.winners].sort()) !== JSON.stringify([...unique].sort()));
-    if (!previous) state.resultRoster = this.store.listPlayers(event.id, state.heat)
-      .filter(player => state.lockedPlayerIds.includes(player.id) && player.slot != null && player.status !== 'kicked')
-      .sort((a, b) => a.slot - b.slot)
-      .map(player => ({ id: player.id, alias: player.alias, slot: player.slot }));
+    if (!previous) state.resultRoster = state.resultRoster?.length
+      ? state.resultRoster.filter(spot => this.store.getPlayer(spot.id)?.status !== 'kicked')
+      : this.store.listPlayers(event.id, state.heat)
+        .filter(player => state.lockedPlayerIds.includes(player.id) && player.slot != null && player.status !== 'kicked')
+        .sort((a, b) => a.slot - b.slot)
+        .map(player => ({ id: player.id, alias: player.alias, slot: player.slot }));
     state.phase = 'result';
     state.winners = unique;
     state.resultEndsAt = state.paused ? null : toIso(now + state.rulesSnapshot.resultSeconds * 1000);
@@ -760,16 +865,23 @@ export class GameEngine extends EventEmitter {
     const { event, state, now, touch, activity } = context;
     if (state.phase !== 'result') fail('Finalize this heat before opening the next one.');
     const oldHeat = state.heat;
+    const wasPaused = state.paused;
     const preserved = { usedPromptIds: state.usedPromptIds, promptPlayCounts: state.promptPlayCounts,
       queuedPromptId: state.queuedPromptId,
       automaticPromptSelections: state.automaticPromptSelections,
-      heatsStarted: state.heatsStarted, overrideCount: state.overrideCount };
-    Object.assign(state, initialRuntime(event.id, now), preserved, { heat: oldHeat + 1, version: state.version });
+      heatsStarted: state.heatsStarted, overrideCount: state.overrideCount,
+      slotClaims: state.slotClaims || {} };
+    Object.assign(state, initialRuntime(event.id, now), preserved, {
+      heat: oldHeat + 1, version: state.version,
+      paused: wasPaused, pauseRemaining: wasPaused ? {} : null,
+    });
     const waiting = this.store.listQueuedPlayers(event.id);
     waiting.forEach((player, index) => {
       this.store.updatePlayer(player.id, { heat: state.heat + (index >= event.maxPlayers ? 1 : 0),
         slot: index < event.maxPlayers ? index + 1 : null,
         status: index < event.maxPlayers ? 'joined' : 'queued' });
+      if (index < event.maxPlayers) this._setSlotClaim(context, player.id);
+      else if (state.slotClaims[player.id]?.returning) state.slotClaims[player.id] = { returning: true };
     });
     activity('next_heat_opened', { heat: state.heat, promoted: Math.min(waiting.length, event.maxPlayers) });
     if (event.vote.enabled && event.vote.categories.length >= 2 && state.heatsStarted % 2 === 1) {
@@ -787,7 +899,7 @@ export class GameEngine extends EventEmitter {
       if (!Number.isFinite(received) || !['rule', 'ai'].includes(source)) fail('Invalid evidence result.');
       const player = this.store.getPlayer(playerId);
       if (!['hunt', 'review'].includes(state.phase) || !state.lockedPlayerIds.includes(playerId) ||
-        !player || ['left', 'kicked'].includes(player.status) ||
+        !player || player.heat !== state.heat || player.status !== 'active' || player.slot == null ||
         (player.transport === 'twilio' && !player.mediaConnected)) return state.candidate;
       if (!state.goAt || received < fromIso(state.goAt) || received > fromIso(state.roundEndsAt) + 500) return state.candidate;
       if (state.candidates.some(item => item.playerId === playerId)) return state.candidate;
@@ -867,6 +979,8 @@ export class GameEngine extends EventEmitter {
       const operatorId = user?.id || null;
       switch (type) {
         case 'start': {
+          if (state.vote?.status === 'open')
+            fail('Close the audience vote before starting this heat.', 'vote_open');
           this._lockHeat(context);
           break;
         }
@@ -881,6 +995,12 @@ export class GameEngine extends EventEmitter {
             remaining.vote = Math.max(0, fromIso(state.vote.closesAt) - now);
             state.vote.closesAt = null;
           }
+          for (const claim of Object.values(state.slotClaims || {})) {
+            if (claim.deadlineAt) {
+              claim.remainingMs = Math.max(0, fromIso(claim.deadlineAt) - now);
+              delete claim.deadlineAt;
+            }
+          }
           state.pauseRemaining = remaining;
           state.paused = true;
           activity('event_paused', { heat: state.heat });
@@ -892,6 +1012,12 @@ export class GameEngine extends EventEmitter {
           for (const [key, remaining] of Object.entries(state.pauseRemaining || {})) {
             if (key === 'vote' && state.vote?.status === 'open') state.vote.closesAt = toIso(now + remaining);
             else if (key !== 'vote') state[key] = toIso(now + remaining);
+          }
+          for (const claim of Object.values(state.slotClaims || {})) {
+            if (claim.remainingMs != null) {
+              claim.deadlineAt = toIso(now + claim.remainingMs);
+              delete claim.remainingMs;
+            }
           }
           state.paused = false;
           state.pauseRemaining = null;
@@ -927,8 +1053,11 @@ export class GameEngine extends EventEmitter {
         case 'proposeWinner': {
           if (!['hunt', 'review'].includes(state.phase)) fail('There is no active heat to judge.');
           const winners = Array.isArray(payload.winners) ? [...new Set(payload.winners.map(String))] : [];
-          if (!winners.length || winners.some(id => !state.lockedPlayerIds.includes(id) ||
-            ['left', 'kicked'].includes(this.store.getPlayer(id)?.status))) fail('Select one or more players in this heat.');
+          if (!winners.length || winners.some(id => {
+            const player = this.store.getPlayer(id);
+            return !state.lockedPlayerIds.includes(id) || !player || player.heat !== state.heat ||
+              player.status !== 'active' || player.slot == null;
+          })) fail('Select one or more players in this heat.');
           state.candidate = { winners, source: 'operator', explanation: String(payload.reason || 'Operator proposal').slice(0, 240),
             verifiedAt: toIso(now), confidence: 1 };
           activity('judge_proposed', { heatId: state.heatId, winners, source: 'operator' });
@@ -1118,14 +1247,24 @@ export class GameEngine extends EventEmitter {
   _sweepPresence(slug) {
     this._mutate(slug, context => {
       const { event, state, now, touch } = context;
-      for (const player of this.store.listPlayers(event.id)) {
+      for (const listed of this.store.listPlayers(event.id)) {
+        const player = this.store.getPlayer(listed.id);
         if (['left', 'kicked', 'finished'].includes(player.status)) continue;
+        const claim = state.slotClaims?.[player.id];
+        const inCurrentLobby = state.phase === 'lobby' && player.heat === state.heat && player.slot != null;
+        if (inCurrentLobby && !state.paused && claim?.deadlineAt && fromIso(claim.deadlineAt) <= now) {
+          this._expireSlotClaim(context, player);
+          continue;
+        }
+        // A promoted player gets the full claim window even if their last heartbeat is old.
+        // Staff pauses freeze that window instead of silently dropping a reserved spot.
+        if (inCurrentLobby && claim && (state.paused || claim.deadlineAt)) continue;
         const age = now - fromIso(player.lastSeenAt);
         if (age < INACTIVE_WAITING_MS) continue;
-        if (player.status === 'queued' || (state.phase === 'lobby' && player.heat === state.heat)) {
-          this._removePlayer(context, player, 'left', 'player_timed_out');
+        if (player.status === 'queued' || inCurrentLobby) {
+          this._expireSlotClaim(context, player, 'inactive');
         } else if (age >= INACTIVE_HEAT_MS) {
-          this._removePlayer(context, player, 'left', 'player_timed_out');
+          this._expireSlotClaim(context, player, 'inactive');
         } else if (player.mediaConnected) {
           this.store.updatePlayer(player.id, { mediaConnected: false });
           touch();

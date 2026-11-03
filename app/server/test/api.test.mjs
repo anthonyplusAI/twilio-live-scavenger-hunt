@@ -112,10 +112,15 @@ test('public HTML/API/SSE seal the clue through countdown, and concurrent client
   } finally { await app.close(); }
 });
 
-test('player replay reuses a finished session and leave ends it', async () => {
+test('player replay reuses a session and a voluntary leaver can rejoin without a duplicate lead', async () => {
   const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
   try {
+    const configured = app.store.getEvent(app.event.slug);
+    app.store.saveEvent(configured.slug, { ...configured,
+      leadCapture: { ...configured.leadCapture, timing: 'join' },
+    }, configured.revision);
     const first = await app.join('Ada'), second = await app.join('Bea');
+    assert.equal(app.store.listLeads(app.event.id).length, 2);
     assert.equal((await app.ready(first)).response.status, 200);
     assert.equal((await app.ready(second)).response.status, 200);
     app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
@@ -136,7 +141,87 @@ test('player replay reuses a finished session and leave ends it', async () => {
     assert.equal(promoted.value.player.status, 'joined');
     assert.equal(promoted.value.player.slot, 1);
     assert.equal((await app.request(`/api/e/${app.event.slug}/leave`, { method: 'POST', token: first.token })).response.status, 200);
-    assert.equal((await app.request(`/api/e/${app.event.slug}/replay`, { method: 'POST', token: first.token })).response.status, 401);
+    const left = await app.request(`/api/e/${app.event.slug}/me`, { token: first.token });
+    assert.equal(left.response.status, 200);
+    assert.equal(left.value.player.status, 'left');
+    assert.equal(left.value.player.alias, 'Ada');
+    assert.equal((await app.request(`/api/e/${app.event.slug}/heartbeat`, { method: 'POST', token: first.token })).response.status, 401);
+    assert.equal((await app.request(`/api/e/${app.event.slug}/media-token`, { token: first.token })).response.status, 401);
+    const rejoin = await app.request(`/api/e/${app.event.slug}/replay`, { method: 'POST', token: first.token });
+    assert.equal(rejoin.response.status, 200);
+    assert.equal(rejoin.value.player.id, first.player.id);
+    assert.equal(rejoin.value.player.alias, 'Ada');
+    assert.equal(rejoin.value.player.status, 'joined');
+    assert.equal(app.store.listLeads(app.event.id).length, 2);
+    assert.equal(app.store.listPlayers(app.event.id).length, 2);
+  } finally { await app.close(); }
+});
+
+test('rapid leave and replay loops do not inflate player metrics and replay is rate limited per token', async () => {
+  const app = await fixture({ startMode: 'manual' });
+  try {
+    const visitor = await app.join('Ada');
+    const path = `/api/e/${app.event.slug}`;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      assert.equal((await app.request(`${path}/leave`, { method: 'POST', token: visitor.token })).response.status, 200);
+      assert.equal((await app.request(`${path}/replay`, { method: 'POST', token: visitor.token })).response.status, 200);
+    }
+    const admin = await app.login();
+    const report = await app.request(`/api/admin/report?event=${app.event.slug}`, { cookie: admin.cookie });
+    assert.equal(report.response.status, 200);
+    assert.equal(report.value.summary.joinSessions, 1);
+    assert.equal(report.value.summary.playerLeaves, 1);
+    assert.equal((await app.request(`${path}/leave`, { method: 'POST', token: visitor.token })).response.status, 200);
+    const limited = await app.request(`${path}/replay`, { method: 'POST', token: visitor.token });
+    assert.equal(limited.response.status, 429);
+    assert.equal(limited.value.code, 'rate_limited');
+    assert.ok(Number(limited.response.headers.get('retry-after')) > 0);
+    assert.equal((await app.request(`${path}/me`, { token: visitor.token })).value.player.status, 'left');
+    const other = await app.join('Bea');
+    assert.equal((await app.request(`${path}/leave`, { method: 'POST', token: other.token })).response.status, 200);
+    assert.equal((await app.request(`${path}/replay`, { method: 'POST', token: other.token })).response.status, 200);
+  } finally { await app.close(); }
+});
+
+test('replay captures a newly required join lead atomically and keeps no-body replay compatible', async () => {
+  const app = await fixture({ startMode: 'manual' });
+  try {
+    const path = `/api/e/${app.event.slug}`;
+    const joined = await app.request(`${path}/join`, {
+      method: 'POST', body: { alias: 'Ada', displayConsent: true },
+    });
+    assert.equal(joined.response.status, 201);
+    const visitor = joined.value;
+    assert.equal(app.store.findCapturedLead(app.event.id, visitor.player.id), null);
+    assert.equal((await app.request(`${path}/leave`, { method: 'POST', token: visitor.token })).response.status, 200);
+    const previous = app.store.getEvent(app.event.slug);
+    app.store.saveEvent(previous.slug, {
+      ...previous, leadCapture: { ...previous.leadCapture, timing: 'join' },
+    }, previous.revision);
+    const me = await app.request(`${path}/me`, { token: visitor.token });
+    assert.equal(me.value.player.needsJoinLead, true);
+    const missing = await app.request(`${path}/replay`, { method: 'POST', token: visitor.token });
+    assert.equal(missing.response.status, 409);
+    assert.equal(missing.value.code, 'join_lead_required');
+    const invalid = await app.request(`${path}/replay`, { method: 'POST', token: visitor.token,
+      body: { lead: { fieldValues: { name: 'Ada', email: 'bad-address', company: '' } } },
+    });
+    assert.equal(invalid.response.status, 400);
+    assert.equal(app.store.findCapturedLead(app.event.id, visitor.player.id), null);
+    assert.equal((await app.request(`${path}/me`, { token: visitor.token })).value.player.status, 'left');
+    const validBody = { lead: { fieldValues: { name: 'Ada', email: 'ada@example.com', company: '' } } };
+    const [replay, duplicate] = await Promise.all([
+      app.request(`${path}/replay`, { method: 'POST', token: visitor.token, body: validBody }),
+      app.request(`${path}/replay`, { method: 'POST', token: visitor.token, body: validBody }),
+    ]);
+    assert.equal(replay.response.status, 200);
+    assert.equal(duplicate.response.status, 200);
+    assert.equal(replay.value.player.id, visitor.player.id);
+    assert.equal(replay.value.player.needsJoinLead, false);
+    assert.equal(app.store.listParticipantLeads(app.event.id, visitor.player.id).length, 1);
+    assert.equal((await app.request(`${path}/leave`, { method: 'POST', token: visitor.token })).response.status, 200);
+    assert.equal((await app.request(`${path}/replay`, { method: 'POST', token: visitor.token })).response.status, 200);
+    assert.equal(app.store.listParticipantLeads(app.event.id, visitor.player.id).length, 1);
   } finally { await app.close(); }
 });
 

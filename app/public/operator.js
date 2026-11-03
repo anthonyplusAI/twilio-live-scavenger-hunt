@@ -21,7 +21,7 @@ const phaseLines = {
   review: "Review the proposal or choose a winner.",
   result: "Results are live. Prepare the next heat.",
 };
-const startNames = { flexible: "Flexible start", capacity: "At capacity", deadline: "Join deadline", manual: "Operator start" };
+const startNames = { flexible: "Auto · flexible", capacity: "Auto · full roster", deadline: "Auto · join timer", manual: "Operator starts" };
 
 let session = null;
 let csrfToken = "";
@@ -33,6 +33,8 @@ let preflight = [];
 let mediaMode = null;
 let stream = null;
 let clockOffset = 0;
+let countdownRefreshBusy = false;
+let lastCountdownRefreshAt = 0;
 let lastHeat = null;
 let selectedWinners = new Set();
 let selectedPastHeatId = null;
@@ -173,6 +175,8 @@ function setCommitted(event) {
 }
 function applyPayload(payload) {
   if (!payload || !payload.event || !payload.state) return;
+  if (runtime?.eventId === payload.state.eventId &&
+      Number(payload.state.version) < Number(runtime.version)) return;
   setServerTime(payload.serverTime);
   mediaMode = payload.event.mediaMode || payload.event.media?.mode || mediaMode;
   if (!committed) setCommitted(payload.event);
@@ -194,6 +198,14 @@ function applyPayload(payload) {
 async function refreshEvent() {
   const payload = await request(apiPath);
   applyPayload(payload);
+}
+function refreshCountdownAtGo() {
+  if (runtime?.phase !== "countdown" || runtime.paused || remaining(runtime.countdownEndsAt) !== 0) return;
+  if (countdownRefreshBusy || Date.now() - lastCountdownRefreshAt < 800) return;
+  lastCountdownRefreshAt = Date.now();
+  countdownRefreshBusy = true;
+  // A snapshot advances the server clock even if a booth network delays the live stream.
+  refreshEvent().catch(() => {}).finally(() => { countdownRefreshBusy = false; });
 }
 async function refreshEvents() {
   const payload = await request("/api/admin/events");
@@ -478,10 +490,10 @@ function renderEventForm() {
   $("event-max").value = draft.maxPlayers ?? 6;
   $("event-round").value = draft.roundSeconds ?? 45;
   $("event-join").value = draft.joinSeconds ?? 30;
-  $("event-result").value = draft.resultSeconds ?? 8;
+  $("event-result").value = draft.resultSeconds ?? 15;
   $("event-tie").value = draft.tieWindowMs ?? 300;
   $("event-retention").value = draft.retentionDays ?? 90;
-  const startRadio = document.querySelector('input[name="start-mode"][value="' + (draft.startMode || "flexible") + '"]');
+  const startRadio = document.querySelector('input[name="start-mode"][value="' + (draft.startMode || "manual") + '"]');
   if (startRadio) startRadio.checked = true;
   $("event-judge").value = draft.judgePolicy || "manual";
   $("event-auto").checked = Boolean(draft.autoAdvance);
@@ -673,7 +685,7 @@ function syncEventForm() {
   draft.resultSeconds = Number($("event-result").value);
   draft.tieWindowMs = Number($("event-tie").value);
   draft.retentionDays = Number($("event-retention").value);
-  draft.startMode = document.querySelector('input[name="start-mode"]:checked')?.value || "flexible";
+  draft.startMode = document.querySelector('input[name="start-mode"]:checked')?.value || "manual";
   draft.judgePolicy = $("event-judge").value;
   draft.autoAdvance = $("event-auto").checked;
   draft.leadCapture.enabled = $("lead-enabled").checked;
@@ -1073,15 +1085,18 @@ function renderReady() {
   $("ready-max").textContent = committed.maxPlayers;
   $("manage-players-button").disabled = !managedPlayers().length || commandBusy;
   $("manage-players-button").title = runtime.queuedCount ? `${runtime.queuedCount} waiting for the next heat` : "Manage players in this heat";
-  $("start-rule").textContent = startNames[committed.startMode] || "Flexible start";
+  $("start-rule").textContent = startNames[committed.startMode] || "Operator starts";
   $("minimum-rule").textContent = "Min " + committed.minPlayers + (runtime.queuedCount ? " · " + runtime.queuedCount + " next" : "");
   $("judge-policy-label").textContent = committed.judgePolicy === "manual" ? "Manual judging" : committed.judgePolicy === "operator-confirm" ? "Confirm to award" : "Override enabled";
-  const canStart = runtime.phase === "lobby" && !runtime.paused && Number(runtime.readyCount || 0) >= committed.minPlayers;
+  const voteOpen = runtime.phase === "lobby" && runtime.vote?.status === "open";
+  const canStart = runtime.phase === "lobby" && !runtime.paused && !voteOpen && Number(runtime.readyCount || 0) >= committed.minPlayers;
   $("start-button").disabled = !canStart || commandBusy;
   $("start-button").textContent = runtime.phase === "lobby" && runtime.paused
     ? "Resume to start"
+    : voteOpen ? "Finish vote first"
     : canStart ? "Start heat" : Number(runtime.readyCount || 0) < committed.minPlayers && runtime.phase === "lobby" ? "Need " + committed.minPlayers + " ready" : "Heat in progress";
-  $("start-button").title = runtime.phase === "lobby" && runtime.paused ? "Resume the booth before starting this heat." : "";
+  $("start-button").title = runtime.phase === "lobby" && runtime.paused ? "Resume the booth before starting this heat."
+    : voteOpen ? "Close the audience vote before starting this heat." : "";
   $("pause-button").textContent = runtime.paused ? "Resume" : "Pause";
   $("pause-button").disabled = commandBusy;
 }
@@ -1280,7 +1295,7 @@ function clockDetails() {
     label = "Judge review";
   } else if (phase === "result") {
     seconds = remaining(runtime.resultEndsAt);
-    total = committed.resultSeconds || 8;
+    total = committed.resultSeconds || 15;
     label = "Results";
   }
   if (runtime.paused) {
@@ -1294,8 +1309,9 @@ function clockDetails() {
     else if (phase === "lobby") seconds = null;
     label = "Paused";
   }
-  const waitingForMinimum = runtime.paused && phase === "lobby" && seconds == null;
-  return { seconds: waitingForMinimum ? null : Math.max(0, Math.ceil(seconds ?? total)), total: Math.max(1, total), label };
+  const waitingForStart = phase === "lobby" && seconds == null;
+  return { seconds: waitingForStart ? null : Math.max(0, Math.ceil(seconds ?? total)),
+    total: Math.max(1, total), label: waitingForStart && !runtime.paused ? "Awaiting start" : label };
 }
 function renderClock() {
   if (!runtime || !committed) return;
@@ -1838,6 +1854,7 @@ async function boot() {
     else showView(["run", "prompts", "event", "votes", "team"].includes(hash) ? hash : "run");
     setInterval(() => {
       renderClock();
+      refreshCountdownAtGo();
       if (runtime?.vote?.status === "open" && !runtime.paused) $("vote-countdown").textContent = String(remaining(runtime.vote.closesAt) ?? 0).padStart(2, "0");
     }, 500);
     setInterval(() => refreshEvent().catch(() => { if (!eventDirty && !conflict) saveStatus("Connection interrupted", "error"); }), 15000);
