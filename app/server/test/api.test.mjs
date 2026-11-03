@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import QRCode from 'qrcode';
 import { openDatabase } from '../db.mjs';
 import { GameEngine } from '../engine.mjs';
 import { AuthService } from '../auth.mjs';
@@ -107,6 +108,45 @@ test('old Signal Stadium links lead to the renamed event', async () => {
   } finally { await app.close(); }
 });
 
+test('arena GitHub QR and link redirect to the fixed repo and record their referral source', async () => {
+  const app = await fixture();
+  try {
+    const slug = app.event.slug;
+    const options = { type: 'svg', margin: 1, width: 320,
+      color: { dark: '#161E46', light: '#FFFFFFFF' } };
+    const trackedUrl = new URL(`/e/${encodeURIComponent(slug)}/github?source=arena_qr`, app.base).toString();
+    const liveQr = await app.request(`/api/e/${slug}/qr.svg?target=github`);
+    const previewQr = await app.request(`/api/e/${slug}/qr.svg?target=github&preview=1`);
+    assert.equal(liveQr.response.status, 200);
+    assert.equal(previewQr.response.status, 200);
+    assert.equal(liveQr.value, await QRCode.toString(trackedUrl, options));
+    assert.equal(previewQr.value, await QRCode.toString('https://github.com/anthonyplusAI/twilio-live-scavenger-hunt', options));
+    assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'github_cta_opened').length, 0);
+    assert.equal((await app.request(`/api/e/${slug}/qr.svg?target=github&preview=0`)).response.status, 400);
+
+    const invalidSource = await fetch(`${app.base}/e/${slug}/github?source=anything`, { redirect: 'manual' });
+    assert.equal(invalidSource.status, 400);
+    const qrScan = await fetch(trackedUrl, { redirect: 'manual' });
+    assert.equal(qrScan.status, 302);
+    assert.equal(qrScan.headers.get('location'), 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt');
+    const visitorCookie = qrScan.headers.get('set-cookie').split(';')[0];
+    const linkClick = await fetch(`${app.base}/e/${slug}/github?source=arena_link`, {
+      redirect: 'manual', headers: { Cookie: visitorCookie },
+    });
+    assert.equal(linkClick.status, 302);
+    assert.equal(linkClick.headers.get('location'), qrScan.headers.get('location'));
+    const activity = app.store.listActivity(app.event.id).filter(row => row.type === 'github_cta_opened');
+    assert.deepEqual(activity.map(row => row.properties.source), ['arena_qr', 'arena_link']);
+    assert.match(activity[0].properties.sessionId, /^[a-f0-9]{20}$/);
+    assert.equal(activity[0].properties.sessionId, activity[1].properties.sessionId);
+    const admin = await app.login();
+    const report = await app.request(`/api/admin/report?event=${slug}`, { cookie: admin.cookie });
+    assert.equal(report.value.summary.githubRepoClicks, 2);
+    assert.deepEqual(report.value.summary.githubRepoClicksBySource,
+      { phone: 0, spectator: 0, arenaQr: 1, arenaLink: 1 });
+  } finally { await app.close(); }
+});
+
 test('admin role, CSRF, and revision checks protect configuration, reports, and operator commands', async () => {
   const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual' });
   try {
@@ -200,10 +240,15 @@ test('public activity has a server-derived session, vote dedupes, and leads stay
     const visitorCookie = opened.response.headers.get('set-cookie').split(';')[0];
     const productClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'twilio_product_link_opened', product: 'video' } });
     const githubClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened' } });
+    const phoneClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', source: 'phone' } });
+    const spectatorClick = await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', source: 'spectator' } });
     assert.equal(productClick.response.status, 200);
     assert.equal(githubClick.response.status, 200);
+    assert.equal(phoneClick.response.status, 200);
+    assert.equal(spectatorClick.response.status, 200);
     assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'twilio_product_link_opened', product: 'email' } })).response.status, 400);
     assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', product: 'video' } })).response.status, 400);
+    assert.equal((await app.request(`${p}/activity`, { method: 'POST', cookie: visitorCookie, body: { type: 'github_cta_opened', source: 'arena_qr' } })).response.status, 400);
     const player = await app.join('Visitor');
     const lead = await app.request(`${p}/leads`, { method: 'POST', token: player.token,
       body: { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'visitor@example.com', company: 'Example' }, marketingOptIn: false } });
@@ -225,7 +270,9 @@ test('public activity has a server-derived session, vote dedupes, and leads stay
     assert.equal(report.value.summary.votes, 1);
     assert.equal(report.value.summary.twilioProductLinkClicks, 1);
     assert.deepEqual(report.value.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 0, segment: 0 });
-    assert.equal(report.value.summary.githubRepoClicks, 1);
+    assert.equal(report.value.summary.githubRepoClicks, 3);
+    assert.deepEqual(report.value.summary.githubRepoClicksBySource,
+      { phone: 2, spectator: 1, arenaQr: 0, arenaLink: 0 });
     assert.ok(report.value.activity.find(row => row.type === 'landing_opened')?.properties.sessionId);
     const exportResult = await app.request(`/api/admin/export?kind=leads&event=${app.event.slug}`, { cookie: admin.cookie });
     assert.equal(exportResult.response.status, 200);

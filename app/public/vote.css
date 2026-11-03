@@ -152,9 +152,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid #86d7ff; outline-offs
 .channel-strip b { color: white; }
 .foot { justify-content: flex-start; gap: 14px; border-top: 1px solid #51709033; padding: 0 clamp(18px, 3vw, 42px); color: #91a8c2; font-size: 10px; font-weight: 800; letter-spacing: .12em; white-space: nowrap; }
 .foot-rule { width: 28px; height: 1px; background: #7894b4; }
-.foot a { margin-left: auto; color: #e6f3ff; text-decoration: none; letter-spacing: 0; font-weight: 500; }
+.foot-actions { display: flex; align-items: center; gap: clamp(10px, 1.5vw, 22px); margin-left: auto; }
+.foot a { color: #e6f3ff; text-decoration: none; letter-spacing: 0; font-weight: 500; }
 .foot a b { color: #ff697d; }
 .foot a:hover b { text-decoration: underline; }
+.foot .github-foot-link { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 6px 11px; border: 1px solid #ff7f8e8f; border-radius: 999px; background: #ef223a1c; color: #fff1f3; font-size: 10px; font-weight: 800; line-height: 1; }
+.foot .github-foot-link:hover { border-color: #ffabb5; background: #ef223a3a; }
 @media (max-width: 760px) {
   .voter-app { grid-template-rows: 56px minmax(0, 1fr) 41px; }
   .masthead { padding: 0 12px; }
@@ -201,11 +204,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid #86d7ff; outline-offs
   .channel-strip > div { gap: 2px 9px; }
   .channel-strip span:not(.channel-label) { font-size: 9px; }
   .foot { padding: 0 10px; gap: 7px; font-size: 7px; letter-spacing: .07em; }
-  .foot-rule { width: 12px; }
+  .foot-rule, .foot-no-signup { display: none; }
+  .foot-actions { gap: 8px; }
   .foot a { font-size: 8px; }
   .foot a b { font-weight: 800; }
 }
-@media (max-width: 390px) { .brand strong { font-size: 11px; } .foot > span:nth-of-type(3), .foot-rule { display: none; } }
+@media (max-width: 390px) { .brand strong { font-size: 11px; } }
 @media (max-height: 640px) and (max-width: 760px) {
   .intro { max-height: 96px; }
   .intro h1 { font-size: 29px; margin: 8px 0 4px; }
@@ -235,9 +239,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid #86d7ff; outline-offs
   .channel-label { font-size: 8px; }
   .channel-strip span:not(.channel-label) { font-size: 9px; }
   .foot { font-size: 9px; letter-spacing: .04em; }
-  .foot > span:nth-of-type(3), .foot-rule { display: none; }
+  .foot-no-signup, .foot-rule { display: none; }
   #event-name { min-width: 0; max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
   .foot a { font-size: 11px; white-space: nowrap; }
+  .foot .github-foot-link { font-size: 10px; }
+}
+@media (max-width: 480px) {
+  #event-name, .play-preface { display: none; }
+  .foot-actions { width: 100%; justify-content: space-between; margin-left: 0; }
 }
 @media (max-width: 360px) {
   .brand strong { font-size: 10.5px; }
@@ -286,6 +295,8 @@ html[data-theme="light"] .atmosphere::after { background: repeating-linear-gradi
 html[data-theme="light"] .beam { background: linear-gradient(to bottom, #6a9ac012, #3c6ea31a 55%, transparent); }
 html[data-theme="light"] .floor-grid { opacity: .16; }
 html[data-theme="light"] .masthead, html[data-theme="light"] .foot { background: #fffffff0; border-color: #c2cfe0; }
+html[data-theme="light"] .foot a.github-foot-link { border-color: #cc5066; background: #fff0f2; color: #8b1430; }
+html[data-theme="light"] .foot a.github-foot-link:hover { background: #ffe2e8; border-color: #ab1d37; }
 html[data-theme="light"] .brand-kicker { color: #536a84; }
 html[data-theme="light"] .brand em, html[data-theme="light"] .intro h1 span { color: #ba1730; }
 html[data-theme="light"] .connection-status { background: #eef3f9; border-color: #a7b9cf; color: #29405f; }

@@ -655,8 +655,10 @@ export class GameEngine extends EventEmitter {
     ]);
     if (!allowed.has(type)) fail('Unknown activity type.', 'invalid_activity');
     const productLink = type === 'twilio_product_link_opened';
+    const githubLink = type === 'github_cta_opened';
     if ((productLink && !['video', 'messaging', 'segment'].includes(properties.product)) ||
-      Object.keys(properties).some(key => key !== 'sessionId' && !(productLink && key === 'product')) ||
+      (githubLink && Object.hasOwn(properties, 'source') && !['phone', 'spectator', 'arena_qr', 'arena_link'].includes(properties.source)) ||
+      Object.keys(properties).some(key => key !== 'sessionId' && !(productLink && key === 'product') && !(githubLink && key === 'source')) ||
       (properties.sessionId != null && !/^[a-f0-9]{20}$/.test(properties.sessionId))) fail('Invalid activity session.', 'invalid_activity');
     this._mutate(slug, ({ activity }) => activity(type, properties));
     return { ok: true };

@@ -13,6 +13,7 @@ const HTML_ROUTES = { arena: 'arena.html', play: 'player.html', vote: 'vote.html
 const ASSET_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const VOTER_COOKIE = 'signal_stadium_voter';
+const GITHUB_REPO_URL = 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt';
 const BODY_LIMIT = 240_000;
 const statusFor = error => error.status || ({
   not_found: 404, unauthorized: 401, forbidden: 403, revision_conflict: 409,
@@ -190,6 +191,23 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         engine.event(slug);
         return void await serveFile(res, `/${HTML_ROUTES[page[2]]}`);
       }
+      const githubReferral = pathname.match(/^\/e\/([^/]+)\/github\/?$/);
+      if (githubReferral && method === 'GET') {
+        const slug = decodeURIComponent(githubReferral[1]);
+        engine.event(slug);
+        const source = url.searchParams.get('source');
+        if (!['arena_qr', 'arena_link'].includes(source))
+          throw new ValidationError('Choose a GitHub referral source.', 'invalid_activity');
+        limiter.check(`github-booth:${slug}:${ip}`, 12_000, 60_000);
+        const visitor = voterCookie(req, res, secure);
+        limiter.check(`github-browser:${slug}:${visitor}`, 120, 60_000);
+        engine.activity(slug, 'github_cta_opened', {
+          sessionId: integrations.hashVoter('session', visitor).slice(0, 20), source,
+        });
+        res.writeHead(302, { Location: GITHUB_REPO_URL, 'Cache-Control': 'no-store',
+          'X-Robots-Tag': 'noindex, nofollow' });
+        return res.end();
+      }
       if (method === 'GET' && await serveFile(res, pathname)) return;
 
       if (pathname === '/api/auth/session' && method === 'GET') {
@@ -217,9 +235,20 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
         if (method === 'GET' && tail === 'stream') return stream(req, res, slug);
         if (method === 'GET' && tail === 'qr.svg') {
           const target = url.searchParams.get('target');
-          if (!['play', 'vote'].includes(target)) throw new ValidationError('Choose a QR target.');
+          if (!['play', 'vote', 'github'].includes(target)) throw new ValidationError('Choose a QR target.');
+          const preview = url.searchParams.get('preview');
+          if (preview != null && !(target === 'github' && preview === '1'))
+            throw new ValidationError('Choose a QR preview mode.');
           const origin = publicBaseUrl || `http://${req.headers.host}`;
-          const absolute = new URL(`/e/${encodeURIComponent(slug)}/${target}`, origin).toString();
+          let absolute;
+          if (target === 'github') {
+            if (preview === '1') absolute = GITHUB_REPO_URL;
+            else {
+              const destination = new URL(`/e/${encodeURIComponent(slug)}/github`, origin);
+              destination.searchParams.set('source', 'arena_qr');
+              absolute = destination.toString();
+            }
+          } else absolute = new URL(`/e/${encodeURIComponent(slug)}/${target}`, origin).toString();
           const svg = await QRCode.toString(absolute, { type: 'svg', margin: 1, width: 320,
             color: { dark: '#161E46', light: '#FFFFFFFF' } });
           return text(res, 200, svg, 'image/svg+xml', { 'Cache-Control': 'public, max-age=60' });
@@ -292,11 +321,14 @@ export function createHttpServer({ store, engine, auth, media, judge, integratio
       limiter.check(`activity-browser:${slug}:${visitor}`, 120, 60_000);
       const body = await readJson(req, 1_000);
       if (typeof body.type !== 'string' ||
-        Object.keys(body).some(key => key !== 'type' && !(body.type === 'twilio_product_link_opened' && key === 'product')))
+        Object.keys(body).some(key => key !== 'type' &&
+          !(body.type === 'twilio_product_link_opened' && key === 'product') &&
+          !(body.type === 'github_cta_opened' && key === 'source' && ['phone', 'spectator'].includes(body.source))))
         throw new ValidationError('Send only an allowed activity type.', 'invalid_activity');
       return json(res, 200, engine.activity(slug, body.type, {
         sessionId: integrations.hashVoter('session', visitor).slice(0, 20),
         ...(body.type === 'twilio_product_link_opened' ? { product: body.product } : {}),
+        ...(body.type === 'github_cta_opened' && ['phone', 'spectator'].includes(body.source) ? { source: body.source } : {}),
       }));
     }
     throw new ValidationError('Route not found.', 'not_found');

@@ -15,29 +15,30 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 <p align="center"><a href="https://github.com/anthonyplusAI/twilio-live-scavenger-hunt"><strong>★ Star the project on GitHub</strong></a></p>
 
-![Four-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-4-players.png)
+![Four-player Live Scavenger Hunt arena preview with a prominent play QR and smaller GitHub star QR](docs/visuals/live-scavenger-hunt-arena-4-players.png)
 
-<p align="center"><em>Illustrated arena preview. In a configured live event, each portrait spot carries that player's phone camera.</em></p>
+<p align="center"><em>Illustrated arena preview. In a configured live event, each portrait spot carries that player's phone camera. The smaller star QR opens this repository.</em></p>
 
 <p align="center">
   <a href="#the-experience">The experience</a> ·
   <a href="#see-the-moment">See the moment</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#star-the-build">Star the build</a> ·
   <a href="#twilio-product-story">Twilio product story</a> ·
+  <a href="#quick-start">Quick start</a> ·
   <a href="#production-handoff">Production handoff</a>
 </p>
 
 ## The experience
 
-A visitor scans the arena QR code, picks a screen name, consents to appear on the booth display, and joins with their phone camera. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
+A visitor scans the arena's prominent **Scan to play** QR, picks a screen name, consents to appear on the booth display, and joins with their phone camera. The arena adjusts its portrait-card layout to the number of players. The clue stays sealed until the roster locks and the shared countdown reaches **GO**.
 
 Then everyone races to show the requested color, object, shape, printed tech word, or creative find. Simple color prompts can be checked from repeated camera frames. Other prompts can use optional AI vision or a booth operator's judgment. The operator can award one winner, several winners in a tie, or no match. The result lands on the arena **and** each player's phone.
 
-Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and voluntarily request a guide or a conversation with the booth team. A **Star on GitHub** link stays in the phone footer after the heat, while the arena remains focused on its scan-to-play QR. Joining and voting never require a lead form.
+Spectators can take part through a web ballot. With configured senders, SMS or WhatsApp ballots can steer the next challenge category or vote on a creative round. After playing, visitors can follow a visual phone-to-arena product story, open official Twilio pages for each featured product, and voluntarily request a guide or a conversation with the booth team. A small **Star on GitHub** card sits beside the arena's larger play or vote QR; booth-sized displays show a second QR in the card. The repo link also stays in the attendee phone footer throughout the journey and appears on the spectator ballot. Joining and voting never require a lead form.
 
 | Booth moment | What the app does |
 | --- | --- |
-| **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a shared clock, and a synchronized result reveal. |
+| **Draw a crowd** | A large, responsive arena shows 2–6 portrait player spots, a prominent scan-to-play QR, a smaller GitHub star QR on booth displays, a shared clock, and a synchronized result reveal. |
 | **Keep the race fair** | The server seals the prompt until GO. Start rules and timers are set per event; an operator can start a ready heat manually. |
 | **Keep staff in control** | Operators can pause, choose a prompt, judge or correct a result, award ties, and remove a player from the live heat or queue. |
 | **Measure engagement** | Private reports filter by event and date and cover joins, plays, heats, votes, product and GitHub link clicks, leads, player exits, and removals. |
@@ -50,8 +51,8 @@ These are **visual previews with illustrated stand-ins**, captured from the runn
 <table>
   <tr><th>Arena · first find</th><th>Arena · another player wins</th></tr>
   <tr>
-    <td><img src="docs/visuals/live-scavenger-hunt-arena-win.png" alt="Arena celebrating Maya as the winner" width="680"></td>
-    <td><img src="docs/visuals/live-scavenger-hunt-arena-lose.png" alt="Arena showing another player's win and a nice-try state" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-arena-win.png" alt="Arena celebrating Maya as the winner with the smaller GitHub star QR beside the play QR" width="680"></td>
+    <td><img src="docs/visuals/live-scavenger-hunt-arena-lose.png" alt="Arena showing another player's win, a nice-try state, and the GitHub star QR" width="680"></td>
   </tr>
   <tr><th>Phone · winner</th><th>Phone · not this round</th></tr>
   <tr>
@@ -64,17 +65,31 @@ The motion plays in the browser: the arena spotlights a first find and acknowled
 
 The wall also rearranges for traffic at the booth:
 
-![Six-player Live Scavenger Hunt arena preview](docs/visuals/live-scavenger-hunt-arena-6-players.png)
+![Six-player Live Scavenger Hunt arena preview with a secondary GitHub star QR](docs/visuals/live-scavenger-hunt-arena-6-players.png)
 
-The arena stays in show mode: only the Twilio identity and heat status remain at the top. Moving a pointer, touching the screen, or pressing Tab reveals Operator, theme, and media controls for staff; the strip hides again after five seconds of inactivity.
+The arena stays in show mode: only the Twilio identity and heat status remain at the top. Its play or vote QR remains the dominant footer action; a smaller star card lets visitors scan through to the [source repository](https://github.com/anthonyplusAI/twilio-live-scavenger-hunt) on booth-sized displays and remains a clickable link on compact screens. Moving a pointer, touching the screen, or pressing Tab reveals Operator, theme, and media controls for staff; the strip hides again after five seconds of inactivity.
 
 After starting the app, open the read-only [four-player hunt](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=hunt&players=4), [arena win](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=win), [arena loss](http://127.0.0.1:65111/e/live-scavenger-hunt/arena?demo=lose), [phone win](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=win), [phone loss](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=lose), or [product story](http://127.0.0.1:65111/e/live-scavenger-hunt/play?demo=build) preview. Use **Replay reveal** on a result screen to watch the animation again. Preview URLs do not start a heat, connect a camera, judge a player, collect leads, or write metrics; their outbound links still open the linked sites.
+
+## Star the build
+
+The arena keeps the game QR large and gives the [source repository](https://github.com/anthonyplusAI/twilio-live-scavenger-hunt) a smaller star card with its own QR on booth displays. The player phone and spectator ballot keep **Star on GitHub** visible in their compact footers. Admin reports attribute GitHub referrals to the phone, ballot, wall QR, or wall link; they count outbound taps and scans, not confirmed visits or stars.
+
+<table>
+  <tr><th>Player phone · before joining</th><th>Spectator phone · between ballots</th></tr>
+  <tr>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-phone-join.png" alt="Local rehearsal player join preview with an illustrated phone camera spot and Star on GitHub footer link" width="300"></td>
+    <td align="center"><img src="docs/visuals/live-scavenger-hunt-vote.png" alt="Spectator ballot preview waiting for the next vote, with a Star on GitHub footer link" width="300"></td>
+  </tr>
+</table>
+
+<p align="center"><em>Local phone previews. The player portrait is an illustration, not a live camera feed; the spectator ballot is waiting for its next vote.</em></p>
 
 ## Twilio product story
 
 The post-heat CTA opens a one-screen visual explanation: a phone camera reaches the arena through **Twilio Video** in a configured live event. Visitors can tap **Messaging** to see how SMS or WhatsApp ballots work, or **Segment** to see how game activity becomes engagement data. The screen keeps optional integrations distinct from the core Video path.
 
-Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link remains visible after the result, including while visitors explore the build story or request a follow-up.
+Each product panel links to its official Twilio page: [Video](https://www.twilio.com/en-us/video), [Programmable Messaging](https://www.twilio.com/en-us/messaging/apis/programmable-messaging-api), or [Segment](https://www.twilio.com/en-us/segment). The phone's **Star on GitHub** link is visible from joining through the result and product story, including the optional follow-up form.
 
 <table>
   <tr><th>Dark display</th><th>Light display</th></tr>
@@ -126,7 +141,7 @@ Run `npm run check` for the browser build, server tests, and README link check. 
 
 ## Metrics and leads
 
-The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio page clicks are also broken down by Video, Messaging, and Segment. These counts record link clicks, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
+The admin-only Metrics view filters by event and date range, shows the engagement funnel and outbound **Twilio page** and **GitHub repo** click counts, and exports filtered event or lead CSV. Twilio clicks are broken down by Video, Messaging, and Segment; GitHub referrals are attributed to the player phone, spectator ballot, arena QR, or arena link. Compact metrics screens keep the total visible, with source details in the report and event export. These counts record outbound actions, not confirmed page loads or GitHub stars. Local reports persist in SQLite even when Segment is not configured. Lead capture can be switched off per event; when on, an admin chooses up to eight fields and which are required. The guide and expert CTAs are optional. Marketing updates require a separate, unchecked choice.
 
 The app stores event configuration, heat history, votes, metrics, and requested leads in SQLite. Video is not recorded by this app, and camera evidence JPEGs are kept briefly in memory rather than saved to the database. Lead retention is configurable per event.
 

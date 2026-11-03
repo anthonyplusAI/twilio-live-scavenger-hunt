@@ -177,11 +177,18 @@ function buildSummary(records, leads) {
     const product = row.properties.product;
     if (Object.hasOwn(twilioProductLinkClicksByProduct, product)) twilioProductLinkClicksByProduct[product]++;
   });
-  const githubRepoClicks = byType("github_cta_opened").length;
+  const githubLinkRows = byType("github_cta_opened");
+  const githubRepoClicks = githubLinkRows.length;
+  const githubRepoClicksBySource = { phone: 0, spectator: 0, arenaQr: 0, arenaLink: 0 };
+  githubLinkRows.forEach(row => {
+    const source = row.properties.source;
+    const key = source === "arena_qr" ? "arenaQr" : source === "arena_link" ? "arenaLink" : source === "spectator" ? "spectator" : "phone";
+    githubRepoClicksBySource[key]++;
+  });
   return {
     totalEvents: records.length, uniqueVisitors, uniquePlayers,
     engagementActions: records.filter(row => engagementTypes.has(row.type)).length,
-    twilioProductLinkClicks, twilioProductLinkClicksByProduct, githubRepoClicks,
+    twilioProductLinkClicks, twilioProductLinkClicksByProduct, githubRepoClicks, githubRepoClicksBySource,
     playerEntries,
     heatsCompleted: new Set(heatEnds.map(row => `${row.eventId}:${row.properties.heatId || row.id}`)).size,
     averagePlayers: heatStarts.length ? playerEntries / heatStarts.length : 0,
@@ -267,6 +274,8 @@ function renderOverview(summary) {
   setText("kpi-actions", number(summary.engagementActions));
   setText("kpi-leads", number(state.leads.length));
   for (const product of ["video", "messaging", "segment"]) setText(`product-${product}-clicks`, number(summary.twilioProductLinkClicksByProduct[product]));
+  for (const [source, id] of [["phone", "repo-phone-clicks"], ["spectator", "repo-spectator-clicks"], ["arenaQr", "repo-arena-qr-clicks"], ["arenaLink", "repo-arena-link-clicks"]])
+    setText(id, number(summary.githubRepoClicksBySource[source]));
   renderChart(summary); renderFunnel(summary);
 }
 function pageSize(kind) {

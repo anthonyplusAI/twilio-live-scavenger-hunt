@@ -116,18 +116,21 @@ test('outbound product and repository clicks follow event and date filters', () 
   try {
     const west = eventInZone(store, 'West Expo', 'west-expo', 'UTC');
     const east = eventInZone(store, 'East Expo', 'east-expo', 'UTC');
-    const record = (event, type, at, product) => store.recordActivity(event.id, type, { sessionId: 'visitor-session', ...(product ? { product } : {}) }, at);
+    const record = (event, type, at, product, source) => store.recordActivity(event.id, type,
+      { sessionId: 'visitor-session', ...(product ? { product } : {}), ...(source ? { source } : {}) }, at);
     record(west, 'twilio_product_link_opened', '2026-11-02T12:00:00.000Z', 'video');
     record(west, 'twilio_product_link_opened', '2026-11-02T12:05:00.000Z', 'messaging');
-    record(west, 'github_cta_opened', '2026-11-02T12:10:00.000Z');
-    record(west, 'github_cta_opened', '2026-11-03T12:00:00.000Z');
+    record(west, 'github_cta_opened', '2026-11-02T12:10:00.000Z', null, 'arena_qr');
+    record(west, 'github_cta_opened', '2026-11-03T12:00:00.000Z', null, 'arena_link');
     record(east, 'twilio_product_link_opened', '2026-11-02T13:00:00.000Z', 'segment');
-    record(east, 'github_cta_opened', '2026-11-02T13:05:00.000Z');
+    record(east, 'github_cta_opened', '2026-11-02T13:05:00.000Z', null, 'spectator');
 
     const westDay = buildReport(store, { event: west.slug, from: '2026-11-02', to: '2026-11-02' });
     assert.equal(westDay.summary.twilioProductLinkClicks, 2);
     assert.deepEqual(westDay.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 1, segment: 0 });
     assert.equal(westDay.summary.githubRepoClicks, 1);
+    assert.deepEqual(westDay.summary.githubRepoClicksBySource,
+      { phone: 0, spectator: 0, arenaQr: 1, arenaLink: 0 });
     assert.equal(westDay.summary.engagementActions, 3);
     assert.equal(westDay.activity.find(row => row.type === 'twilio_product_link_opened').properties.product, 'video');
 
@@ -135,6 +138,8 @@ test('outbound product and repository clicks follow event and date filters', () 
     assert.equal(bothDay.summary.twilioProductLinkClicks, 3);
     assert.deepEqual(bothDay.summary.twilioProductLinkClicksByProduct, { video: 1, messaging: 1, segment: 1 });
     assert.equal(bothDay.summary.githubRepoClicks, 2);
+    assert.deepEqual(bothDay.summary.githubRepoClicksBySource,
+      { phone: 0, spectator: 1, arenaQr: 1, arenaLink: 0 });
     assert.deepEqual(bothDay.summary.byEvent.map(row => [row.slug, row.twilioProductLinkClicks, row.githubRepoClicks]), [
       ['west-expo', 2, 1], ['east-expo', 1, 1],
     ]);

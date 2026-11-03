@@ -2,6 +2,7 @@ const slug = decodeURIComponent(location.pathname.split('/')[2] || 'demo');
 const apiBase = `/api/e/${encodeURIComponent(slug)}`;
 const adminBase = `/api/admin/e/${encodeURIComponent(slug)}`;
 const routeBase = `/e/${encodeURIComponent(slug)}`;
+const githubRepoUrl = 'https://github.com/anthonyplusAI/twilio-live-scavenger-hunt';
 const requestedDemo = new URLSearchParams(location.search).get('demo');
 const previewMode = ['hunt', 'win', 'lose', 'tie', 'no-match'].includes(requestedDemo) ? requestedDemo : null;
 const screen = document.getElementById('screen');
@@ -42,6 +43,8 @@ const app = {
 
 $('operatorLink').href = `${routeBase}/operator`;
 $('joinLink').href = `${routeBase}/play`;
+$('githubStarLink').href = previewMode ? githubRepoUrl : `${routeBase}/github?source=arena_link`;
+$('githubQr').src = `${apiBase}/qr.svg?target=github${previewMode ? '&preview=1' : ''}`;
 
 const now = () => Date.now() + app.serverOffset;
 const timeLeft = deadline => deadline ? Math.max(0, Math.ceil((new Date(deadline).getTime() - now()) / 1000)) : 0;

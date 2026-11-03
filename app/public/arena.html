@@ -228,6 +228,7 @@
     @keyframes go-flash { 0% { opacity: 0; transform: scale(.65); } 15% { opacity: 1; } 100% { opacity: 0; transform: scale(1.55); } }
 
     .footer { display: flex; align-items: stretch; justify-content: space-between; gap: clamp(12px, 1.6vw, 30px); min-width: 0; padding-top: clamp(8px, 1vh, 14px); border-top: 1px solid var(--line); }
+    .join-shell { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; gap: clamp(10px, 1vw, 18px); }
     .join {
       position: relative; isolation: isolate; overflow: hidden;
       flex: 1 1 auto; display: flex; align-items: center;
@@ -246,12 +247,31 @@
     .qr-wrap svg { display: block; width: 100%; height: 100%; }
     .join-title { margin-top: clamp(4px, .6vh, 9px); font: 800 clamp(34px, 3.6vw, 67px)/.94 var(--font-display); letter-spacing: -.055em; text-transform: uppercase; white-space: nowrap; }
     .join-detail { margin-top: clamp(7px, .7vh, 12px); color: rgba(255,255,255,.9); font-size: clamp(13px, 1vw, 19px); font-weight: 700; white-space: nowrap; }
+    .github-star {
+      flex: 0 0 clamp(205px, 19vw, 286px); min-width: 0;
+      display: flex; align-items: center; justify-content: space-between; gap: 9px;
+      padding: clamp(10px, .95vw, 16px);
+      border: 1px solid rgba(174,199,240,.44); border-radius: clamp(16px, 1.5vw, 26px);
+      background: linear-gradient(145deg, rgba(25,49,88,.96), rgba(8,22,48,.95));
+      box-shadow: 0 14px 32px rgba(0,8,27,.2), 0 1px rgba(255,255,255,.07) inset;
+      color: var(--paper); text-decoration: none;
+      transition: border-color .2s ease, transform .2s ease, background .2s ease;
+    }
+    .github-star:hover { border-color: rgba(255,158,172,.8); transform: translateY(-2px); background: linear-gradient(145deg, rgba(42,55,91,.99), rgba(18,27,56,.97)); }
+    .github-star-copy { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: clamp(6px, .7vh, 10px); }
+    .github-star-symbol { width: clamp(26px, 2.5vw, 35px); height: clamp(26px, 2.5vw, 35px); flex: none; display: grid; place-items: center; border-radius: 10px; background: rgba(239,34,58,.18); border: 1px solid rgba(255,124,143,.59); color: #ff8192; font-size: clamp(18px, 1.8vw, 26px); line-height: 1; }
+    .github-star-title { display: block; font: 800 clamp(14px, 1.32vw, 20px)/1 var(--font-display); letter-spacing: -.02em; text-transform: uppercase; text-wrap: balance; }
+    .github-star-short { display: none; }
+    .github-star-detail { display: block; color: #afc0db; font-size: clamp(9px, .72vw, 11px); font-weight: 700; line-height: 1.2; }
+    .github-qr-wrap { width: clamp(84px, 9.2vh, 112px); height: clamp(84px, 9.2vh, 112px); flex: none; display: grid; place-items: center; padding: 5px; border-radius: 10px; background: #fff; box-shadow: 0 8px 19px rgba(0,7,25,.35); }
+    .github-qr-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .footer-status { flex: 0 1 27%; display: flex; align-items: center; justify-content: flex-end; gap: clamp(14px, 2vw, 32px); min-width: 0; padding: 18px clamp(15px, 2vw, 30px); border: 1px solid var(--line); border-radius: clamp(16px, 1.5vw, 26px); background: rgba(8,25,53,.7); text-align: right; }
     .footer-status[hidden] { display: none; }
     .footer-line { font: 800 clamp(16px, 1.45vw, 25px)/1.1 var(--font-display); letter-spacing: -.035em; text-wrap: balance; }
     .footer-detail { margin-top: 6px; color: var(--muted); font-size: clamp(10px, .84vw, 14px); font-weight: 700; text-wrap: balance; }
     .screen[data-phase="result"] .footer-status .footer-line { color: var(--paper); }
 
+    @media (max-width: 1100px) { .footer-status { display: none !important; } }
     @media (max-width: 900px) {
       .screen { grid-template-rows: 48px clamp(100px, 16vh, 145px) minmax(0, 1fr) clamp(138px, 18vh, 180px); padding: 18px 24px 16px; }
       .brand-event { max-width: 22vw; }
@@ -263,6 +283,11 @@
       .clock-value { font-size: 41px; }
       .tile-state { display: none; }
       .qr-wrap { width: clamp(105px, 14.2vh, 140px); height: clamp(105px, 14.2vh, 140px); }
+      .github-star { flex-basis: clamp(130px, 18vw, 180px); align-self: center; justify-content: center; height: clamp(72px, 10vh, 100px); }
+      .github-star-copy { flex-direction: row; align-items: center; gap: 7px; }
+      .github-qr-wrap, .github-star-detail, .github-star-full { display: none; }
+      .github-star-short { display: block; font-size: 14px; }
+      .github-star-symbol { width: 29px; height: 29px; font-size: 20px; }
     }
     @media (max-width: 680px) {
       .screen { grid-template-rows: 44px clamp(104px, 17.5vh, 150px) minmax(0, 1fr) clamp(116px, 17.5vh, 142px); padding: 12px 14px 12px; }
@@ -290,13 +315,17 @@
       .footer { gap: 8px; padding-top: 7px; }
       .qr-wrap { width: clamp(70px, 12vh, 88px); height: clamp(70px, 12vh, 88px); border-radius: 8px; padding: 5px; }
       .join { gap: 11px; padding: 8px 12px; border-radius: 13px; }.join-title { font-size: clamp(20px, 5.5vw, 29px); }.join-detail { display: none; }
+      .github-star { flex-basis: clamp(86px, 20vw, 125px); height: clamp(54px, 8vh, 70px); padding: 6px; border-radius: 13px; }
+      .github-star-copy { gap: 4px; }.github-star-symbol { width: 24px; height: 24px; border-radius: 7px; font-size: 17px; }.github-star-short { font-size: clamp(9px, 2vw, 12px); }
       .footer-status { display: none !important; }
       .footer-line { font-size: clamp(11px, 3.2vw, 15px); white-space: normal; }.footer-detail { font-size: 9px; white-space: normal; }
     }
     @media (max-width: 430px) { .screen.controls-visible .brand-event { opacity: 0; } }
     @media (max-width: 360px) {
       .screen { padding-left: 10px; padding-right: 10px; }
-      .join-title { font-size: 19px; }
+      .qr-wrap { width: 54px; height: 54px; }
+      .join { gap: 6px; padding-inline: 8px; }.join-title { font-size: 17px; }
+      .github-star { flex-basis: 86px; }.github-star-short { font-size: 9px; }
     }
     @media (max-height: 650px) and (min-width: 681px) {
       .screen { grid-template-rows: 44px 89px minmax(0,1fr) clamp(118px, 20vh, 132px); padding-top: 10px; padding-bottom: 10px; }
@@ -338,6 +367,10 @@
     html[data-theme="light"] .player-tile.is-winner .tile-state { color: #ffffff; }
     html[data-theme="light"] .countdown-number { color: #ffffff; text-shadow: 0 0 25px rgba(217,30,55,.7), 0 7px 36px rgba(11,27,57,.72); }
     html[data-theme="light"] .footer-status { background: rgba(255,255,255,.84); box-shadow: 0 12px 30px rgba(40,72,125,.1); }
+    html[data-theme="light"] .github-star { border-color: rgba(60,91,143,.4); background: linear-gradient(145deg, #fff, #eaf1fc); box-shadow: 0 12px 28px rgba(40,72,125,.11); }
+    html[data-theme="light"] .github-star:hover { border-color: rgba(188,44,69,.68); background: linear-gradient(145deg, #fff, #f7eefa); }
+    html[data-theme="light"] .github-star-symbol { background: #fff0f2; border-color: #d76075; color: #b71934; }
+    html[data-theme="light"] .github-star-detail { color: #526886; }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
     }
@@ -364,7 +397,7 @@
     <section class="field" id="field" aria-label="Player camera wall"><div class="players" id="players" data-slots="2"></div><div class="countdown-overlay" aria-live="assertive"><span class="countdown-number" id="countdownNumber">3</span></div><div class="go-burst" aria-hidden="true"></div><div class="result-effects" aria-hidden="true"><div class="result-effects-glow"></div><div class="result-effects-rings"></div><div class="result-confetti" id="resultConfetti"></div></div></section>
 
     <footer class="footer">
-      <a class="join" href="#" id="joinLink" aria-label="Open the player page"><div class="qr-wrap" aria-label="Scan to join Live Scavenger Hunt"><img id="joinQr" src="" alt="Scan to join the game"></div><div><div class="join-title" id="joinTitle">Scan to play</div><div class="join-detail" id="joinDetail">Point your phone camera here</div></div></a>
+      <div class="join-shell"><a class="join" href="#" id="joinLink" aria-label="Open the player page"><div class="qr-wrap" aria-label="Scan to join Live Scavenger Hunt"><img id="joinQr" src="" alt="Scan to join the game"></div><div><div class="join-title" id="joinTitle">Scan to play</div><div class="join-detail" id="joinDetail">Point your phone camera here</div></div></a><a class="github-star" id="githubStarLink" href="https://github.com/anthonyplusAI/twilio-live-scavenger-hunt" target="_blank" rel="noopener noreferrer" aria-label="Star Live Scavenger Hunt on GitHub (opens in a new tab)"><span class="github-star-copy"><span class="github-star-symbol" aria-hidden="true">★</span><span><strong class="github-star-title github-star-full">Star on<br>GitHub</strong><strong class="github-star-title github-star-short">Star<br>GitHub</strong><small class="github-star-detail">Scan the repo</small></span></span><span class="github-qr-wrap"><img id="githubQr" src="" alt="Scan to open the GitHub repository"></span></a></div>
       <div class="footer-status" id="footerStatus" hidden><div><div class="footer-line" id="footerLine">Want to build this?</div><div class="footer-detail" id="footerDetail">Ask us at the Twilio booth</div></div></div>
     </footer>
   </main>

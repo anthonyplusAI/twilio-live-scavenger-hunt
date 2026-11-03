@@ -88,6 +88,14 @@ function summaryFor(activity, leads) {
   const cta = byType('cta_opened'), specificCta = [...byType('guide_cta_opened'), ...byType('expert_cta_opened')];
   const productLinks = byType('twilio_product_link_opened');
   const twilioProductLinkClicksByProduct = Object.fromEntries(PRODUCT_LINK_KEYS.map(product => [product, productLinks.filter(row => row.properties?.product === product).length]));
+  const githubLinks = byType('github_cta_opened');
+  const githubRepoClicksBySource = {
+    // Source-less events were emitted by the phone before referral tagging existed.
+    phone: githubLinks.filter(row => !row.properties?.source || row.properties.source === 'phone').length,
+    spectator: githubLinks.filter(row => row.properties?.source === 'spectator').length,
+    arenaQr: githubLinks.filter(row => row.properties?.source === 'arena_qr').length,
+    arenaLink: githubLinks.filter(row => row.properties?.source === 'arena_link').length,
+  };
   const totalPlays = starts.reduce((sum, row) => sum + (Number(row.properties?.playerCount) || 0), 0);
   const heatsStarted = new Set(starts.map(row => `${row.eventId}:${row.properties?.heatId || row.id}`)).size;
   const voterIds = votes.map(row => row.properties?.voterId);
@@ -114,7 +122,8 @@ function summaryFor(activity, leads) {
     ctaClicks: cta.length || specificCta.length,
     twilioProductLinkClicks: productLinks.length,
     twilioProductLinkClicksByProduct,
-    githubRepoClicks: byType('github_cta_opened').length,
+    githubRepoClicks: githubLinks.length,
+    githubRepoClicksBySource,
     engagementActions: activity.filter(row => ENGAGEMENT_TYPES.has(row.type)).length,
     avgPlayersPerHeat: heatsStarted ? totalPlays / heatsStarted : 0,
   };

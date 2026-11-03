@@ -181,13 +181,18 @@ function setConnection(label, mode) {
   element.replaceChildren(make("i"), document.createTextNode(` ${label}`));
 }
 let visitRecorded = false;
+function recordActivity(type, properties = {}) {
+  if (!slug) return;
+  fetch(`/api/e/${encodeURIComponent(slug)}/activity`, {
+    method: "POST", credentials: "same-origin", keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, ...properties }),
+  }).catch(() => {});
+}
 function recordVisit() {
   if (visitRecorded || !slug) return;
   visitRecorded = true;
-  fetch(`/api/e/${encodeURIComponent(slug)}/activity`, {
-    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "vote_page_opened" }),
-  }).catch(() => {});
+  recordActivity("vote_page_opened");
 }
 function applyPayload(payload) {
   if (!payload || typeof payload !== "object") return;
@@ -253,6 +258,7 @@ async function submitVote(choice) {
 }
 
 setInterval(updateClock, 250);
+$("github-link").addEventListener("click", () => recordActivity("github_cta_opened", { source: "spectator" }));
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 window.addEventListener("pagehide", () => state.source?.close());
 refresh();

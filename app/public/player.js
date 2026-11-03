@@ -8,7 +8,6 @@ const isResultDemo = ['win', 'lose', 'tie', 'no-match', 'build'].includes(demoMo
 const screen = document.getElementById('screen');
 const eventName = document.getElementById('eventName');
 const modeLabel = document.getElementById('modeLabel');
-const arenaFooterLink = document.getElementById('arenaFooterLink');
 const githubFooterLink = document.getElementById('githubFooterLink');
 const sessionDialog = document.getElementById('sessionDialog');
 for (const link of document.querySelectorAll('[data-arena-link]')) {
@@ -96,7 +95,7 @@ function activity(type, properties = {}) {
   if (onceKey) app.activity.add(onceKey);
   request('/activity', { method: 'POST', body: { type, ...properties }, keepalive: true }).catch(() => {});
 }
-githubFooterLink.addEventListener('click', () => activity('github_cta_opened'));
+githubFooterLink.addEventListener('click', () => activity('github_cta_opened', { source: 'phone' }));
 
 function applyState(payload) {
   if (!payload || !payload.state) return;
@@ -308,13 +307,10 @@ function render(force = false) {
   const customEventName = String(app.event.name || '').trim();
   eventName.textContent = customEventName.toUpperCase() === 'LIVE SCAVENGER HUNT' ? '' : customEventName;
   eventName.hidden = !eventName.textContent;
-  const postGame = ['result', 'complete', 'build', 'lead', 'thanks'].includes(view);
   const fullModeLabel = isResultDemo ? 'Visual preview · no live camera' : app.event.mediaMode === 'twilio' ? 'Powered by Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal · camera snapshots' : 'Waiting for booth setup';
   const shortModeLabel = isResultDemo ? 'Visual preview' : app.event.mediaMode === 'twilio' ? 'Twilio Video' : app.event.mediaMode === 'rehearsal' ? 'Local rehearsal' : 'Booth setup';
-  modeLabel.textContent = postGame ? shortModeLabel : fullModeLabel;
+  modeLabel.textContent = shortModeLabel;
   modeLabel.setAttribute('aria-label', fullModeLabel);
-  arenaFooterLink.hidden = postGame;
-  githubFooterLink.hidden = !postGame;
   $('leaveButton').hidden = isResultDemo || !['queued', 'waiting', 'countdown', 'hunt', 'review'].includes(view);
 
   if (view === 'intro') {
