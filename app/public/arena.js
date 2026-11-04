@@ -348,9 +348,11 @@ function render() {
       ? 'Scan to join now. Staff will resume the booth when ready.'
       : 'Scan to join the next heat. Play resumes after staff return.';
   } else if (vote) {
-    $('eyebrow').textContent = vote.type === 'creative' ? 'Audience vote' : 'Choose the next category';
-    setHeadline(vote.type === 'creative' ? 'CROWD, MAKE THE CALL.' : 'YOU PICK WHAT’S NEXT.');
-    $('subline').textContent = 'Scan the vote card. New players can still join.';
+    $('eyebrow').textContent = 'Audience vote';
+    setHeadline(vote.type === 'creative' ? 'CROWD, MAKE THE CALL.' : 'PICK A CATEGORY.');
+    $('subline').textContent = vote.type === 'creative'
+      ? 'Scan to choose a player. New players can still join.'
+      : 'Scan to choose the next clue type. Waiting players keep their spots.';
   } else if (currentPhase === 'countdown' || currentPhase === 'locked') {
     $('eyebrow').textContent = 'The challenge is sealed';
     setHeadline('GET READY.');

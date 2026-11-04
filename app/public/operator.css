@@ -675,3 +675,11 @@ html[data-theme="light"] #candidate-note.is-warning{color:#9e4a00}
 .prompt-copy small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:760px){.prompt-rotation-row{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:5px}.prompt-rotation-row .enabled-row,.prompt-rotation-row .select{min-height:34px;height:34px}}
 @media(max-width:360px) and (max-height:600px){.prompt-rotation-row .select,.prompt-rotation-row .enabled-row{min-height:30px;height:30px}}
+
+.queue-control .queue-status{grid-column:1/-1;color:var(--muted);font-size:10px;line-height:1.2;min-height:12px}
+@media(max-width:760px){.queue-control .queue-status{font-size:9px;min-height:11px}}
+@media(max-width:360px) and (max-height:600px){.queue-control .queue-status{display:none}}
+.vote-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.vote-mode-grid .enabled-row{min-width:0}
+.vote-mode-grid .enabled-row strong{line-height:1.15}
+@media(max-width:760px){.vote-mode-grid{gap:5px}.vote-mode-grid .enabled-row{padding:5px 7px}.vote-mode-grid .enabled-row strong{font-size:9px}}

@@ -87,6 +87,8 @@ const app = {
   renderedLeadKey: '',
   renderedFollowupKey: '',
   outcome: null,
+  resultRefreshBusy: false,
+  resultRefreshPending: false,
   resultRevealSeen: new Set(),
   idleSince: null,
   idleKey: null,
@@ -126,6 +128,46 @@ function applyPrivatePlayer(player) {
   app.player = { ...app.player, ...player };
   if (player.status === 'finished' && player.lastExitReason === 'replay_timeout') app.replayExpired = true;
   else if (['joined', 'ready', 'queued', 'left'].includes(player.status)) app.replayExpired = false;
+}
+
+function syncCompletedResult(result) {
+  if (app.player?.status !== 'finished' || !result || !Number.isSafeInteger(result.heat) ||
+      !Array.isArray(result.winners)) return false;
+  if (!app.outcome || app.outcome.heat < result.heat) {
+    if (phase() === 'result' && app.state.heat === result.heat) return false;
+    app.outcome = { heat: result.heat, decisionAt: now(), minRevealUntil: 0 };
+  }
+  if (app.outcome.heat !== result.heat) return false;
+  app.outcome.winners = [...result.winners];
+  app.outcome.winnerNames = Array.isArray(result.winnerNames) ? [...result.winnerNames] : [];
+  return true;
+}
+
+async function refreshCompletedResult() {
+  if (app.resultRefreshBusy) { app.resultRefreshPending = true; return; }
+  if (!app.token || app.player?.status !== 'finished' || app.view !== 'live') return;
+  const playerId = app.player.id;
+  const playerHeat = app.player.heat;
+  app.resultRefreshBusy = true;
+  try {
+    const response = await request('/me', { auth: true });
+    if (app.player?.id !== playerId || app.player?.heat !== playerHeat ||
+        app.player?.status !== 'finished' || app.view !== 'live') return;
+    if (response.state && Number(response.state.resultRevision || 0) < Number(app.state?.resultRevision || 0)) {
+      app.resultRefreshPending = true;
+      return;
+    }
+    applyPrivatePlayer(response.player);
+    if (syncCompletedResult(response.player?.completedResult)) render();
+  } catch (error) {
+    if (error.status === 401) await reconcileAfterUnauthorized();
+  } finally {
+    app.resultRefreshBusy = false;
+    if (app.resultRefreshPending) {
+      app.resultRefreshPending = false;
+      void refreshCompletedResult();
+    }
+  }
 }
 
 function cameraLease() {
@@ -203,7 +245,7 @@ async function refreshQueuePosition() {
     if (app.player?.id !== playerId || app.view !== 'live') return;
     if (response.player?.status === 'left') { enterLeftSession(response); return; }
     applyPrivatePlayer(response.player);
-    if (response.state) applyState({ state: response.state });
+    if (response.state) applyState({ state: response.state, player: response.player });
     else render();
   } catch (error) {
     if (error.status === 401) await reconcileAfterUnauthorized();
@@ -214,6 +256,8 @@ function applyState(payload) {
   if (!payload || !payload.state) return;
   if (Number.isFinite(app.state?.version) && Number.isFinite(payload.state.version) &&
       payload.state.version < app.state.version) return;
+  const previousResultRevision = Number(app.state?.resultRevision || 0);
+  const freshCompletedResult = payload.player?.completedResult;
   const hadSlot = hasSlot();
   const previousQueueCount = app.state?.queuedCount;
   if (payload.serverTime) app.serverOffset = new Date(payload.serverTime).getTime() - Date.now();
@@ -233,7 +277,7 @@ function applyState(payload) {
     if (!app.restoring && !hadSlot && hasSlot() && !app.camera && phase() !== 'result')
       void reconnectCamera().catch(showError);
     if (hasSlot() && !app.outcome && app.camera && !app.media && phase() !== 'result') ensureMediaReady().catch(showError);
-    if (phase() === 'result' && hasSlot() && !app.outcome) {
+    if (phase() === 'result' && hasSlot() && (!app.outcome || app.outcome.heat < app.state.heat)) {
       setReplayPending(false);
       app.replayExpired = false;
       const resultDeadline = Date.parse(app.state.resultEndsAt || '');
@@ -253,6 +297,8 @@ function applyState(payload) {
       const resultDeadline = Date.parse(app.state.resultEndsAt || '');
       if (Number.isFinite(resultDeadline)) app.outcome.decisionAt = resultDeadline;
     }
+    if (freshCompletedResult && (phase() !== 'result' || app.state.heat !== freshCompletedResult.heat))
+      syncCompletedResult(freshCompletedResult);
     if (app.outcome && phase() === 'result' && app.state.heat === app.outcome.heat) scheduleResultRelease();
     else if (app.outcome && app.state.heat !== app.outcome.heat) releaseMedia(true);
     if (app.replayPending && app.player?.status === 'ready') setReplayPending(false);
@@ -270,6 +316,10 @@ function applyState(payload) {
     app.error = '';
   }
   render();
+  if (app.view === 'live' && app.player?.status === 'finished' &&
+      Number(app.state.resultRevision || 0) > previousResultRevision &&
+      (phase() !== 'result' || !hasSlot()))
+    void refreshCompletedResult();
   updateIdleCheck();
   if (app.view === 'live' && app.player?.status === 'queued' &&
       previousQueueCount != null && previousQueueCount !== app.state.queuedCount)
@@ -415,8 +465,8 @@ function decisionMarkup() {
   const heat = app.outcome?.heat || app.player?.heat || app.state?.heat || 1;
   const winners = app.outcome?.winners;
   const won = winners?.includes(app.player?.id);
-  const variant = app.replayExpired ? 'neutral' : won ? 'win' : winners?.length ? 'lose' : 'neutral';
-  const result = app.replayExpired ? 'NEXT HEAT SPOT EXPIRED' : !winners ? 'HEAT COMPLETE' : won
+  const variant = won ? 'win' : winners?.length ? 'lose' : 'neutral';
+  const result = !winners ? app.replayExpired ? 'NEXT HEAT SPOT EXPIRED' : 'HEAT COMPLETE' : won
     ? winners.length > 1 ? 'YOU TIED FOR FIRST' : 'YOU FOUND IT FIRST'
     : winners.length ? 'ANOTHER PLAYER WON' : 'NO VERIFIED FIND';
   const note = app.replayExpired
@@ -635,7 +685,7 @@ function render(force = false) {
     }
     syncFollowupDraft();
   }
-  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), paused, heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, camera: !!app.camera, cameraBusy: app.cameraBusy, cameraHelp: app.cameraHelp, media: !!app.media, mediaBusy: !!app.mediaBusy, mediaLinkUp: app.mediaLinkUp, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, replayBusy: app.replayBusy, leaveBusy: app.leaveBusy, replayExpired: app.replayExpired, returningLead: app.returningLead, leadPage: app.leadPage, leadIntent: app.leadIntent, followupPage: app.followupPage, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
+  const signature = JSON.stringify({ view, error: app.error, event: app.event, player: app.player?.id, slot: rosterPlayer()?.slot ?? app.player?.slot, status: app.player?.status, phase: phase(), paused, heat: app.state.heat, ready: app.state.readyCount, prompt: app.state.prompt, winners: app.outcome?.winners || app.state.winners, winnerNames: app.outcome?.winnerNames, camera: !!app.camera, cameraBusy: app.cameraBusy, cameraHelp: app.cameraHelp, media: !!app.media, mediaBusy: !!app.mediaBusy, mediaLinkUp: app.mediaLinkUp, queuePosition: app.player?.queuePosition, queuedCount: app.state.queuedCount, joinBusy: app.joinBusy, replayBusy: app.replayBusy, leaveBusy: app.leaveBusy, replayExpired: app.replayExpired, returningLead: app.returningLead, leadPage: app.leadPage, leadIntent: app.leadIntent, followupPage: app.followupPage, followupBusy: app.followupBusy, buildProduct: app.buildProduct, connection: app.connection });
   if (!force && signature === app.lastRender) { updateClock(); return; }
   app.lastRender = signature;
   screen.dataset.view = view;
@@ -1640,7 +1690,7 @@ async function initialize() {
         else {
           app.restoring = true;
           app.view = 'live';
-          if (me.state) applyState({ state: me.state });
+          if (me.state) applyState({ state: me.state, player: me.player });
           app.restoring = false;
           if (!openReturningLeadForm() && hasSlot() && phase() !== 'result')
             app.error = 'Your camera is off in this tab. Tap Reconnect camera to keep playing.';
@@ -1663,7 +1713,7 @@ async function initialize() {
         try {
           const response = await request('/heartbeat', { method: 'POST', auth: true });
           if (response.player) applyPrivatePlayer(response.player);
-          if (response.state) applyState({ state: response.state });
+          if (response.state) applyState({ state: response.state, player: response.player });
         } catch (error) { if (error.status === 401) await reconcileAfterUnauthorized(); }
       }
       if (Date.now() - app.lastPayloadAt > 12_000) {

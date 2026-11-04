@@ -61,7 +61,7 @@ export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenge
     },
     cta: { primary: 'github' },
     vote: {
-      enabled: true, windowSeconds: 12, creativeWindowSeconds: 10,
+      enabled: true, autoCategory: false, windowSeconds: 12, creativeWindowSeconds: 10,
       categories: ['Color', 'Object', 'Text'],
       channels: { web: true, sms: false, whatsapp: false },
       smsSender: '', whatsappSender: '', eventCode: '',
@@ -121,6 +121,7 @@ function normalizeVote(raw, previous) {
   if (eventCode && !/^[A-Z0-9]{2,20}$/.test(eventCode)) fail('Event code must be 2–20 letters or numbers.');
   return {
     enabled: Boolean(value.enabled),
+    autoCategory: Boolean(value.autoCategory),
     windowSeconds: integer(value.windowSeconds, 5, 180, 'Category vote window'),
     creativeWindowSeconds: integer(value.creativeWindowSeconds, 5, 180, 'Creative vote window'),
     categories,

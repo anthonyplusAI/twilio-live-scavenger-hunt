@@ -61,6 +61,57 @@ test('database path uses the new name for fresh installs and reuses an existing 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('conference prompt expansion adds missing options once without changing saved choices', () => {
+  const expansionIds = [
+    ...Array.from({ length: 17 }, (_, index) => `O${String(index + 8).padStart(2, '0')}`),
+    ...Array.from({ length: 10 }, (_, index) => `T${String(index + 6).padStart(2, '0')}`),
+    ...Array.from({ length: 3 }, (_, index) => `M${String(index + 9).padStart(2, '0')}`),
+  ];
+  const expansionSet = new Set(expansionIds);
+  const store = openDatabase();
+  try {
+    const seeded = store.seedDefault();
+    assert.equal(expansionIds.length, 30);
+    assert.ok(expansionIds.every(id => seeded.prompts.some(prompt => prompt.id === id && !prompt.enabled)));
+
+    const originalDeck = seeded.prompts.filter(prompt => !expansionSet.has(prompt.id));
+    const cup = originalDeck.find(prompt => prompt.id === 'O01');
+    const savedDeck = [
+      ...originalDeck.map(prompt => prompt.id === 'O01'
+        ? { ...prompt, text: 'SHOW THE BOOTH CUP', enabled: false } : prompt),
+      { ...cup, id: 'O08', text: 'SHOW A CUSTOM PROP', enabled: false },
+      { ...cup, id: 'custom-expo', text: 'SHOW A CUSTOM EXPO ITEM', enabled: false },
+    ];
+    const saved = store.saveEvent(seeded.slug, { ...seeded, prompts: savedDeck }, seeded.revision);
+
+    const full = store.createEvent('Full prompt deck', 'full-prompt-deck');
+    const fullBase = full.prompts.filter(prompt => !expansionSet.has(prompt.id));
+    const fullDeck = fullBase.concat(Array.from({ length: 49 }, (_, index) => ({
+      ...cup, id: `custom-${index + 1}`, text: `SHOW CUSTOM ITEM ${index + 1}`, enabled: false,
+    })));
+    const fullSaved = store.saveEvent(full.slug, { ...full, prompts: fullDeck }, full.revision);
+
+    assert.equal(store.migrateConferencePromptDeck(), 2);
+    const migrated = store.getEvent(saved.slug);
+    assert.equal(migrated.revision, saved.revision + 1);
+    assert.deepEqual(migrated.prompts.slice(0, savedDeck.length), saved.prompts);
+    assert.equal(migrated.prompts.length, 81);
+    assert.deepEqual(migrated.prompts.filter(prompt => expansionSet.has(prompt.id)).map(prompt => prompt.id), expansionIds);
+    assert.equal(migrated.prompts.find(prompt => prompt.id === 'O08').text, 'SHOW A CUSTOM PROP');
+    assert.ok(migrated.prompts.slice(savedDeck.length).every(prompt => !prompt.enabled));
+    assert.equal(store.listAudit(saved.id).filter(entry => entry.action === 'event:conference-prompts-added').length, 1);
+
+    const capped = store.getEvent(full.slug);
+    assert.equal(capped.revision, fullSaved.revision + 1);
+    assert.equal(capped.prompts.length, 100);
+    assert.deepEqual(capped.prompts.slice(0, fullDeck.length), fullSaved.prompts);
+    assert.equal(capped.prompts[99].id, 'O08');
+    assert.equal(store.migrateConferencePromptDeck(), 0);
+    assert.equal(store.getEvent(saved.slug).revision, migrated.revision);
+    assert.equal(store.getEvent(full.slug).revision, capped.revision);
+  } finally { store.close(); }
+});
+
 test('existing player rows survive the private replay-timeout reason migration', () => {
   const root = mkdtempSync(join(tmpdir(), 'live-scavenger-hunt-player-migration-'));
   const filename = join(root, 'legacy.sqlite');
@@ -303,4 +354,19 @@ test('primary CTA only accepts an enabled follow-up action', () => {
   assert.throws(() => normalizeEvent({ ...event, cta: { primary: 'expert' },
     leadCapture: { ...event.leadCapture, enabled: false } }, event),
   error => error.code === 'invalid_input');
+});
+
+test('automatic category ballots are opt-in while audience voting remains available', () => {
+  const fresh = normalizeEvent(defaultEvent());
+  assert.equal(fresh.vote.enabled, true);
+  assert.equal(fresh.vote.autoCategory, false);
+
+  const legacy = structuredClone(fresh);
+  delete legacy.vote.autoCategory;
+  const normalized = normalizeEvent({ ...legacy, name: 'Earlier Expo' }, legacy);
+  assert.equal(normalized.vote.enabled, true);
+  assert.equal(normalized.vote.autoCategory, false);
+
+  const optedIn = normalizeEvent({ ...normalized, vote: { ...normalized.vote, autoCategory: true } }, normalized);
+  assert.equal(optedIn.vote.autoCategory, true);
 });

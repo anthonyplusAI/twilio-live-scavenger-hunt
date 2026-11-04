@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { defaultEvent, normalizeEvent, slugify, ValidationError } from './config.mjs';
+import { conferencePromptBank } from './seed.mjs';
 
 const schema = `
 PRAGMA foreign_keys = ON;
@@ -294,6 +295,39 @@ export class Store {
     });
   }
 
+  migrateConferencePromptDeck() {
+    return this.transaction(() => {
+      const key = 'conference_prompt_expansion_v1';
+      if (this.getSetting(key) === 'done') return 0;
+      const additions = conferencePromptBank();
+      // A packaged app without the full catalog can still run its fallback deck.
+      // Try again on a later boot rather than recording a partial migration.
+      if (additions.length !== 30) {
+        console.warn('Conference prompt expansion skipped: the complete prompt catalog is unavailable.');
+        return 0;
+      }
+      let changedEvents = 0;
+      for (const event of this.listEvents()) {
+        const existingIds = new Set(event.prompts.map(prompt => prompt.id.toLowerCase()));
+        const missing = additions.filter(prompt => !existingIds.has(prompt.id.toLowerCase()));
+        const availableSlots = Math.max(0, 100 - event.prompts.length);
+        const appended = missing.slice(0, availableSlots);
+        if (!appended.length) continue;
+        const next = normalizeEvent({ ...event, prompts: [...event.prompts, ...appended] }, event);
+        next.revision = event.revision + 1;
+        next.updatedAt = nowIso();
+        this.sql.prepare('UPDATE events SET revision=?,config_json=?,updated_at=? WHERE id=?')
+          .run(next.revision, json(next), next.updatedAt, event.id);
+        this.audit(event.id, null, 'event:conference-prompts-added', {
+          ids: appended.map(prompt => prompt.id), skippedForCapacity: missing.length - appended.length,
+        });
+        changedEvents++;
+      }
+      this.sql.prepare('INSERT INTO app_settings(key,value) VALUES(?,?)').run(key, 'done');
+      return changedEvents;
+    });
+  }
+
   saveEvent(slug, draft, expectedRevision) {
     return this.transaction(() => {
       const current = this.getEvent(slug);
@@ -406,6 +440,38 @@ export class Store {
       ended_at=excluded.ended_at,winners_json=excluded.winners_json,candidate_json=excluded.candidate_json`)
       .run(heat.id, heat.eventId, heat.heat, json(heat.prompt), json(heat.rules), heat.phase,
         heat.startedAt, heat.goAt || null, heat.endedAt || null, json(heat.winners || []), heat.candidate ? json(heat.candidate) : null);
+  }
+
+  getLastCompletedHeatResultForPlayer(eventId, playerId, throughHeat) {
+    const row = this.sql.prepare(`SELECT heat,winners_json FROM heats
+      WHERE event_id=? AND heat<=? AND phase='result' AND EXISTS (
+        SELECT 1 FROM json_each(heats.rules_json,'$.lockedPlayerIds') AS participant
+        WHERE participant.value=?
+      ) AND NOT EXISTS (
+        SELECT 1 FROM activity AS departed
+        WHERE departed.event_id=heats.event_id
+          AND departed.type IN ('player_left','player_result_opted_out')
+          AND json_extract(departed.properties_json,'$.playerId')=?
+          AND json_extract(departed.properties_json,'$.heat')=heats.heat
+          AND (
+            departed.type='player_result_opted_out'
+            OR json_extract(departed.properties_json,'$.phase') IN ('countdown','hunt','review')
+            OR (json_type(departed.properties_json,'$.phase') IS NULL
+              AND departed.rowid > (
+                SELECT locked.rowid FROM activity AS locked
+                WHERE locked.event_id=heats.event_id AND locked.type='heat_locked'
+                  AND json_extract(locked.properties_json,'$.heatId')=heats.id
+                ORDER BY locked.rowid LIMIT 1
+              )
+              AND departed.rowid < (
+                SELECT completed.rowid FROM activity AS completed
+                WHERE completed.event_id=heats.event_id AND completed.type='heat_completed'
+                  AND json_extract(completed.properties_json,'$.heatId')=heats.id
+                ORDER BY completed.rowid LIMIT 1
+              ))
+          )
+      ) ORDER BY heat DESC LIMIT 1`).get(eventId, throughHeat, playerId, playerId);
+    return row ? { heat: row.heat, winners: parse(row.winners_json, []) } : null;
   }
 
   listHeats(eventId = null) {
