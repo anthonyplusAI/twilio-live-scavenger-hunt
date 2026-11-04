@@ -812,7 +812,7 @@ test('kick reports a Video disconnect failure while preserving the local removal
 });
 
 test('join captures one private lead before play and follow-up reuses it', async () => {
-  const app = await fixture({ startMode: 'manual' });
+  const app = await fixture({ startMode: 'manual', leadCapture: { guideEnabled: true } });
   try {
     const configured = app.store.getEvent(app.event.slug);
     app.store.saveEvent(configured.slug, { ...configured,
@@ -1061,7 +1061,8 @@ test('an admin can require the saved lead form at join for a specific event', as
 });
 
 test('a finished player can request optional follow-up after the next heat opens', async () => {
-  const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  const app = await fixture({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false,
+    leadCapture: { guideEnabled: true } });
   try {
     const slug = app.event.slug;
     const path = `/api/e/${slug}`;
@@ -1109,6 +1110,11 @@ test('spectator follow-up stays voluntary and expert requests have an admin acti
     const cookie = visit.response.headers.get('set-cookie').split(';')[0];
     const leadInput = { intent: 'expert', fieldValues: app.leadFor('Spectator').fieldValues,
       marketingOptIn: false };
+    const guide = await app.request(`/api/e/${slug}/spectator-leads`, {
+      method: 'POST', cookie, body: { ...leadInput, intent: 'guide' },
+    });
+    assert.equal(guide.response.status, 400);
+    assert.equal(guide.value.code, 'lead_disabled');
     const request = await app.request(`/api/e/${slug}/spectator-leads`, {
       method: 'POST', cookie, body: leadInput,
     });

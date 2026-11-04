@@ -24,7 +24,9 @@ const SENDGRID_EVENT_STATUSES = {
   bounce: 'bounced', dropped: 'dropped',
 };
 const TERMINAL_DELIVERY_STATUSES = new Set(['delivered', 'bounced', 'dropped']);
-const sendGridReady = env => Boolean(env.SENDGRID_API_KEY && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text(env.SENDGRID_FROM_EMAIL)));
+const sendGridEnabled = env => text(env.SENDGRID_EMAIL_ENABLED) === '1';
+const sendGridReady = env => sendGridEnabled(env) && Boolean(env.SENDGRID_API_KEY &&
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text(env.SENDGRID_FROM_EMAIL)));
 
 class SendGridResponseError extends Error {
   constructor(status) {
@@ -51,6 +53,7 @@ export class Integrations {
   }
 
   async _sendGridRequest(message) {
+    if (!sendGridReady(this.env)) throw new Error('SendGrid email delivery is paused or unconfigured.');
     const baseUrl = this.env.SENDGRID_REGION === 'eu' ? 'https://api.eu.sendgrid.com' : 'https://api.sendgrid.com';
     const response = await this.fetch(`${baseUrl}/v3/mail/send`, {
       method: 'POST',
@@ -115,9 +118,12 @@ export class Integrations {
     if (!lead || !event) return null;
     if (!['queued', 'retry', 'waiting-config'].includes(job.status)) return lead.deliveryStatus;
     if (!sendGridReady(this.env)) {
-      if (job.status !== 'waiting-config') this.store.updateDeliveryJob(job.id,
-        { status: 'waiting-config', lastError: 'SendGrid sender or API key is not configured.', nextAttemptAt: null });
-      this.store.updateLeadDelivery(lead.id, 'pending-configuration');
+      const lastError = sendGridEnabled(this.env)
+        ? 'SendGrid sender or API key is not configured.'
+        : 'Guide email delivery is paused (SENDGRID_EMAIL_ENABLED is not 1).';
+      if (job.status !== 'waiting-config' || job.lastError !== lastError) this.store.updateDeliveryJob(job.id,
+        { status: 'waiting-config', lastError, nextAttemptAt: null });
+      if (lead.deliveryStatus !== 'pending-configuration') this.store.updateLeadDelivery(lead.id, 'pending-configuration');
       return 'pending-configuration';
     }
     const claimed = this.store.claimDeliveryJob(job.id, now.toISOString());
@@ -303,7 +309,11 @@ export class Integrations {
       { name: 'Segment metrics', status: this.segment ? 'ready' : 'warning',
         detail: this.segment ? 'Server events mirror to Segment.' : 'Local event metrics are active; add a Segment Write Key to mirror them.' },
       { name: 'SendGrid guide', status: sendGridReady(this.env) ? 'ready' : 'warning',
-        detail: sendGridReady(this.env) ? 'Guide requests can be submitted to SendGrid. Confirm the sender is verified and test delivery.' : 'Lead capture works locally; add a SendGrid API key and verified From email to submit guides.' },
+        detail: !sendGridEnabled(this.env)
+          ? 'Paused: guide requests remain saved, but no email is sent until SENDGRID_EMAIL_ENABLED=1.'
+          : sendGridReady(this.env)
+            ? 'Guide requests can be submitted to SendGrid. Confirm the sender is verified and test delivery.'
+            : 'Lead capture works locally; add a SendGrid API key and verified From email to submit guides.' },
       { name: 'SendGrid delivery status', status: this.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY ? 'ready' : 'warning',
         detail: this.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY ? 'Signed SendGrid callbacks can confirm delivery and failures.' : 'Add a signed SendGrid Event Webhook and its public verification key to confirm delivery.' },
       { name: 'Public HTTPS', status: isHttps ? 'ready' : 'warning',

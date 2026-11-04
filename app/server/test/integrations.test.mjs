@@ -193,12 +193,57 @@ test('Segment adapter mirrors safe metrics without dynamic contact data and guid
   store.close();
 });
 
+test('valid SendGrid credentials keep guide jobs queued until email delivery is explicitly enabled', async () => {
+  for (const disabledValue of [undefined, '0']) {
+    const store = openDatabase();
+    const event = store.seedDefault();
+    const leadId = `lead-paused-${disabledValue ?? 'unset'}`;
+    store.insertLead({ id: leadId, eventId: event.id, createdAt: new Date().toISOString(),
+      intent: 'guide', participantId: `player-${leadId}`, fieldValues: {}, fieldSnapshot: [],
+      email: 'paused@example.com', marketingOptIn: false, consentVersion: 'v1', deliveryStatus: 'queued' });
+    const job = store.createDeliveryJob(leadId, event.id);
+    const env = { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' };
+    if (disabledValue !== undefined) env.SENDGRID_EMAIL_ENABLED = disabledValue;
+    let calls = 0;
+    const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base, env,
+      fetchImpl: async () => { calls++; return { status: 202 }; } });
+
+    assert.equal(await integrations.sendGuide({ intent: 'guide', email: 'paused@example.com' }, event),
+      'pending-configuration');
+    assert.equal(await integrations.dispatchDeliveryJob(job.id), 'pending-configuration');
+    assert.equal(store.getDeliveryJob(job.id).status, 'waiting-config');
+    assert.equal(store.getDeliveryJob(job.id).attempts, 0);
+    assert.equal(store.getLead(leadId).deliveryStatus, 'pending-configuration');
+    const updateLeadDelivery = store.updateLeadDelivery.bind(store);
+    let redundantLeadUpdates = 0;
+    store.updateLeadDelivery = (...args) => {
+      redundantLeadUpdates++;
+      return updateLeadDelivery(...args);
+    };
+    await integrations.processDueDeliveryJobs();
+    assert.equal(redundantLeadUpdates, 0);
+    store.updateLeadDelivery = updateLeadDelivery;
+    assert.equal(calls, 0);
+    const guideCheck = integrations.preflight(event).find(check => check.name === 'SendGrid guide');
+    assert.equal(guideCheck.status, 'warning');
+    assert.match(guideCheck.detail, /paused/i);
+
+    env.SENDGRID_EMAIL_ENABLED = '1';
+    await integrations.processDueDeliveryJobs();
+    assert.equal(calls, 1);
+    assert.equal(store.getDeliveryJob(job.id).status, 'accepted');
+    assert.equal(store.getLead(leadId).deliveryStatus, 'accepted');
+    assert.equal(integrations.preflight(event).find(check => check.name === 'SendGrid guide').status, 'ready');
+    store.close();
+  }
+});
+
 test('configured SendGrid guide delivery uses the Mail Send API with a verified sender address', async () => {
   const store = openDatabase();
   const event = store.seedDefault();
   let sent;
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
-    env: { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com', SENDGRID_REGION: 'eu' },
+    env: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com', SENDGRID_REGION: 'eu' },
     fetchImpl: async (url, options) => { sent = { url, options, body: JSON.parse(options.body) }; return { ok: true, status: 202 }; } });
   const status = await integrations.sendGuide({ intent: 'guide', name: 'Ada', email: 'ada@example.com' }, event, 'job-123');
   assert.equal(status, 'accepted');
@@ -294,7 +339,7 @@ test('guide delivery retries a rejected 429 and never calls Mail Send twice for 
   const job = store.createDeliveryJob('lead-retry', event.id);
   let calls = 0;
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
-    env: { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
+    env: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
     fetchImpl: async () => ({ status: ++calls === 1 ? 429 : 202 }) });
   assert.equal(await integrations.dispatchDeliveryJob(job.id), 'retrying');
   const retry = store.getDeliveryJob(job.id);
@@ -319,7 +364,7 @@ test('a SendGrid 503 waits for review and a signed callback can reconcile delive
   const publicKey = pair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
   let calls = 0;
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
-    env: { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com',
+    env: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com',
       SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: publicKey },
     fetchImpl: async () => { calls++; return { status: 503 }; } });
 
@@ -349,7 +394,7 @@ test('an ambiguous network outcome waits for staff review instead of risking a d
   const job = store.createDeliveryJob('lead-uncertain', event.id);
   let calls = 0;
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
-    env: { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
+    env: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
     fetchImpl: async () => { calls++; throw new Error('socket closed after write'); } });
   assert.equal(await integrations.dispatchDeliveryJob(job.id), 'needs-review');
   await integrations.processDueDeliveryJobs({ now: new Date(Date.now() + 86400_000) });
@@ -368,7 +413,7 @@ test('a process interruption during SendGrid dispatch is marked for review witho
   store.claimDeliveryJob(job.id);
   let calls = 0;
   const integrations = new Integrations({ store, engine: null, media: null, publicBaseUrl: base,
-    env: { SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
+    env: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: 'test-key', SENDGRID_FROM_EMAIL: 'booth@example.com' },
     fetchImpl: async () => { calls++; return { status: 202 }; } });
   await integrations.processDueDeliveryJobs({ now: new Date(Date.now() + 180_000) });
   assert.equal(store.getDeliveryJob(job.id).status, 'needs-review');

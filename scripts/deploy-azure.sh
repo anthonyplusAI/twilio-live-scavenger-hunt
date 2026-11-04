@@ -88,10 +88,20 @@ if [ -n "${SEGMENT_WRITE_KEY:-}" ] && [[ "$SEGMENT_WRITE_KEY" =~ [[:space:]] ]];
   echo 'SEGMENT_WRITE_KEY cannot contain whitespace.' >&2
   exit 1
 fi
+if [ -n "${SENDGRID_EMAIL_ENABLED:-}" ] &&
+   [ "$SENDGRID_EMAIL_ENABLED" != '0' ] &&
+   [ "$SENDGRID_EMAIL_ENABLED" != '1' ]; then
+  echo 'SENDGRID_EMAIL_ENABLED must be 0 or 1 when set.' >&2
+  exit 1
+fi
+# A blank flag preserves the existing ACA environment. An explicit zero
+# disables sending and removes Mail Send references from the candidate after
+# the old SQLite writer has stopped; GitHub secrets remain available for a
+# later re-enable. Only an explicit one may attach the sender and API key.
 SENDGRID_UPDATE=0
-if [ -n "${SENDGRID_API_KEY:-}" ] || [ -n "${SENDGRID_FROM_EMAIL:-}" ]; then
+if [ "${SENDGRID_EMAIL_ENABLED:-}" = '1' ]; then
   if [ -z "${SENDGRID_API_KEY:-}" ] || [ -z "${SENDGRID_FROM_EMAIL:-}" ]; then
-    echo 'SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set to update guide email.' >&2
+    echo 'SENDGRID_EMAIL_ENABLED=1 requires SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.' >&2
     exit 1
   fi
   if [[ "$SENDGRID_API_KEY" =~ [[:space:]] ]]; then
@@ -684,6 +694,9 @@ if [ -n "${SEGMENT_WRITE_KEY:-}" ]; then
   queue_container_secret "segment-write-key-$DEPLOY_SUFFIX" "$SEGMENT_WRITE_KEY"
   ENV_UPDATES+=("SEGMENT_WRITE_KEY=secretref:segment-write-key-$DEPLOY_SUFFIX")
 fi
+if [ -n "${SENDGRID_EMAIL_ENABLED:-}" ]; then
+  ENV_UPDATES+=("SENDGRID_EMAIL_ENABLED=$SENDGRID_EMAIL_ENABLED")
+fi
 if [ "$SENDGRID_UPDATE" -eq 1 ]; then
   queue_container_secret "sendgrid-api-key-$DEPLOY_SUFFIX" "$SENDGRID_API_KEY"
   ENV_UPDATES+=("SENDGRID_API_KEY=secretref:sendgrid-api-key-$DEPLOY_SUFFIX" "SENDGRID_FROM_EMAIL=$SENDGRID_FROM_EMAIL")
@@ -701,8 +714,15 @@ UPDATE_ARGS=(--output none)
 if [ "${#ENV_UPDATES[@]}" -gt 0 ]; then
   UPDATE_ARGS+=(--set-env-vars "${ENV_UPDATES[@]}")
 fi
+REMOVE_ENV_VARS=()
 if [ "${GOOGLE_AUTH_DISABLE:-0}" = '1' ]; then
-  UPDATE_ARGS+=(--remove-env-vars GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
+  REMOVE_ENV_VARS+=(GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
+fi
+if [ "${SENDGRID_EMAIL_ENABLED:-}" = '0' ]; then
+  REMOVE_ENV_VARS+=(SENDGRID_API_KEY SENDGRID_FROM_EMAIL)
+fi
+if [ "${GOOGLE_AUTH_DISABLE:-0}" = '1' ] || [ "${SENDGRID_EMAIL_ENABLED:-}" = '0' ]; then
+  UPDATE_ARGS+=(--remove-env-vars "${REMOVE_ENV_VARS[@]}")
 fi
 EXPECTED_CANDIDATE="${ACA_NAME}--${DEPLOY_SUFFIX}"
 echo "Starting candidate from $IMAGE after the old writer stopped."

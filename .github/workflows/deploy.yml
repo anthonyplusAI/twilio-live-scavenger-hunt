@@ -87,10 +87,14 @@ jobs:
       # Also deployable alone for signed SMS/WhatsApp ballot webhooks.
       TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
       # Optional server integrations. Blank values preserve the deployed ACA
-      # configuration; only the deploy job receives application credentials.
+      # configuration; the explicit SendGrid off switch below is the exception.
+      # Only the deploy job receives application credentials.
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_VISION_MODEL: ${{ vars.OPENAI_VISION_MODEL }}
       SEGMENT_WRITE_KEY: ${{ secrets.SEGMENT_WRITE_KEY }}
+      # Guide email is off unless explicitly enabled with a verified sender.
+      # A zero removes the candidate revision's Mail Send credentials.
+      SENDGRID_EMAIL_ENABLED: ${{ vars.SENDGRID_EMAIL_ENABLED }}
       SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
       SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: ${{ secrets.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY }}
       SENDGRID_FROM_EMAIL: ${{ vars.SENDGRID_FROM_EMAIL }}

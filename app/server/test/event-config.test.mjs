@@ -271,6 +271,7 @@ test('new and existing events default to post-play leads and GitHub CTA', () => 
   assert.equal(fresh.startMode, 'manual');
   assert.equal(fresh.resultSeconds, 15);
   assert.equal(fresh.leadCapture.timing, 'after-play');
+  assert.equal(fresh.leadCapture.guideEnabled, false);
   assert.equal(fresh.cta.primary, 'github');
   const legacy = structuredClone(fresh);
   delete legacy.leadCapture.timing;
@@ -289,7 +290,13 @@ test('new and existing events default to post-play leads and GitHub CTA', () => 
 
 test('primary CTA only accepts an enabled follow-up action', () => {
   const event = normalizeEvent(defaultEvent());
-  assert.equal(normalizeEvent({ ...event, cta: { primary: 'guide' } }, event).cta.primary, 'guide');
+  assert.equal(event.leadCapture.guideEnabled, false);
+  assert.throws(() => normalizeEvent({ ...event, cta: { primary: 'guide' } }, event),
+    error => error.code === 'invalid_input');
+  const withGuide = normalizeEvent({ ...event, leadCapture: {
+    ...event.leadCapture, guideEnabled: true,
+  } }, event);
+  assert.equal(normalizeEvent({ ...withGuide, cta: { primary: 'guide' } }, withGuide).cta.primary, 'guide');
   assert.throws(() => normalizeEvent({ ...event, cta: { primary: 'guide' },
     leadCapture: { ...event.leadCapture, guideEnabled: false } }, event),
   error => error.code === 'invalid_input');
