@@ -46,7 +46,7 @@ Leave `REHEARSAL_MODE` blank or set it to `on`. Without the complete four-value 
 
 Rehearsal mode sends small JPEG snapshots over the local app connection. It proves the join, arena, clock, judging, vote, lead, and reporting flow; it is lower frame rate than a Twilio Video Room. Camera access requires a secure browser context. `http://localhost` and `http://127.0.0.1` work for a camera on the same computer; phones scanning the live arena's play, vote, or tracked GitHub QR need a reachable **HTTPS** URL. Set `PUBLIC_BASE_URL` to that exact public origin so all QR targets and signed callbacks use the correct address.
 
-On a player phone, the join form checks a 2–20 character screen name and consent to appear on the arena, including a brief result freeze, and have camera images checked when enabled. The form explains that OpenAI may review brief camera images when AI judging is enabled. With **At join** enabled, the default Name, Work email, optional Company, screen name, and consent share one phone screen; longer custom contact forms use short pages before camera check. The default setting instead asks for contact fields only after a voluntary guide or expert request. The visitor checks the camera **before** the phone sends `/join`, so denying camera permission does not reserve a player spot. The phone shows a retry button and browser site-settings guidance when access is blocked; its camera switch can select the rear lens. **Go live** reserves a spot and connects it to the arena. If all spots are full, the visitor joins the waitlist and the phone turns the camera off until a place opens. Invalid fields produce an inline prompt and arena updates preserve an in-progress form. A visitor can choose **Watch and vote instead** before joining without sharing player details. The [blank At join phone preview](visuals/live-scavenger-hunt-phone-join-lead-preview.png) shows the combined form without test contact data.
+On a player phone, the join form checks a 2–20 character screen name and consent to appear on the arena, including a brief result freeze, and have camera images checked when enabled. The form explains that OpenAI may review brief camera images when AI judging is enabled. With **At join** enabled, the default Name, Work email, optional Company, screen name, and consent share one phone screen; longer custom contact forms use short pages before camera check. A new event instead asks for contact fields only after a voluntary expert request; **Build guide** starts off until an admin enables it. The visitor checks the camera **before** the phone sends `/join`, so denying camera permission does not reserve a player spot. The phone shows a retry button and browser site-settings guidance when access is blocked; its camera switch can select the rear lens. **Go live** reserves a spot and connects it to the arena. If all spots are full, the visitor joins the waitlist and the phone turns the camera off until a place opens. Invalid fields produce an inline prompt and arena updates preserve an in-progress form. A visitor can choose **Watch and vote instead** before joining without sharing player details. The [blank At join phone preview](visuals/live-scavenger-hunt-phone-join-lead-preview.png) shows the combined form without test contact data.
 
 The event QR can be scanned again in the **same browser profile** to restore that event's player session through `/me`. An active or queued player returns to their place; a finished player sees the play-again choice; a player who explicitly left sees a camera-off rejoin action. Rescanning does not repeat the join form or create a second lead. If At join was enabled after the earlier player joined without a capture lead, the returner must complete the current fields once before replay; their screen name and token are reused. The app stores an opaque event-scoped token and short camera-tab lease in browser storage, not raw contact field values. A different browser, device, private session, or cleared site storage cannot rely on that restore. Only one tab owns the camera at a time; a second tab can take it over with **Use camera here**.
 
@@ -91,7 +91,7 @@ For a disruptive player, open **Manage players** on the operator live desk. Choo
 
 The arena can be reviewed with `?demo=hunt&players=4` or `players=6`, `?demo=vote&players=4` for the separate play and vote QRs, plus `?demo=win|lose|tie|no-match` for results. The phone accepts `?demo=win|lose|tie|no-match|decision|build`. Result previews have a **Replay reveal** control; the decision preview opens immediately. These fixtures do not join a room, open a heat, judge a player, collect leads, or write metrics. In an arena preview, the star link and its QR outside voting open GitHub directly and remain untracked; during voting, the GitHub link remains without its QR. Do a separate real heat rehearsal before the event.
 
-The phone product story uses selectable Video, Messaging, and Segment explanations; Video describes the built live-event path, while the other two are optional integrations. Each panel has an **Explore** link that opens an official Twilio product page in a new tab. **Star this game on GitHub** is the default main post-heat action, with smaller guide and expert choices; an admin can make one of those follow-ups primary instead. A repo link stays in the attendee phone footer throughout the journey. With default after-play capture, guide or expert opens the configured voluntary contact form. After one successful request, **More ways to connect** returns to the product story, and a compatible second request reuses the saved contact without another form. If a guide still needs an email, the phone opens a prefilled form. At-join capture reuses saved details. Web spectators can request a follow-up without joining. Preview links still navigate, but preview clicks are not recorded as event activity.
+The phone product story uses selectable Video, Messaging, and Segment explanations; Video describes the built live-event path, while the other two are optional integrations. Each panel has an **Explore** link that opens an official Twilio product page in a new tab. **Star this game on GitHub** is the default main post-heat action, with a smaller expert choice; **Build guide** appears only when enabled for the event. An admin can make either enabled follow-up primary. A repo link stays in the attendee phone footer throughout the journey. With default after-play capture, an enabled guide or expert follow-up opens the configured voluntary contact form. After one successful request, **More ways to connect** returns to the product story, and a compatible second request reuses the saved contact without another form. If a guide still needs an email, the phone opens a prefilled form. At-join capture reuses saved details. Web spectators can request an enabled follow-up without joining. Preview links still navigate, but preview clicks are not recorded as event activity.
 
 ## 4. Connect Twilio Video
 
@@ -119,25 +119,42 @@ Changing an event's voting settings while its ballot is open closes that ballot 
 | --- | --- | --- |
 | OpenAI vision | `OPENAI_API_KEY`, optional `OPENAI_VISION_MODEL` | Reviews JPEG evidence for AI-assisted prompts with a structured verdict. The request uses `store:false`. If AI fails, the automatic result holds for an operator decision. |
 | Segment | `SEGMENT_WRITE_KEY` | Mirrors a limited, contact-free activity stream under an anonymous browser session ID. Local metrics work without it; lead identities are not sent to Segment. |
-| SendGrid | `SENDGRID_API_KEY`, verified `SENDGRID_FROM_EMAIL`, optional `SENDGRID_REGION=eu` | Submits requested build guides through Mail Send. Without configuration, requests remain saved as `pending-configuration`. A saved job can retry a definite 429 temporary failure; HTTP 503 requires staff review. HTTP `202` means accepted, not delivered. |
-| SendGrid Event Webhook | `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | Verifies signed callbacks and records processed, deferred, delivered, bounced, or dropped delivery state. Without this, accepted guides remain unconfirmed. |
+| SendGrid | `SENDGRID_EMAIL_ENABLED=1`, `SENDGRID_API_KEY`, From address on an authenticated domain in `SENDGRID_FROM_EMAIL`, optional `SENDGRID_REGION=eu` | Outbound guide email is off when the flag is unset or `0`. Enabled delivery submits requested guides through Mail Send. While off, requests remain saved as `pending-configuration` with a `waiting-config` job. A saved job can retry a definite 429 temporary failure; HTTP 503 requires staff review. HTTP `202` means accepted, not delivered. |
+| SendGrid Event Webhook | `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | Verifies signed callbacks, including for messages accepted before delivery was paused, and records processed, deferred, delivered, bounced, or dropped delivery state. Without this, accepted guides remain unconfirmed. |
 
 For Azure, put `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`, and
 `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` in GitHub Actions **secrets**. Put `OPENAI_VISION_MODEL`,
-`SENDGRID_FROM_EMAIL` and `SENDGRID_REGION` in Actions **variables** only
-when you want to set them. The SendGrid key and verified sender address must
-be supplied together. `SENDGRID_REGION=eu` uses
-the EU API; leave it unset for the default global API, or set `global` to
+`SENDGRID_EMAIL_ENABLED`, `SENDGRID_FROM_EMAIL` and `SENDGRID_REGION` in Actions
+**variables**. Leave `SENDGRID_EMAIL_ENABLED` unset for a new installation, or
+set it to `0` to pause an existing deployment. The app defaults outbound guide
+email to off. A controlled deploy with an explicit `0` removes
+`SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL` environment references from the
+replacement revision after the old SQLite writer stops; it does not delete the
+stored GitHub secret or older ACA secret versions. To enable delivery, first
+[authenticate the sending domain](https://www.twilio.com/docs/sendgrid/ui/account-and-settings/how-to-set-up-domain-authentication),
+use a From address on that domain, set `SENDGRID_EMAIL_ENABLED=1`, and deploy.
+The key and From address must both be present and valid when enabling.
+`SENDGRID_REGION=eu` uses the EU API; leave it unset for the default global API, or set `global` to
 switch an existing EU deployment back.
 Dispatch the [controlled deployment](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)
-between heats. Blank values preserve the active ACA setting, so deleting a
-GitHub secret alone does not disable a previously configured integration.
+between heats. A blank switch preserves an existing ACA setting, so use
+explicit `0` to pause a previously enabled deployment; deleting a GitHub
+secret alone does not disable it.
 Credential updates use new ACA secret names per rollout, leaving older
 revisions' references intact for pre-cutover rollback. The deploy job writes
-all supplied secrets as a batch after the old writer stops,
-then waits for provisioning and checks the secret names before starting the
-candidate. Remove old secret
-versions only when those revisions are no longer needed.
+selected secrets as a batch after the old writer stops, then waits for
+provisioning and checks the secret names before starting the candidate.
+Remove old secret versions only when those revisions are no longer needed.
+
+New events default **Build guide** off; existing saved event settings keep
+their chosen value. The event's **Build guide** follow-up can be turned off
+in event settings without changing **At join** lead capture, **Booth expert**, Segment, Video,
+or SMS. Use that event option to stop offering new guide requests while the
+sender is unavailable. Existing guide jobs remain saved. Before switching
+`SENDGRID_EMAIL_ENABLED` back to `1`, review older `waiting-config` requests:
+the delivery worker can send them automatically after re-enablement. The
+SendGrid Event Webhook key may stay configured while outbound email is off so
+signed callbacks for previously accepted sends still reconcile.
 
 For guide delivery confirmation, create an Event Webhook in SendGrid at
 **Settings → Mail Settings → Event Webhooks**. Set its POST URL to
@@ -162,10 +179,11 @@ contacted; the app does not send an expert notification or place a call.
 
 Keep all keys on the server. Never place them in browser JavaScript or commit `.env`. The optional vision request includes the camera image, so ensure the on-screen consent and event privacy notice describe automated judging. AI can misread a booth scene; the operator's award/override remains available. See [OpenAI vision](https://developers.openai.com/api/docs/guides/images-vision), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [Segment Node](https://www.twilio.com/docs/segment/connections/sources/catalog/libraries/server/node), and [SendGrid's Mail Send API](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send).
 
-After cutover, test one AI-assisted prompt, check that a safe game event appears
-in the intended Segment Source under a browser session ID, and request a guide
-with a staff email address. Confirm **accepted** first, then **delivered** after
-the signed webhook arrives. A guide stuck at accepted needs webhook checks;
+After cutover, test one AI-assisted prompt and check that a safe game event appears
+in the intended Segment Source under a browser session ID. Test a guide with a
+staff email address only when `SENDGRID_EMAIL_ENABLED=1` and the sender is
+authenticated; confirm **accepted** first, then **delivered** after the signed
+webhook arrives. A guide stuck at accepted needs webhook checks;
 `bounced`, `dropped`, `failed`, or `needs-review` needs staff attention. The
 operator Preflight view checks configuration presence; these real actions
 confirm account access and delivery.
@@ -174,9 +192,9 @@ confirm account access and delivery.
 
 The private Metrics screen filters by event and date. A single-event range uses that event's IANA time zone; an all-events range uses UTC. It reports join sessions and repeat entries, distinct browser sessions where session IDs exist, distinct player IDs, heats, results, votes, funnel activity, voluntary leads, guide and expert requests, player leaves, timed-out sessions, operator removals, and outbound Twilio page and GitHub repo clicks. A browser session is **not** a unique person: devices can be shared and cookies can be reset. Legacy joins without a session ID are reported separately. The report summary exposes `joinSessions`, `totalParticipants`, `uniquePlayers`, `uniqueVisitorSessions`, `unattributedJoinSessions`, `playerLeaves`, `timedOutPlayers`, `kickedPlayers`, `twilioProductLinkClicksByProduct: {video,messaging,segment}`, and `githubRepoClicksBySource: {phone,spectator,arenaQr,arenaLink}`. The arena's live star link and QR pass through a fixed repository redirect. These counts reflect outbound actions in real sessions, not confirmed GitHub stars. Event and lead CSV exports are filtered and escaped against spreadsheet formula execution.
 
-Admins see leads; operators may run heats but cannot open private reports. Lead capture can be disabled per event. When enabled, an admin chooses **After play** or **At join**, a primary CTA, and up to eight fields with required flags. The default is after play with GitHub starring as the main action. The form requires at least one email or phone field, and a guide requires a required email field. At-join capture saves the player and lead atomically, but the phone still checks the camera first. After-play capture collects details only when a player requests a guide or expert. A web spectator may vote without sharing details, then voluntarily request a follow-up through the same configured form. Every lead saves the field definition the visitor saw, so later edits do not rewrite it. New requests cannot claim marketing opt-in; historical opt-ins remain in older records and CSV exports.
+Admins see leads; operators may run heats but cannot open private reports. Lead capture can be disabled per event. When enabled, an admin chooses **After play** or **At join**, a primary CTA, and up to eight fields with required flags. New events default to after play, GitHub starring as the main action, expert follow-up on, and Build guide off; existing saved settings are unchanged. The form requires at least one email or phone field, and an enabled guide requires a required email field. At-join capture saves the player and lead atomically, but the phone still checks the camera first. After-play capture collects details only when a player requests an enabled follow-up. A web spectator may vote without sharing details, then voluntarily request an enabled follow-up through the same configured form. Every lead saves the field definition the visitor saw, so later edits do not rewrite it. New requests cannot claim marketing opt-in; historical opt-ins remain in older records and CSV exports.
 
-The phone preserves in-progress join and follow-up fields while live arena updates arrive and groups larger forms into short pages on compact screens. With at-join capture, later guide or expert taps mark requests on that saved lead. With after-play capture, the voluntary form creates the lead when submitted. If timing changes during a heat, a player missing saved contact details is offered the follow-up form. A guide needs an email; if SendGrid is not configured, the request and delivery job remain saved for later processing. An expert request appears in the private follow-up queue and does not place a call or send a staff alert. Metrics count leads by capture date and guide or expert requests by their request dates. The lead roster and lead CSV filter by capture date, including when staff view the pending expert queue across all dates; the event activity export includes later request actions. The admin can mark an expert request contacted and reopen it if needed.
+The phone preserves in-progress join and follow-up fields while live arena updates arrive and groups larger forms into short pages on compact screens. With at-join capture, later guide or expert taps mark requests on that saved lead. With after-play capture, the voluntary form creates the lead when submitted. If timing changes during a heat, a player missing saved contact details is offered the follow-up form. A guide needs an email; if outbound SendGrid email is off or unconfigured, the request and delivery job remain saved for later processing. An expert request appears in the private follow-up queue and does not place a call or send a staff alert. Metrics count leads by capture date and guide or expert requests by their request dates. The lead roster and lead CSV filter by capture date, including when staff view the pending expert queue across all dates; the event activity export includes later request actions. The admin can mark an expert request contacted and reopen it if needed.
 
 Locally, SQLite lives in `app/data/`. In Azure, it runs on fast local container storage and Litestream replicates it to a private Azure Blob container; a replacement revision restores the backup before Node starts. A renewable Blob lease ensures that an extra Container Apps replica waits instead of opening a second game database.
 
@@ -190,9 +208,9 @@ Litestream attempts to sync every second when Blob is healthy, but an outage can
 - [ ] Sign in as admin, create and test named local operator accounts in **Team**, optionally rename the initial admin username, rotate the initial admin password, and remove accounts that no longer need access. If Google sign-in is enabled, complete a verified Twilio Workspace login on the stable public hostname, confirm **Team** and **Metrics** appear, and confirm a non-Twilio account is denied.
 - [ ] Add the four app-wide Twilio secrets, deploy with `TWILIO_VIDEO_MODE=live`, then check a live Group Room, player publishing, wall subscription, and signed callbacks.
 - [ ] Register and configure any SMS/WhatsApp senders for inbound ballots and TwiML acknowledgment replies; check the exact inbound webhook URL, event codes, and event-specific channel toggles.
-- [ ] Configure optional OpenAI, Segment, and SendGrid only for the services the activation will use. If sending guides, verify the sender, deploy the signed Event Webhook key, and confirm a staff test address reaches **delivered** rather than only **accepted**.
+- [ ] Configure optional OpenAI, Segment, and SendGrid only for the services the activation will use. Keep `SENDGRID_EMAIL_ENABLED=0` and the event's **Build guide** action off while the sender is unavailable. Before re-enabling, review saved `waiting-config` jobs; if sending guides, authenticate the sender domain, deploy the signed Event Webhook key, and confirm a staff test address reaches **delivered** rather than only **accepted**.
 - [ ] Check event settings including lead timing and primary CTA, approved prompts and Low-priority cadence, props, lighting, portrait and landscape camera framing on the phone and wall, unmirrored printed words, denied camera recovery and front/rear switch, both arena QR codes, AI failure hold, tie/no-match override, joining during a paused lobby and paused active heat, pause/resume timing, replay into the next heat, player leave, idle cleanup, and operator removal on the actual booth network.
-- [ ] Submit a voluntary player or spectator guide/expert request with a staff address, verify the expert follow-up queue and 24-hour same-event recipient cooldown, and check anonymous Segment events if enabled.
+- [ ] Submit a voluntary player or spectator expert request with a staff address and verify the expert follow-up queue; when guide email is enabled, also test a guide request and the 24-hour same-event recipient cooldown. Check anonymous Segment events if enabled.
 - [ ] Run `npm run check`, review the operator Preflight view, and test a complete 2–6 player heat and a filtered lead export before opening doors.
 
 The [API contract](full-app-api.md) lists all routes and payloads. The [challenge library](concepts/find-it-first-challenge-library.md) is a prompt planning aid, not an automatically approved live deck.

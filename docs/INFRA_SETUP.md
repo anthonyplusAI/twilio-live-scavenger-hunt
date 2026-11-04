@@ -156,7 +156,8 @@ credentials; only the deploy job reads them.
 | Twilio secrets | `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN` | The complete Video set. The Auth Token also validates signed Video and Messaging webhooks. |
 | Twilio variable | `TWILIO_VIDEO_MODE` | Set to `live` to activate Video with the full credential set, or `rehearsal` to use app-routed camera snapshots. Unset preserves the current Video mode. |
 | Optional secrets | `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`, `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | AI-assisted judging, Segment mirroring, requested guide email, and verification of SendGrid delivery callbacks respectively. |
-| Optional variables | `OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, verified guide sender, and SendGrid API region. |
+| Optional variables | `OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, `SENDGRID_REGION` | Model choice, guide sender on an authenticated domain, and SendGrid API region. |
+| Guide email variable | `SENDGRID_EMAIL_ENABLED` | `0` pauses outbound guide email and removes the candidate revision's Mail Send key/sender references; `1` enables it only with both credentials. A fresh app defaults to off when unset. |
 
 The provisioner leaves any existing GitHub secret value untouched. If an OIDC
 identifier must change later, rotate it deliberately in repository settings.
@@ -272,10 +273,12 @@ credentials under the same GitHub **Actions secrets and variables** page, then
 dispatch `deploy.yml` from `main` between heats. The deployment validates
 settings before the old revision stops and attaches API keys as
 rollout-specific ACA secret references only after that writer reaches zero
-replicas. Supplied secrets are batched into a Container App update; the workflow waits
-for provisioning to settle and verifies their names before starting the
-replacement. Empty or absent
-settings preserve the existing ACA values.
+replicas. Selected secrets are batched into a Container App update. The
+workflow waits for provisioning to settle and verifies their names before
+starting the replacement. Empty or absent settings preserve the existing ACA
+values, except that an explicit
+`SENDGRID_EMAIL_ENABLED=0` removes the Mail Send key and From address from the
+replacement revision. The SendGrid flag defaults to off in the app.
 
 1. **AI judging:** add `OPENAI_API_KEY` as an Actions secret. Optionally set the
    Actions variable `OPENAI_VISION_MODEL` to a model available to that account;
@@ -285,20 +288,40 @@ settings preserve the existing ACA values.
 2. **Segment:** create a Source and add its `SEGMENT_WRITE_KEY` as an Actions
    secret to mirror the app's limited activity stream. Local metrics continue
    to work without Segment. The app sends no lead identity to Segment.
-3. **Guide email:** verify the sending identity in SendGrid, create an API key
-   with Mail Send access, add `SENDGRID_API_KEY` as an Actions secret, and set
-   `SENDGRID_FROM_EMAIL` to the exact verified address as an Actions variable.
-   Both settings must be present when enabling or refreshing guide email; a
-   partial pair fails before downtime. Set `SENDGRID_REGION=eu` only for an EU
-   regional account. The default uses the global API; `global` or `us` can
-   explicitly switch a previously configured EU deployment back. The default
-   post-heat action is a GitHub star link. An admin can instead make the guide
-   or expert action primary in event settings. A first follow-up action opens a
-   voluntary contact form after play; a compatible second request reuses those
-   details. A guide request needs an email. The same actions
-   are available to spectators who do not play. Expert requests enter the
-   admin-only follow-up queue in Metrics and do not place a Voice call.
-4. **Confirm guide delivery:** in SendGrid, open **Settings → Mail Settings →
+3. **Pause guide email now:** in the repository, open **Settings → Secrets and
+   variables → Actions → Variables** and set `SENDGRID_EMAIL_ENABLED` to `0`.
+   Dispatch `deploy.yml` from `main` between heats. The controlled rollout
+   stops the old SQLite writer, then creates a replacement revision with the
+   flag at `0` and without `SENDGRID_API_KEY` or `SENDGRID_FROM_EMAIL`
+   environment references. Keep the stored GitHub secret and From-address
+   variable; they are not sent to the replacement revision while email is
+   off. Signed
+   Event Webhook callbacks for messages already accepted can still reconcile.
+   New events already have **Build guide** off. For an existing event, open
+   **Event settings → Leads** and turn it off if the booth should stop offering
+   new guide requests. Existing saved event choices are not changed by the
+   new default. That event setting does not turn off At join lead capture, the
+   expert follow-up, Segment, Video, or SMS. If the
+   guide action remains available, new requests are saved as
+   `pending-configuration` with `waiting-config` jobs and no email attempt.
+4. **Re-enable later:** [authenticate the sending domain in SendGrid](https://www.twilio.com/docs/sendgrid/ui/account-and-settings/how-to-set-up-domain-authentication)
+   and use a From address on that domain. A Single Sender is suitable for
+   testing, but SendGrid recommends domain authentication for production.
+   Create an API key with Mail Send access and save it as the Actions secret
+   `SENDGRID_API_KEY`; set `SENDGRID_FROM_EMAIL` to that exact sender address as
+   an Actions variable. Review older guide requests in **Metrics → Leads**
+   first: saved `waiting-config` jobs can send automatically once delivery is
+   enabled. Then set `SENDGRID_EMAIL_ENABLED=1` and dispatch `deploy.yml`
+   from `main` between heats. A missing key, missing From address, malformed
+   address, or whitespace in the key fails validation before downtime.
+   Optionally set `SENDGRID_REGION=eu` for an EU regional account. The default
+   uses the global API; `global` or `us` can explicitly switch a previously
+   configured EU deployment back. The default post-heat action remains the
+   GitHub star link. An admin can choose the guide or expert action as the
+   primary CTA when that action is enabled. A guide request needs an email;
+   expert requests enter the admin-only follow-up queue and do not place a
+   Voice call.
+5. **Confirm guide delivery:** in SendGrid, open **Settings → Mail Settings →
    Event Webhooks**, create an Event Webhook with POST URL
    `https://live-scavenger-hunt.delightfulwave-e00d5e3d.centralus.azurecontainerapps.io/webhooks/sendgrid/events`
    (replace the host if this event runs at another origin), and select
@@ -315,12 +338,14 @@ settings preserve the existing ACA values.
    another send. Definite HTTP 429 responses retry with backoff; HTTP 503 and
    uncertain network outcomes require staff review without automatic retry.
 
-After cutover, test one AI-assisted prompt, check that a safe game event appears
-in the intended Segment Source, and request a guide with a staff email address.
-Check **accepted** first, then **delivered** after the signed SendGrid callback;
-an accepted message alone does not establish delivery. The operator Preflight
-view checks configuration presence; those real actions confirm account access
-and the complete send path. Removing a GitHub secret does not clear an
+After cutover, test one AI-assisted prompt and check that a safe game event
+appears in the intended Segment Source. Request a guide with a staff email
+address only after `SENDGRID_EMAIL_ENABLED=1` and domain authentication are in
+place. Check **accepted** first, then **delivered** after the signed SendGrid
+callback; an accepted message alone does not establish delivery. The operator
+Preflight view reports when guide delivery is paused; those real actions
+confirm account access and the complete send path. Removing a GitHub secret
+does not clear an
 existing ACA secret reference. Older secret versions are kept for rollback;
 clean them up only after their referencing revisions are no longer needed.
 Keep all API keys out of the repository and browser code.

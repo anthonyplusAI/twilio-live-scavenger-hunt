@@ -52,7 +52,7 @@ export function defaultEvent(name = 'Live Scavenger Hunt', slug = 'live-scavenge
     resultSeconds: 15, tieWindowMs: 300, startMode: 'manual',
     judgePolicy: 'auto-with-override', autoAdvance: true, retentionDays: 90,
     leadCapture: {
-      enabled: true, timing: 'after-play', guideEnabled: true, expertEnabled: true,
+      enabled: true, timing: 'after-play', guideEnabled: false, expertEnabled: true,
       fields: [
         { id: 'name', label: 'Name', type: 'text', required: true },
         { id: 'email', label: 'Work email', type: 'email', required: true },

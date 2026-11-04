@@ -99,21 +99,48 @@ TwiML response instructs Twilio to send a ballot acknowledgment. The [Twilio
 setup steps](INFRA_SETUP.md#activate-twilio-video) cover those settings.
 
 The same stopped-writer update supports optional OpenAI, Segment, and SendGrid
-settings. Nonempty `OPENAI_API_KEY`, `SEGMENT_WRITE_KEY`, `SENDGRID_API_KEY`,
-and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` Actions secrets become ACA secret
-references; optional
-`OPENAI_VISION_MODEL`, `SENDGRID_FROM_EMAIL`, and `SENDGRID_REGION`
-Actions variables become candidate environment settings.
-The SendGrid API key and verified sender email must be supplied together.
-The app does not send lead identity to Segment. Invalid values and a partial
-SendGrid pair fail before the old writer stops. Unset values preserve the live configuration;
-removing a GitHub secret does not remove an existing ACA reference. The
+settings. Nonempty `OPENAI_API_KEY` and `SEGMENT_WRITE_KEY` Actions secrets
+become ACA secret references. `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` can be synced
+independently so signed callbacks for previously accepted messages still work
+while outbound email is off. `OPENAI_VISION_MODEL` and `SENDGRID_REGION` are
+optional candidate environment settings. The app does not send lead identity
+to Segment. Outbound guide email defaults to off and requires the Actions
+variable `SENDGRID_EMAIL_ENABLED=1` plus a `SENDGRID_API_KEY` secret and
+`SENDGRID_FROM_EMAIL` variable on an authenticated sending domain. The deploy
+script rejects an invalid flag or incomplete/invalid key and sender before
+the old writer stops. A blank flag preserves the active ACA setting, so do
+not use an unset variable to pause a previously enabled deployment. The
 [optional integration setup](INFRA_SETUP.md#activate-optional-ai-segment-and-guide-email)
 includes signed SendGrid Event Webhook setup and post-cutover checks. The
-webhook key can be deployed separately from the API key and verified sender.
-After sending a staff test guide, check that its status moves from **accepted**
-to **delivered**; `202 Accepted` alone does not confirm delivery. A repeated
-request for the same event and email within 24 hours is recorded without
+webhook key can be deployed separately from the Mail Send key and sender.
+
+To pause outbound guide email, set the repository Actions variable
+`SENDGRID_EMAIL_ENABLED=0` under **Settings → Secrets and variables → Actions →
+Variables**, then dispatch the normal deploy between heats. After the old
+SQLite writer is stopped, the replacement revision receives the flag at `0`
+and removes its `SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL` environment
+references. The workflow does not copy the stored Mail Send key into that
+revision or delete the encrypted GitHub secret. Older ACA secret versions
+remain for pre-cutover rollback; they are not connected to the new revision.
+Lead capture, local metrics, Segment, Video, and SMS continue independently.
+New events start with **Build guide** off; existing saved event choices are
+unchanged. An admin can also turn off that option on an existing event without
+disabling At join lead capture or the expert CTA. If the guide option stays
+available, requests save as `pending-configuration` with `waiting-config`
+jobs and are not sent while email is off. After cutover, inspect the active
+revision's environment variable names in Azure and confirm the Mail Send key
+and From address are absent while the flag is `0`.
+
+Before re-enabling, review saved guide requests in **Metrics → Leads**: older
+`waiting-config` jobs can send automatically when delivery resumes. First
+authenticate the sending domain and choose a From address on it, confirm the
+Actions secret `SENDGRID_API_KEY` and variable `SENDGRID_FROM_EMAIL`, then set
+`SENDGRID_EMAIL_ENABLED=1` and dispatch the normal deploy between heats. This
+attaches a new rollout-specific key reference and sender only after the old
+writer stops. After sending a staff test guide, check that its status moves
+from **accepted** to **delivered**; `202 Accepted` alone does not confirm
+delivery. A repeated request for the same event and email within 24 hours is
+recorded without
 another send. HTTP 503 and uncertain network outcomes are held for staff
 review without automatic retry.
 
@@ -246,6 +273,7 @@ The cloud site initially uses rehearsal camera snapshots. Live Twilio Video
 requires its four credentials, the explicit `TWILIO_VIDEO_MODE=live` rollout,
 and a fresh venue-phone test. SMS/WhatsApp requires sender registration and
 webhook configuration for inbound ballots and automated acknowledgment replies;
-OpenAI vision, Segment, and SendGrid are optional server integrations. See
+OpenAI vision, Segment, and SendGrid are optional server integrations. Keep
+`SENDGRID_EMAIL_ENABLED=0` until the sending domain is authenticated. See
 [the booth runbook](runbook.md) for event operations. The hosted site does not
 implement Voice or Agent Connect.

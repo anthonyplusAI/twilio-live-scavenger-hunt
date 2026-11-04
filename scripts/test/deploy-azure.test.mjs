@@ -104,10 +104,11 @@ test('invalid optional integration settings fail before the live revision is tou
       { settings: { OPENAI_API_KEY: `${key} bad` }, error: /OPENAI_API_KEY cannot contain whitespace/ },
       { settings: { OPENAI_VISION_MODEL: 'model with spaces' }, error: /OPENAI_VISION_MODEL cannot contain whitespace/ },
       { settings: { SEGMENT_WRITE_KEY: `${key}\nbad` }, error: /SEGMENT_WRITE_KEY cannot contain whitespace/ },
-      { settings: { SENDGRID_API_KEY: key }, error: /SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set/ },
-      { settings: { SENDGRID_FROM_EMAIL: 'booth@example.com' }, error: /SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must both be set/ },
-      { settings: { SENDGRID_API_KEY: key, SENDGRID_FROM_EMAIL: 'not-an-email' }, error: /SENDGRID_FROM_EMAIL must be a valid sender email address/ },
-      { settings: { SENDGRID_API_KEY: key, SENDGRID_FROM_EMAIL: 'booth@example.com', SENDGRID_REGION: 'asia' },
+      { settings: { SENDGRID_EMAIL_ENABLED: 'yes' }, error: /SENDGRID_EMAIL_ENABLED must be 0 or 1/ },
+      { settings: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: key }, error: /SENDGRID_EMAIL_ENABLED=1 requires SENDGRID_API_KEY and SENDGRID_FROM_EMAIL/ },
+      { settings: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_FROM_EMAIL: 'booth@example.com' }, error: /SENDGRID_EMAIL_ENABLED=1 requires SENDGRID_API_KEY and SENDGRID_FROM_EMAIL/ },
+      { settings: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: key, SENDGRID_FROM_EMAIL: 'not-an-email' }, error: /SENDGRID_FROM_EMAIL must be a valid sender email address/ },
+      { settings: { SENDGRID_EMAIL_ENABLED: '1', SENDGRID_API_KEY: key, SENDGRID_FROM_EMAIL: 'booth@example.com', SENDGRID_REGION: 'asia' },
         error: /SENDGRID_REGION must be eu, global, or us/ },
       { settings: { GITHUB_RUN_ID: 'bad-run-id' }, error: /Deployment run identifier must contain only digits/ },
     ]) {
@@ -121,7 +122,7 @@ test('invalid optional integration settings fail before the live revision is tou
           FAKE_AZ_LOG: azLog,
           OPENAI_API_KEY: '', OPENAI_VISION_MODEL: '',
           SEGMENT_WRITE_KEY: '',
-          SENDGRID_API_KEY: '', SENDGRID_FROM_EMAIL: '', SENDGRID_REGION: '',
+          SENDGRID_EMAIL_ENABLED: '', SENDGRID_API_KEY: '', SENDGRID_FROM_EMAIL: '', SENDGRID_REGION: '',
           ...settings,
         },
       });
@@ -259,7 +260,8 @@ exit 83
   if (settings.TWILIO_AUTH_TOKEN) secretNames.push(`twilio-auth-token-${suffix}`);
   if (settings.OPENAI_API_KEY) secretNames.push(`openai-api-key-${suffix}`);
   if (settings.SEGMENT_WRITE_KEY) secretNames.push(`segment-write-key-${suffix}`);
-  if (settings.SENDGRID_API_KEY && settings.SENDGRID_FROM_EMAIL) secretNames.push(`sendgrid-api-key-${suffix}`);
+  if (settings.SENDGRID_EMAIL_ENABLED === '1' && settings.SENDGRID_API_KEY && settings.SENDGRID_FROM_EMAIL)
+    secretNames.push(`sendgrid-api-key-${suffix}`);
   if (settings.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY) secretNames.push(`sendgrid-webhook-key-${suffix}`);
   const revision = active => [{ name: previous, properties: {
     active, replicas: active ? 1 : 0,
@@ -289,6 +291,7 @@ exit 83
         OPENAI_API_KEY: '',
         OPENAI_VISION_MODEL: '',
         SEGMENT_WRITE_KEY: '',
+        SENDGRID_EMAIL_ENABLED: '',
         SENDGRID_API_KEY: '',
         SENDGRID_FROM_EMAIL: '',
         SENDGRID_REGION: '',
@@ -354,6 +357,20 @@ test('explicit Google disable removes OAuth env during the stopped-writer update
   assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false);
 });
 
+test('Google and SendGrid disable remove both credential pairs in one update', () => {
+  const { calls, update } = runStoppedWriterUpdate({
+    GOOGLE_AUTH_DISABLE: '1',
+    GOOGLE_CLIENT_ID: '123-test.apps.googleusercontent.com',
+    GOOGLE_CLIENT_SECRET: randomBytes(20).toString('hex'),
+    SENDGRID_EMAIL_ENABLED: '0',
+    SENDGRID_API_KEY: randomBytes(24).toString('hex'),
+    SENDGRID_FROM_EMAIL: 'booth@example.com',
+  });
+  assert.equal(update.split('--remove-env-vars').length, 2, 'the CLI receives one remove list');
+  assert.match(update, /--remove-env-vars GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET SENDGRID_API_KEY SENDGRID_FROM_EMAIL$/);
+  assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false);
+});
+
 test('Google credentials are attached only after stopping the prior writer', () => {
   const clientId = '123-test.apps.googleusercontent.com';
   const secret = randomBytes(20).toString('hex');
@@ -378,6 +395,51 @@ test('unset Twilio mode and secrets preserve the candidate configuration', () =>
   for (const name of ['OPENAI_', 'SEGMENT_', 'SENDGRID_'])
     assert.equal(update.includes(name), false);
   assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false);
+});
+
+test('unset SendGrid switch leaves stored credentials out of the candidate update', () => {
+  const { calls, update } = runStoppedWriterUpdate({
+    SENDGRID_API_KEY: randomBytes(24).toString('hex'),
+    SENDGRID_FROM_EMAIL: 'booth@example.com',
+  });
+  assert.equal(update.includes('SENDGRID_'), false);
+  assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false);
+});
+
+test('explicit SendGrid off removes Mail Send env references after the old writer stops', () => {
+  const { calls, update } = runStoppedWriterUpdate({
+    SENDGRID_EMAIL_ENABLED: '0',
+    SENDGRID_API_KEY: randomBytes(24).toString('hex'),
+    SENDGRID_FROM_EMAIL: 'booth@example.com',
+  });
+  const stoppedAt = calls.findIndex(call => call.startsWith('containerapp revision deactivate '));
+  const updateAt = calls.findIndex(call => call.startsWith('containerapp update '));
+  assert.ok(stoppedAt >= 0 && stoppedAt < updateAt);
+  assert.match(update, /SENDGRID_EMAIL_ENABLED=0/);
+  assert.match(update, /--remove-env-vars SENDGRID_API_KEY SENDGRID_FROM_EMAIL$/);
+  assert.equal(update.includes('SENDGRID_API_KEY=secretref:'), false);
+  assert.equal(update.includes('SENDGRID_FROM_EMAIL='), false);
+  assert.equal(calls.some(call => call.startsWith('containerapp secret set ')), false,
+    'stored GitHub credentials must not be copied to ACA while email is off');
+});
+
+test('SendGrid can be re-enabled by attaching a validated key and sender after the old writer stops', () => {
+  const apiKey = randomBytes(24).toString('hex');
+  const { calls, update } = runStoppedWriterUpdate({
+    SENDGRID_EMAIL_ENABLED: '1',
+    SENDGRID_API_KEY: apiKey,
+    SENDGRID_FROM_EMAIL: 'booth@example.com',
+  });
+  const stoppedAt = calls.findIndex(call => call.startsWith('containerapp revision deactivate '));
+  const secretAt = calls.findIndex(call => call.startsWith('containerapp secret set '));
+  const updateAt = calls.findIndex(call => call.startsWith('containerapp update '));
+  assert.ok(stoppedAt >= 0 && stoppedAt < secretAt && secretAt < updateAt);
+  assert.match(calls[secretAt], /--secrets sendgrid-api-key-r1234567890a1=/);
+  assert.match(update, /SENDGRID_EMAIL_ENABLED=1/);
+  assert.match(update, /SENDGRID_API_KEY=secretref:sendgrid-api-key-r1234567890a1/);
+  assert.match(update, /SENDGRID_FROM_EMAIL=booth@example.com/);
+  assert.equal(update.includes('--remove-env-vars SENDGRID_API_KEY SENDGRID_FROM_EMAIL'), false);
+  assert.equal(update.includes(apiKey), false);
 });
 
 test('an image-only rollout works with no environment update on Bash 3.2', () => {
@@ -444,6 +506,7 @@ test('optional integration keys are attached after the old writer stops without 
     OPENAI_API_KEY: openaiKey,
     OPENAI_VISION_MODEL: 'gpt-6-luna',
     SEGMENT_WRITE_KEY: segmentKey,
+    SENDGRID_EMAIL_ENABLED: '1',
     SENDGRID_API_KEY: sendgridKey,
     SENDGRID_FROM_EMAIL: 'booth@example.com',
     SENDGRID_REGION: 'eu',
@@ -459,6 +522,7 @@ test('optional integration keys are attached after the old writer stops without 
   assert.match(update, /OPENAI_API_KEY=secretref:openai-api-key-r1234567890a1/);
   assert.match(update, /OPENAI_VISION_MODEL=gpt-6-luna/);
   assert.match(update, /SEGMENT_WRITE_KEY=secretref:segment-write-key-r1234567890a1/);
+  assert.match(update, /SENDGRID_EMAIL_ENABLED=1/);
   assert.match(update, /SENDGRID_API_KEY=secretref:sendgrid-api-key-r1234567890a1/);
   assert.match(update, /SENDGRID_FROM_EMAIL=booth@example.com/);
   assert.match(update, /SENDGRID_REGION=eu/);
@@ -478,6 +542,7 @@ test('each rollout gets distinct secret names so rollback keeps the old referenc
     TWILIO_AUTH_TOKEN: randomBytes(24).toString('hex'),
     OPENAI_API_KEY: randomBytes(24).toString('hex'),
     SEGMENT_WRITE_KEY: randomBytes(24).toString('hex'),
+    SENDGRID_EMAIL_ENABLED: '1',
     SENDGRID_API_KEY: randomBytes(24).toString('hex'),
     SENDGRID_FROM_EMAIL: 'booth@example.com',
     SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: randomBytes(24).toString('hex'),

@@ -9,9 +9,12 @@ import { GameEngine } from '../engine.mjs';
 import { submitLead, submitSpectatorLead, validateLead } from '../leads.mjs';
 import { buildReport } from '../report.mjs';
 
-function setup() {
+function setup({ guideEnabled = false } = {}) {
   const store = openDatabase();
-  const event = store.seedDefault();
+  let event = store.seedDefault();
+  if (guideEnabled) event = store.saveEvent(event.slug, { ...event, leadCapture: {
+    ...event.leadCapture, guideEnabled: true,
+  } }, event.revision);
   const engine = new GameEngine({ store });
   const joined = engine.join(event.slug, { alias: 'Visitor', displayConsent: true });
   const tracked = [];
@@ -44,7 +47,7 @@ test('existing lead rows survive the follow-up timestamp migration', () => {
 });
 
 test('legacy player sessions can still request a guide with a saved field snapshot', async () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   assert.equal(app.store.listLeads().length, 0);
   let current = app.store.saveEvent(app.event.slug, { ...app.event, leadCapture: {
     ...app.event.leadCapture, fields: [
@@ -75,7 +78,7 @@ test('legacy player sessions can still request a guide with a saved field snapsh
 });
 
 test('lead validation rejects unknown fields, missing contact, invalid email, and legacy marketing opt-in', () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   const state = app.store.getRuntime(app.event.id);
   const player = app.engine.player(app.event.slug, app.joined.token);
   const base = { intent: 'expert', fieldValues: { name: 'A Visitor', email: 'a@example.com' } };
@@ -102,7 +105,7 @@ test('lead validation rejects unknown fields, missing contact, invalid email, an
 });
 
 test('a configured build guide always has a required email field', () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   assert.throws(() => app.store.saveEvent(app.event.slug, { ...app.event, leadCapture: {
     ...app.event.leadCapture,
     fields: [{ id: 'phone', label: 'Phone', type: 'tel', required: true }],
@@ -132,7 +135,7 @@ test('lead capture can be turned off and repeated submission does not duplicate 
 });
 
 test('spectators can voluntarily request one guide and join the staff expert queue', async () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   const sessionId = 'b0a024f596bf04fd393d';
   const fields = { name: 'Spectator', email: 'spectator@example.com' };
   const guideInput = { intent: 'guide', fieldValues: fields, marketingOptIn: false };
@@ -169,7 +172,7 @@ test('previously unconfigured guide requests enter the durable queue once', () =
 
 test('post-play expert and guide requests reuse one player lead in either order', async () => {
   for (const order of [['expert', 'guide'], ['guide', 'expert']]) {
-    const app = setup();
+    const app = setup({ guideEnabled: true });
     let sends = 0;
     app.integrations.sendGuide = async () => { sends++; return 'accepted'; };
     const first = await submitLead({ store: app.store, engine: app.engine,
@@ -192,7 +195,7 @@ test('post-play expert and guide requests reuse one player lead in either order'
 });
 
 test('changed player contact details create a separate follow-up lead', async () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   const first = await submitLead({ store: app.store, engine: app.engine,
     integrations: app.integrations, slug: app.event.slug, token: app.joined.token,
     input: { intent: 'expert', fieldValues: { name: 'Visitor', email: 'visitor@example.com' }, marketingOptIn: false } });
@@ -227,7 +230,7 @@ test('spectator dedupe preserves corrected contact details and changed form answ
 });
 
 test('guide cooldown follows the event and recipient across spectator cookies and player sessions', async () => {
-  const app = setup();
+  const app = setup({ guideEnabled: true });
   let sends = 0;
   app.integrations.sendGuide = async () => { sends++; return 'accepted'; };
   const request = (sessionId, email) => submitSpectatorLead({ store: app.store, engine: app.engine,
