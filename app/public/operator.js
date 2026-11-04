@@ -41,6 +41,8 @@ let selectedPastHeatId = null;
 let selectedPastWinners = new Set();
 let pastSelectionDirty = false;
 let selectedPromptId = null;
+let queueDraftPromptId = "";
+let lastQueuedPromptId;
 let promptBuffer = null;
 let promptDirty = false;
 let promptPriorityAuto = false;
@@ -132,6 +134,7 @@ function ensureEventShape(event) {
   copy.leadCapture.fields = Array.isArray(copy.leadCapture.fields) ? copy.leadCapture.fields : [];
   copy.cta = copy.cta || { primary: "github" };
   copy.vote = copy.vote || {};
+  copy.vote.autoCategory = Boolean(copy.vote.autoCategory);
   copy.vote.channels = copy.vote.channels || {};
   copy.vote.categories = Array.isArray(copy.vote.categories) ? copy.vote.categories : ["Color", "Object", "Text", "Creative"];
   return copy;
@@ -155,6 +158,10 @@ function setServerTime(value) {
   if (stamp != null) clockOffset = stamp - Date.now();
 }
 function setCommitted(event) {
+  if (committed?.id !== event.id) {
+    queueDraftPromptId = "";
+    lastQueuedPromptId = undefined;
+  }
   committed = ensureEventShape(event);
   draft = ensureEventShape(event);
   eventDirty = false;
@@ -512,6 +519,7 @@ function renderVoteConfig() {
   if (!draft) return;
   const vote = draft.vote;
   $("vote-enabled").checked = Boolean(vote.enabled);
+  $("vote-auto-category").checked = Boolean(vote.autoCategory);
   $("vote-seconds").value = vote.windowSeconds ?? 20;
   $("vote-creative-seconds").value = vote.creativeWindowSeconds ?? 20;
   $("vote-web").checked = vote.channels.web !== false;
@@ -694,6 +702,7 @@ function syncEventForm() {
   draft.leadCapture.expertEnabled = $("lead-expert").checked;
   draft.cta = { primary: $("primary-cta").value };
   draft.vote.enabled = $("vote-enabled").checked;
+  draft.vote.autoCategory = $("vote-auto-category").checked;
   draft.vote.windowSeconds = Number($("vote-seconds").value);
   draft.vote.creativeWindowSeconds = Number($("vote-creative-seconds").value);
   draft.vote.channels = { ...draft.vote.channels, web: $("vote-web").checked, sms: $("vote-sms").checked, whatsapp: $("vote-whatsapp").checked };
@@ -963,18 +972,37 @@ function discardPromptBuffer() {
 function renderQueue() {
   if (!committed) return;
   const select = $("queue-select");
-  const prior = select.value;
+  const enabled = promptDisplayOrder(committed.prompts.filter((item) => item.enabled));
+  const queued = enabled.find((prompt) => prompt.id === runtime?.queuedPromptId);
+  const queuedId = queued?.id || "";
+  if (queuedId !== lastQueuedPromptId) {
+    queueDraftPromptId = queuedId;
+    lastQueuedPromptId = queuedId;
+  }
+  if (queueDraftPromptId && !enabled.some((prompt) => prompt.id === queueDraftPromptId)) queueDraftPromptId = queuedId;
   select.replaceChildren();
-  for (const prompt of promptDisplayOrder(committed.prompts.filter((item) => item.enabled))) {
+  const automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "Automatic draw";
+  select.append(automatic);
+  for (const prompt of enabled) {
     const option = document.createElement("option");
     option.value = prompt.id;
     option.textContent = prompt.text;
     select.append(option);
   }
-  if ([...select.options].some((item) => item.value === prior)) select.value = prior;
-  else if ([...select.options].some((item) => item.value === runtime?.queuedPromptId)) select.value = runtime.queuedPromptId;
-  $("queue-button").disabled = !select.options.length || commandBusy || (select.value && select.value === runtime?.queuedPromptId);
-  $("queue-button").textContent = select.value && select.value === runtime?.queuedPromptId ? "Queued" : "Queue";
+  select.value = queueDraftPromptId;
+  const changed = queueDraftPromptId !== queuedId;
+  const button = $("queue-button");
+  button.disabled = !enabled.length || !changed || commandBusy;
+  button.textContent = changed ? (queueDraftPromptId ? "Set next" : "Use auto") : queuedId ? "Selected" : "Automatic";
+  const status = $("queue-status");
+  const message = !enabled.length ? "Enable a challenge in Prompts first."
+    : changed ? (queueDraftPromptId ? "Press Set next to save." : "Press Use auto to clear.")
+      : queuedId ? "Manual choice saved for next heat."
+        : runtime?.preferredCategory ? `Next draw: ${runtime.preferredCategory} category.`
+          : "Draw happens when the heat starts.";
+  if (status.textContent !== message) status.textContent = message;
 }
 
 function activeRoster() {
@@ -1346,6 +1374,7 @@ async function sendCommand(type, payload = {}, success = "Command sent.") {
   commandBusy = true;
   renderRun();
   renderVotes();
+  renderQueue();
   try {
     const result = await request(apiPath + "/command", { method: "POST", body: { type, payload } });
     if (result.state) {
@@ -1729,6 +1758,7 @@ function wireControls() {
       runtime = payload.state;
       renderRun();
       renderVotes();
+      renderQueue();
       flash("Latest revision loaded.");
     }
     catch (error) { flash(error.message, true); }
@@ -1770,12 +1800,17 @@ function wireControls() {
     if (!promptBuffer?.enabled) return flash("Enable this prompt before queueing it.", true);
     if (isAdmin() && (eventDirty || promptDirty) && !await saveEvent(true)) return;
     if (!committed.prompts.some((item) => item.id === selectedPromptId && item.enabled)) return flash("Save this prompt before queueing it.", true);
-    await sendCommand("queuePrompt", { promptId: selectedPromptId }, "Prompt queued for the next heat.");
+    await sendCommand("queuePrompt", { promptId: selectedPromptId }, "Next challenge set for the next heat.");
   });
   $("discard-prompt-button").addEventListener("click", discardPromptBuffer);
+  $("queue-select").addEventListener("change", (event) => {
+    queueDraftPromptId = event.target.value;
+    renderQueue();
+  });
   $("queue-button").addEventListener("click", () => {
     const promptId = $("queue-select").value;
-    if (promptId) sendCommand("queuePrompt", { promptId }, "Prompt queued for the next heat.");
+    if (promptId) sendCommand("queuePrompt", { promptId }, "Next challenge set for the next heat.");
+    else sendCommand("clearQueuedPrompt", {}, "Automatic challenge draw restored.");
   });
   $("start-button").addEventListener("click", () => sendCommand("start", {}, "Heat starting. The clue stays sealed until GO."));
   $("pause-button").addEventListener("click", () => sendCommand(runtime?.paused ? "resume" : "pause", {}, runtime?.paused ? "Heat resumed." : "Heat paused."));

@@ -57,6 +57,32 @@ test('manual start waits for an open category ballot to close', () => {
   } finally { app.store.close(); }
 });
 
+test('a waiting roster enters the next lobby without an automatic category ballot', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: true });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    const waitingA = app.join('Cy'), waitingB = app.join('Dee');
+    assert.equal(app.store.getPlayer(waitingA.player.id).status, 'queued');
+    assert.equal(app.store.getPlayer(waitingB.player.id).status, 'queued');
+    app.engine.command(app.event.slug, 'noMatch', {}, { id: 'operator' });
+    app.advance(app.event.resultSeconds * 1000);
+
+    const state = app.engine.snapshot(app.event.slug).state;
+    assert.equal(state.phase, 'lobby');
+    assert.equal(state.vote, null);
+    for (const waiting of [waitingA, waitingB]) {
+      assert.equal(app.store.getPlayer(waiting.player.id).status, 'joined');
+      app.engine.setTransport(app.event.slug, waiting.token, 'rehearsal');
+      app.ready(waiting);
+    }
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.equal(app.engine.snapshot(app.event.slug).state.phase, 'countdown');
+  } finally { app.store.close(); }
+});
+
 test('automatic prompt draws are random without repeats within a tier, with category and manual overrides', () => {
   const app = setup();
   try {
@@ -281,7 +307,8 @@ test('automatic category ballots defer pure-low choices and keep mixed categorie
     { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', priority: 'standard' },
     { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', priority: 'low' },
   ].map(prompt => ({ ...prompt, judgeMode: 'ai-assisted', detector: `visual:${prompt.text}`, enabled: true, seconds: null }));
-  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts });
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts,
+    vote: { autoCategory: true } });
   try {
     const rounds = [
       { options: null, vote: null, prompt: 'O01' },
@@ -320,7 +347,8 @@ test('operator category selection overrides a closed automatic ballot', () => {
     { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', priority: 'standard' },
     { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', priority: 'low' },
   ].map(prompt => ({ ...prompt, judgeMode: 'ai-assisted', detector: `visual:${prompt.text}`, enabled: true, seconds: null }));
-  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts });
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false, prompts,
+    vote: { autoCategory: true } });
   try {
     const first = app.join('Ada'), second = app.join('Bea');
     app.ready(first); app.ready(second);
@@ -364,8 +392,28 @@ test('a prompt queued during a hunt or result survives into the next heat', () =
   }
 });
 
+test('clearing a manual next prompt returns the heat to automatic rotation', () => {
+  const prompts = [
+    { id: 'O01', text: 'SHOW A CUP', category: 'Object', judgeMode: 'operator', detector: 'manual', enabled: true, seconds: null, priority: 'standard' },
+    { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', judgeMode: 'rule', detector: 'color:red', enabled: true, seconds: null, priority: 'low' },
+  ];
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', prompts });
+  try {
+    const first = app.join('Ada'), second = app.join('Bea');
+    app.ready(first); app.ready(second);
+    app.engine.command(app.event.slug, 'queuePrompt', { promptId: 'C01' }, { id: 'operator' });
+    assert.equal(app.store.getRuntime(app.event.id).queuedPromptId, 'C01');
+    app.engine.command(app.event.slug, 'clearQueuedPrompt', {}, { id: 'operator' });
+    assert.equal(app.store.getRuntime(app.event.id).queuedPromptId, null);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.equal(app.store.getRuntime(app.event.id).promptSnapshot.id, 'O01');
+    assert.equal(app.store.getRuntime(app.event.id).automaticPromptSelections, 1);
+  } finally { app.store.close(); }
+});
+
 test('automatic ballots leave unvoted heats for standard categories outside the ballot and then Low prompts', () => {
-  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false,
+    vote: { autoCategory: true } });
   try {
     const seen = [];
     const ballotHeats = [];
@@ -660,6 +708,30 @@ test('a player who leaves mid-hunt and queues again cannot submit stale evidence
     }, { id: 'operator' }), error => error.code === 'invalid_state');
     assert.throws(() => app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' }),
       error => error.code === 'invalid_state');
+    assert.equal(app.engine.me(app.event.slug, a.token).player.queuePosition, 1);
+    app.engine.command(app.event.slug, 'award', { winners: [b.player.id] }, { id: 'operator' });
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'queued');
+    assert.equal(app.engine.me(app.event.slug, a.token).player.queuePosition, 1);
+    app.advance(app.event.resultSeconds * 1000);
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'joined');
+  } finally { app.store.close(); }
+});
+
+test('a player who leaves during countdown and replays stays queued through reveal and result', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: true });
+  try {
+    const a = app.join('Ada'), b = app.join('Bea');
+    app.ready(a); app.ready(b);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.engine.leave(app.event.slug, a.token);
+    assert.equal(app.engine.replay(app.event.slug, a.token).player.status, 'queued');
+    app.advance(3000);
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'queued');
+    assert.equal(app.engine.me(app.event.slug, a.token).player.queuePosition, 1);
+    app.engine.command(app.event.slug, 'award', { winners: [b.player.id] }, { id: 'operator' });
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'queued');
+    app.advance(app.event.resultSeconds * 1000);
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'joined');
   } finally { app.store.close(); }
 });
 
@@ -706,6 +778,114 @@ test('a replayed player who never claims a lobby spot can replay again with the 
     assert.equal(later.player.id, a.player.id);
     assert.equal(later.player.lastExitReason, null);
     assert.equal(later.player.slot, 1);
+  } finally { app.store.close(); }
+});
+
+test('a replay timeout keeps the last actually played result through later heats and corrections', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: true });
+  try {
+    const a = app.join('Ada'), b = app.join('Bea');
+    app.ready(a); app.ready(b);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' });
+    const firstHeatId = app.store.listHeats(app.event.id)[0].id;
+    app.advance(app.event.resultSeconds * 1000);
+    app.engine.replay(app.event.slug, a.token);
+    app.advance(30_000);
+    assert.equal(app.engine.me(app.event.slug, a.token).player.lastExitReason, 'replay_timeout');
+    assert.equal(app.engine.me(app.event.slug, a.token).player.heat, 2);
+    assert.deepEqual(app.engine.me(app.event.slug, a.token).player.completedResult,
+      { heat: 1, winners: [a.player.id], winnerNames: ['Ada'] });
+
+    const c = app.join('Cora'), d = app.join('Dev');
+    app.ready(c); app.ready(d);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    assert.equal(app.engine.me(app.event.slug, a.token).player.status, 'finished');
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [c.player.id] }, { id: 'operator' });
+    app.engine.command(app.event.slug, 'correctHeat',
+      { heatId: firstHeatId, winners: [b.player.id], reason: 'first heat corrected' }, { id: 'operator' });
+    assert.deepEqual(app.engine.heartbeat(app.event.slug, a.token).player.completedResult,
+      { heat: 1, winners: [b.player.id], winnerNames: ['Bea'] });
+  } finally { app.store.close(); }
+});
+
+test('a later replay timeout cannot revive a heat someone explicitly left before its result', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 3, startMode: 'manual', autoAdvance: true });
+  try {
+    const earlyLeaver = app.join('Ada'), resultLeaver = app.join('Bea'), winner = app.join('Cy');
+    for (const player of [earlyLeaver, resultLeaver, winner]) app.ready(player);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.leave(app.event.slug, earlyLeaver.token);
+    app.engine.command(app.event.slug, 'award', { winners: [winner.player.id] }, { id: 'operator' });
+    app.engine.leave(app.event.slug, resultLeaver.token);
+    app.advance(app.event.resultSeconds * 1000);
+    app.engine.replay(app.event.slug, earlyLeaver.token);
+    app.engine.replay(app.event.slug, resultLeaver.token);
+    app.advance(30_000);
+
+    const early = app.engine.me(app.event.slug, earlyLeaver.token).player;
+    const late = app.engine.me(app.event.slug, resultLeaver.token).player;
+    assert.equal(early.lastExitReason, 'replay_timeout');
+    assert.equal(late.lastExitReason, 'replay_timeout');
+    assert.equal(early.completedResult, null);
+    assert.deepEqual(late.completedResult, {
+      heat: 1, winners: [winner.player.id], winnerNames: ['Cy'],
+    });
+
+    // Older activity records have no phase; the lock/completion insertion order is still decisive.
+    app.store.sql.prepare(`UPDATE activity SET properties_json=json_remove(properties_json,'$.phase')
+      WHERE event_id=? AND type='player_left'`).run(app.event.id);
+    assert.equal(app.engine.me(app.event.slug, earlyLeaver.token).player.completedResult, null);
+    assert.deepEqual(app.engine.me(app.event.slug, resultLeaver.token).player.completedResult,
+      { heat: 1, winners: [winner.player.id], winnerNames: ['Cy'] });
+  } finally { app.store.close(); }
+});
+
+test('leaving and rejoining the lobby does not erase a later played result', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: true });
+  try {
+    const a = app.join('Ada');
+    app.engine.leave(app.event.slug, a.token);
+    app.engine.replay(app.event.slug, a.token);
+    app.engine.setTransport(app.event.slug, a.token, 'rehearsal');
+    app.ready(a);
+    const b = app.join('Bea');
+    app.ready(b);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [a.player.id] }, { id: 'operator' });
+    app.advance(app.event.resultSeconds * 1000);
+    app.engine.replay(app.event.slug, a.token);
+    app.advance(30_000);
+    assert.deepEqual(app.engine.me(app.event.slug, a.token).player.completedResult, {
+      heat: 1, winners: [a.player.id], winnerNames: ['Ada'],
+    });
+  } finally { app.store.close(); }
+});
+
+test('an active-heat leave still opts out after a lobby leave and rejoin in the same heat', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: true });
+  try {
+    const a = app.join('Ada');
+    app.engine.leave(app.event.slug, a.token);
+    app.engine.replay(app.event.slug, a.token);
+    app.engine.setTransport(app.event.slug, a.token, 'rehearsal');
+    app.ready(a);
+    const b = app.join('Bea');
+    app.ready(b);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.leave(app.event.slug, a.token);
+    app.engine.command(app.event.slug, 'award', { winners: [b.player.id] }, { id: 'operator' });
+    app.advance(app.event.resultSeconds * 1000);
+    app.engine.replay(app.event.slug, a.token);
+    app.advance(30_000);
+    assert.equal(app.engine.me(app.event.slug, a.token).player.completedResult, null);
+    assert.equal(app.store.listActivity(app.event.id).filter(item => item.type === 'player_left' &&
+      item.properties.playerId === a.player.id && item.properties.heat === 1).length, 1);
   } finally { app.store.close(); }
 });
 
@@ -892,8 +1072,42 @@ test('verified near-simultaneous matches become a tie; the operator can override
   app.engine.command(app.event.slug, 'correctHeat', { heatId, winners: [], reason: 'post-heat correction' }, { id: 'operator' });
   assert.deepEqual(app.store.listHeats(app.event.id)[0].winners, []);
   assert.deepEqual(app.engine.snapshot(app.event.slug, 'operator').state.recentHeats[0].winners, []);
+  assert.deepEqual(app.engine.me(app.event.slug, a.token).player.completedResult,
+    { heat: 1, winners: [], winnerNames: [] });
   assert.equal(app.store.listActivity(app.event.id).filter(row => row.type === 'heat_completed').length, 1);
   app.store.close();
+});
+
+test('finished phones can recover corrections to their own heat after newer heats complete', () => {
+  const app = setup({ minPlayers: 2, maxPlayers: 2, startMode: 'manual', autoAdvance: false });
+  try {
+    const a = app.join('Ada'), b = app.join('Bea');
+    app.ready(a); app.ready(b);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [b.player.id] }, { id: 'operator' });
+    const firstHeatId = app.store.listHeats(app.event.id)[0].id;
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+    const c = app.join('Cora'), d = app.join('Dev');
+    app.ready(c); app.ready(d);
+    app.engine.command(app.event.slug, 'start', {}, { id: 'operator' });
+    app.advance(3000);
+    app.engine.command(app.event.slug, 'award', { winners: [c.player.id] }, { id: 'operator' });
+    app.engine.command(app.event.slug, 'nextHeat', {}, { id: 'operator' });
+
+    const before = app.engine.snapshot(app.event.slug).state.resultRevision;
+    app.engine.command(app.event.slug, 'correctHeat',
+      { heatId: firstHeatId, winners: [a.player.id], reason: 'corrected first heat' }, { id: 'operator' });
+    assert.equal(app.engine.snapshot(app.event.slug).state.resultRevision, before + 1);
+    assert.deepEqual(app.engine.me(app.event.slug, a.token).player.completedResult,
+      { heat: 1, winners: [a.player.id], winnerNames: ['Ada'] });
+    assert.deepEqual(app.engine.heartbeat(app.event.slug, b.token).player.completedResult,
+      { heat: 1, winners: [a.player.id], winnerNames: ['Ada'] });
+    app.engine.command(app.event.slug, 'correctHeat',
+      { heatId: firstHeatId, winners: [], reason: 'no valid match' }, { id: 'operator' });
+    assert.deepEqual(app.engine.me(app.event.slug, a.token).player.completedResult,
+      { heat: 1, winners: [], winnerNames: [] });
+  } finally { app.store.close(); }
 });
 
 test('category and creative ballots deduplicate voters and can award a creative heat', () => {

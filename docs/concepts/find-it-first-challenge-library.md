@@ -1,4 +1,4 @@
-# Find It First — challenge library
+# Live Scavenger Hunt — challenge library
 
 Planning catalog for a configurable 2–6-player expo race. The event starts at 45 seconds by default (configurable from 5–180 seconds); seeded creative prompts use 60 seconds, and any prompt may override the event timer. The exact prompt stays hidden until the shared GO signal, after the roster locks. The runnable app defaults prompts to AI-assisted image review and also offers a repeated-frame color detector, operator judging, and audience ballots. This is a candidate bank for booth testing, not a promise that every prompt works under every camera and lighting condition.
 
@@ -26,7 +26,9 @@ The table below describes possible calibrated detectors for future prompt-specif
 
 The numerical area and stability values are **starting rules for a pilot**, not universal accuracy claims. A flat color swatch can pass `C(color)`; a tiny logo should fail the area rule. A color mask cannot prove that the pixels came from a physical object rather than a screen or wall, nor can an object detector prove a prop's material, ownership, or contents. Staff enforce those house rules. Props should be held steady and close enough to fill the guide. Automatic feedback can say “Move closer” or “Hold steady” before it says “Verified.”
 
-## Prompt bank — 50 prompts
+## Prompt bank — 80 prompts
+
+The 30 conference additions below are optional **Pilot** prompts. They enter new and existing event decks disabled, so they cannot appear in an automatic draw until an admin enables them. Staff should provide the same props or public word cards to every player, then rehearse each enabled clue under the venue's lighting with actual phones. The current app uses AI-assisted image review or an operator's decision; the specialized object and OCR rules in this catalog remain pilot targets.
 
 ### Color (6)
 
@@ -52,6 +54,30 @@ These labels exist in the cited COCO object-detector vocabulary; a label's exist
 | O05 | SHOW A BALL | Pilot | `O(sports ball)` | Use a soft foam ball in each kit; test this specific prop because the model class is “sports ball.” Holding only, never throwing. |
 | O06 | SHOW A TEDDY BEAR | Pilot | `O(teddy bear)` | Supply identical small plush toys; small toys may need a close camera view. |
 | O07 | SHOW A FRISBEE | Pilot | `O(frisbee)` | Supply a soft disc; keep it in hand and face the disc toward the camera. |
+
+### Expo objects and gadgets (17)
+
+These are physical conference finds, not a request to show personal content. A player's camera phone cannot appear in its own feed, so the phone clue requires a second, supplied demo handset. Large items are suitable only when every position has the same item within arm's reach. The generic AI judge needs a live rehearsal for each object; small accessories may need an operator referee.
+
+| ID | Screen prompt | Tier | Judging rule | Availability and access caution |
+| --- | --- | --- | --- | --- |
+| O08 | SHOW A PHONE | Pilot | AI-assisted image review or operator | Supply a spare demo handset with its screen off at every spot; the player's camera phone does not count. |
+| O09 | SHOW A CLOSED LAPTOP | Pilot | AI-assisted image review or operator | Set a light closed demo laptop at each spot; never show a private screen. |
+| O10 | SHOW A COMPUTER MOUSE | Pilot | AI-assisted image review or operator | Supply a mouse per player; hold it face up so its shape is visible. |
+| O11 | SHOW A KEYBOARD | Pilot | AI-assisted image review or operator | Use compact demo keyboards at each spot; allow tabletop framing. |
+| O12 | SHOW A USB-C CABLE | Pilot | AI-assisted image review or operator | Supply identical unplugged cables; their thin shape can be hard for AI to identify. |
+| O13 | SHOW A CHARGING BRICK | Pilot | AI-assisted image review or operator | Supply unplugged charger props; cover brand markings if needed. |
+| O14 | SHOW HEADPHONES | Pilot | AI-assisted image review or operator | Supply lightweight over-ear headphones; no need to wear them. |
+| O15 | SHOW AN EARBUD CASE | Pilot | AI-assisted image review or operator | Supply closed, clean cases; move close enough to fill the camera guide. |
+| O16 | SHOW A BLANK NOTEBOOK | Pilot | AI-assisted image review or operator | Supply blank notebooks; show the cover only, never private notes. |
+| O17 | SHOW A PEN | Pilot | AI-assisted image review or operator | Supply a large, easy-to-see pen at each spot; never require writing. |
+| O18 | SHOW A TOTE BAG | Pilot | AI-assisted image review or operator | Supply the same empty lightweight tote; frame the whole bag without leaving the marked spot. |
+| O19 | SHOW A STICKER | Pilot | AI-assisted image review or operator | Supply identical large stickers on backing cards; small stickers may not read on camera. |
+| O20 | SHOW A PHONE STAND | Pilot | AI-assisted image review or operator | Supply an unfolded desk stand; test that AI distinguishes it from other accessories. |
+| O21 | SHOW A TABLET | Pilot | AI-assisted image review or operator | Supply a second demo tablet with its screen off; never show personal content. |
+| O22 | SHOW A MICROPHONE | Pilot | AI-assisted image review or operator | Use a lightweight unplugged demo microphone; no speaking required. |
+| O23 | SHOW A POWER BANK | Pilot | AI-assisted image review or operator | Supply unplugged sample power banks; test visual confusion with phones. |
+| O24 | SHOW A PLAIN LANYARD | Pilot | AI-assisted image review or operator | Supply loose blank lanyards without badges or personal details. |
 
 ### Hand gestures (5)
 
@@ -88,6 +114,23 @@ All targets are printed on large, non-personal cards in the same prop kit. OCR m
 | T04 | FIND THE WORD WEBHOOK | Pilot | `T(WEBHOOK)` | Long token needs a wide card and close framing. |
 | T05 | FIND THE NUMBER 404 | Pilot | `T(404)` | Familiar tech numeral; test that OCR reads all three digits in the chosen font. |
 
+### Twilio and tech word cards (10)
+
+Print large, bordered cards with these exact words for every prop kit. The live AI judge sees the full image and does not yet enforce card-only OCR, so keep these disabled until the booth rehearsal rules out wall or screen text as false matches. A staff referee can make the final decision.
+
+| ID | Screen prompt | Tier | Judging rule | Availability and access caution |
+| --- | --- | --- | --- | --- |
+| T06 | FIND THE WORD SMS | Pilot | AI-assisted text review or operator | Use a bordered public SMS card; exclude booth signage and private messages. |
+| T07 | FIND THE WORD VOICE | Pilot | AI-assisted text review or operator | Use a bordered public VOICE card; hold it steady and close. |
+| T08 | FIND THE WORD VIDEO | Pilot | AI-assisted text review or operator | Use a bordered public VIDEO card; avoid reflected arena text. |
+| T09 | FIND THE WORD VERIFY | Pilot | AI-assisted text review or operator | Use a bordered public VERIFY card; test letter legibility on the phone feed. |
+| T10 | FIND THE WORD SEGMENT | Pilot | AI-assisted text review or operator | Use a bordered public SEGMENT card; do not use a personal device screen. |
+| T11 | FIND THE WORD WHATSAPP | Pilot | AI-assisted text review or operator | Use a bordered public WHATSAPP card; test the long word at booth distance. |
+| T12 | FIND THE WORD SENDGRID | Pilot | AI-assisted text review or operator | Use a bordered public SENDGRID card; test the long word at booth distance. |
+| T13 | FIND THE WORD FUNCTIONS | Pilot | AI-assisted text review or operator | Use a bordered public FUNCTIONS card; keep the whole card in frame. |
+| T14 | FIND THE WORD STUDIO | Pilot | AI-assisted text review or operator | Use a bordered public STUDIO card; exclude the same word on the arena wall. |
+| T15 | FIND THE WORD JSON | Pilot | AI-assisted text review or operator | Use a bordered public JSON card; short words need a clear card border. |
+
 ### Counts (6)
 
 | ID | Screen prompt | Tier | Judging rule | Availability and access caution |
@@ -111,6 +154,14 @@ All targets are printed on large, non-personal cards in the same prop kit. OCR m
 | M06 | SHOW A BOTTLE AND A TEDDY BEAR | Pilot | `O(bottle) + O(teddy bear)` in two distinct boxes | Both props provided; test the small plush in a two-object frame. |
 | M07 | PUT RED LEFT OF BLUE | Pilot | Two supplied color cards pass `C(red)` and `C(blue)`; red card center is left of blue card center with a visible gap | Mirror the camera preview consistently; allow cards on a tabletop. |
 | M08 | PUT CIRCLE ABOVE TRIANGLE | Pilot | `S(circle) + S(triangle)`; circle center is above triangle center with a visible gap | Two high-contrast cards per kit; explain “above” in the camera preview. |
+
+### Expo prop pairings (3)
+
+| ID | Screen prompt | Tier | Judging rule | Availability and access caution |
+| --- | --- | --- | --- | --- |
+| M09 | SHOW A PHONE AND HEADPHONES | Pilot | AI-assisted review of two distinct props or operator | Supply a spare screen-off handset and headphones to every player; the camera phone cannot count. |
+| M10 | PUT A PEN ON A NOTEBOOK | Pilot | AI-assisted review of prop positions or operator | Supply blank notebooks and pens; tabletop placement is allowed. |
+| M11 | SHOW A CABLE NEXT TO A CHARGER | Pilot | AI-assisted review of two distinct props or operator | Supply unplugged cables and chargers; keep both completely inside the guide. |
 
 ### Creative audience-vote rounds (7)
 

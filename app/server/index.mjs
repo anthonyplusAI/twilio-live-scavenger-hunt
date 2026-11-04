@@ -24,6 +24,7 @@ const store = openDatabase(databasePath);
 store.migratePromptJudgingToAi();
 store.migrateEmailUpdatesOff();
 store.migrateRoundDurationDefaults();
+store.migrateConferencePromptDeck();
 const firstEvent = store.seedDefault();
 const auth = new AuthService({ store, publicBaseUrl });
 auth.bootstrap();

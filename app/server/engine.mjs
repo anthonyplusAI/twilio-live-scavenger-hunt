@@ -125,6 +125,7 @@ export class GameEngine extends EventEmitter {
       leadCapture: { ...clone(event.leadCapture), timing: event.leadCapture?.timing || 'after-play' },
       cta: clone(event.cta || { primary: 'github' }), vote: {
         ...clone(event.vote),
+        autoCategory: event.vote.autoCategory === true,
         eventCode: event.vote.eventCode || event.slug.replace(/-/g, '').slice(0, 20).toUpperCase(),
       },
       mediaMode: this.mediaMode(),
@@ -153,6 +154,7 @@ export class GameEngine extends EventEmitter {
       ['ready', 'locked', 'active', 'finished'].includes(player.status)).length;
     const result = {
       eventId: event.id, phase: state.phase, heat: state.heat, version: state.version,
+      resultRevision: state.overrideCount || 0,
       paused: state.paused, roster,
       queuedCount: players.filter(player => player.status === 'queued').length,
       readyCount, lockedCount: state.lockedPlayerIds.length,
@@ -235,9 +237,15 @@ export class GameEngine extends EventEmitter {
   }
 
   _playerSession(event, player) {
+    const result = player.status === 'finished'
+      ? this.store.getLastCompletedHeatResultForPlayer(event.id, player.id, player.heat) : null;
     return {
       ...this._withQueuePosition(player),
       needsJoinLead: ['finished', 'left'].includes(player.status) && this._needsJoinLead(event, player),
+      completedResult: result ? {
+        heat: result.heat, winners: result.winners,
+        winnerNames: result.winners.map(id => this.store.getPlayer(id)?.alias || 'Player'),
+      } : null,
     };
   }
 
@@ -531,6 +539,8 @@ export class GameEngine extends EventEmitter {
 
   _removePlayer(context, player, status, activityType) {
     const { state, now, touch, activity, removeMedia } = context;
+    const optedOutOfResult = activityType === 'player_left' &&
+      ['countdown', 'hunt', 'review'].includes(state.phase) && state.lockedPlayerIds?.includes(player.id);
     if (state.slotClaims) delete state.slotClaims[player.id];
     if (status === 'kicked' || (activityType === 'player_left' && state.phase !== 'result'))
       state.resultRoster = (state.resultRoster || []).filter(spot => spot.id !== player.id);
@@ -560,8 +570,9 @@ export class GameEngine extends EventEmitter {
       state.vote.options = state.vote.options.filter(option => option.id !== player.id);
       if (Array.isArray(state.vote.result)) state.vote.result = state.vote.result.filter(id => id !== player.id);
     }
-    if (activityType === 'player_left') this._recordPlayerActivityOnce(context, activityType, player);
+    if (activityType === 'player_left') this._recordPlayerActivityOnce(context, activityType, player, { phase: state.phase });
     else activity(activityType, { playerId: player.id, heat: player.heat });
+    if (optedOutOfResult) activity('player_result_opted_out', { playerId: player.id, heat: state.heat });
     removeMedia(player, status);
     touch();
   }
@@ -641,7 +652,7 @@ export class GameEngine extends EventEmitter {
     const selected = this._choosePrompt(event, state);
     const lockedIds = readyPlayers.map(player => player.id);
     for (const player of this.store.listPlayers(event.id, state.heat)) {
-      if (['left', 'kicked'].includes(player.status)) continue;
+      if (['left', 'kicked', 'finished'].includes(player.status)) continue;
       if (lockedIds.includes(player.id)) {
         this.store.updatePlayer(player.id, { status: 'locked' });
         if (state.slotClaims) delete state.slotClaims[player.id];
@@ -709,7 +720,8 @@ export class GameEngine extends EventEmitter {
     state.countdownEndsAt = null;
     for (const id of state.lockedPlayerIds) {
       const player = this.store.getPlayer(id);
-      if (player && !['left', 'kicked'].includes(player.status)) this.store.updatePlayer(id, { status: 'active' });
+      if (player?.heat === state.heat && player.status === 'locked')
+        this.store.updatePlayer(id, { status: 'active' });
     }
     this.store.upsertHeat({
       id: state.heatId, eventId: event.id, heat: state.heat,
@@ -785,7 +797,8 @@ export class GameEngine extends EventEmitter {
     if (isOverride) state.overrideCount += 1;
     for (const id of state.lockedPlayerIds) {
       const player = this.store.getPlayer(id);
-      if (player && !['left', 'kicked'].includes(player.status)) this.store.updatePlayer(id, { status: 'finished' });
+      if (player?.heat === state.heat && ['locked', 'active'].includes(player.status))
+        this.store.updatePlayer(id, { status: 'finished' });
     }
     const existing = this.store.listHeats(event.id).find(heat => heat.id === state.heatId);
     this.store.upsertHeat({
@@ -884,7 +897,8 @@ export class GameEngine extends EventEmitter {
       else if (state.slotClaims[player.id]?.returning) state.slotClaims[player.id] = { returning: true };
     });
     activity('next_heat_opened', { heat: state.heat, promoted: Math.min(waiting.length, event.maxPlayers) });
-    if (event.vote.enabled && event.vote.categories.length >= 2 && state.heatsStarted % 2 === 1) {
+    if (event.vote.enabled && event.vote.autoCategory === true &&
+        event.vote.categories.length >= 2 && state.heatsStarted % 2 === 1) {
       try { this._openVote(context, 'category', { automatic: true }); }
       catch { /* Single eligible category leaves a plain lobby. */ }
     }
@@ -1035,6 +1049,13 @@ export class GameEngine extends EventEmitter {
           state.queuedPromptId = prompt.id;
           activity('prompt_queued', { promptId: prompt.id, heat: state.heat });
           touch();
+          break;
+        }
+        case 'clearQueuedPrompt': {
+          if (state.queuedPromptId) {
+            state.queuedPromptId = null;
+            touch();
+          }
           break;
         }
         case 'kickPlayer': {

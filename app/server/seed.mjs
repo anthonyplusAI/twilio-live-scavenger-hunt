@@ -5,6 +5,11 @@ const categoryByPrefix = {
   N: 'Count', M: 'Combination', V: 'Creative',
 };
 const activePilotIds = new Set(['C01', 'C02', 'C03', 'C04', 'C05', 'C06', 'O01', 'T01', 'G02', 'M01']);
+const conferenceExpansionIds = new Set([
+  ...Array.from({ length: 17 }, (_, index) => `O${String(index + 8).padStart(2, '0')}`),
+  ...Array.from({ length: 10 }, (_, index) => `T${String(index + 6).padStart(2, '0')}`),
+  ...Array.from({ length: 3 }, (_, index) => `M${String(index + 9).padStart(2, '0')}`),
+]);
 
 export function promptBank() {
   let markdown = '';
@@ -24,10 +29,14 @@ export function promptBank() {
       accessNote: caution.trim(),
     });
   }
-  if (prompts.length === 50) return prompts;
+  if (prompts.length >= 50) return prompts;
   return [
     { id: 'C01', text: 'SHOW SOMETHING RED', category: 'Color', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'visual:SHOW SOMETHING RED', priority: 'low', enabled: true, seconds: null, accessNote: 'Provide a red card.' },
     { id: 'O01', text: 'SHOW A CUP', category: 'Object', tier: 'Launch candidate', judgeMode: 'ai-assisted', detector: 'visual:SHOW A CUP', priority: 'standard', enabled: true, seconds: null, accessNote: 'Supply an empty cup.' },
     { id: 'T01', text: 'FIND THE WORD TWILIO', category: 'Text', tier: 'Pilot', judgeMode: 'ai-assisted', detector: 'visual:FIND THE WORD TWILIO', priority: 'standard', enabled: true, seconds: null, accessNote: 'Supply a printed card.' },
   ];
+}
+
+export function conferencePromptBank() {
+  return promptBank().filter(prompt => conferenceExpansionIds.has(prompt.id));
 }
