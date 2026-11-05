@@ -37,6 +37,14 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
   <a href="#production-handoff">Production handoff</a>
 </p>
 
+## Watch the launch film
+
+<!-- Video hosted as a GitHub user attachment. -->
+
+{{GITHUB_VIDEO_URL}}
+
+*61-second portrait film with music, fictional players, and staged app scenes.*
+
 ## The experience
 
 A visitor scans the arena's prominent **Scan to play** QR. With **At join** lead capture, one initial phone form combines their screen name, the admin's configured contact fields (default: Name, Work email, optional Company), and consent to appear on the arena, including a brief result freeze, and to have camera images checked when enabled. Longer custom forms use short pages. The consent explains that OpenAI may review brief camera images when AI judging is enabled. Next, the visitor checks their camera; **Go live** reserves a spot only after it works. If access was denied, the phone shows where to allow it in the browser and a **Try camera again** button. A camera switch changes between front and rear cameras. New events ask for contact details only after a voluntary Twilio expert request; **Build guide** starts off until an admin enables it. Admins can turn capture off or change its timing. A visitor can choose **Watch and vote instead** without joining. New events hold the result celebration for 15 seconds by default, then the phone asks **Play again** or **Leave game**. Scanning the QR again in the same browser profile restores the event session and reuses any already captured lead without asking again.
