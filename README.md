@@ -41,7 +41,7 @@ A live camera race that turns an expo booth into a moment the whole crowd can wa
 
 <!-- Video hosted as a GitHub user attachment. -->
 
-{{GITHUB_VIDEO_URL}}
+https://github.com/user-attachments/assets/1565a19d-738a-4fd4-af7f-bb61936b7553
 
 *61-second portrait film with music, fictional players, and staged app scenes.*
 
